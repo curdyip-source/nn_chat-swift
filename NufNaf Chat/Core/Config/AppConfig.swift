@@ -15,7 +15,7 @@ enum AppConfig {
             return url
         }
 
-        guard let fallbackURL = URL(string: "https://mgdb.myds.me:25257/api/v1") else {
+        guard let fallbackURL = URL(string: "https://chat.nufnafchat.su/api/v1") else {
             preconditionFailure("Invalid fallback API URL")
         }
         return fallbackURL
