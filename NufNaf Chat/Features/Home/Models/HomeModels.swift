@@ -395,6 +395,7 @@ struct HomeChatFilterState: Codable, Equatable {
     var months: Set<Int>
     var kinds: Set<HomeChatFilterKind>
     var hideCompleted: Bool
+    var orderMethodIDs: Set<Int>
     var establishmentIDs: Set<Int>
     var statusIDs: Set<Int>
 
@@ -405,6 +406,7 @@ struct HomeChatFilterState: Codable, Equatable {
             months: [],
             kinds: [],
             hideCompleted: false,
+            orderMethodIDs: [],
             establishmentIDs: [],
             statusIDs: []
         )
@@ -417,6 +419,7 @@ struct HomeChatFilterState: Codable, Equatable {
             months: [],
             kinds: [],
             hideCompleted: false,
+            orderMethodIDs: [],
             establishmentIDs: [],
             statusIDs: []
         )
@@ -428,6 +431,7 @@ struct HomeChatFilterState: Codable, Equatable {
         case months
         case kinds
         case hideCompleted
+        case orderMethodIDs
         case establishmentIDs
         case statusIDs
     }
@@ -438,6 +442,7 @@ struct HomeChatFilterState: Codable, Equatable {
         months: Set<Int>,
         kinds: Set<HomeChatFilterKind>,
         hideCompleted: Bool,
+        orderMethodIDs: Set<Int>,
         establishmentIDs: Set<Int>,
         statusIDs: Set<Int>
     ) {
@@ -446,6 +451,7 @@ struct HomeChatFilterState: Codable, Equatable {
         self.months = months
         self.kinds = kinds
         self.hideCompleted = hideCompleted
+        self.orderMethodIDs = orderMethodIDs
         self.establishmentIDs = establishmentIDs
         self.statusIDs = statusIDs
     }
@@ -457,6 +463,7 @@ struct HomeChatFilterState: Codable, Equatable {
         months = try container.decodeIfPresent(Set<Int>.self, forKey: .months) ?? []
         kinds = try container.decodeIfPresent(Set<HomeChatFilterKind>.self, forKey: .kinds) ?? []
         hideCompleted = try container.decodeIfPresent(Bool.self, forKey: .hideCompleted) ?? false
+        orderMethodIDs = try container.decodeIfPresent(Set<Int>.self, forKey: .orderMethodIDs) ?? []
         establishmentIDs = try container.decodeIfPresent(Set<Int>.self, forKey: .establishmentIDs) ?? []
         statusIDs = try container.decodeIfPresent(Set<Int>.self, forKey: .statusIDs) ?? []
     }
@@ -1099,6 +1106,10 @@ extension HomeMessage {
             return productRegistration.productRegistrationEstablishmentID
         }
         return nil
+    }
+
+    var filterOrderMethodID: Int? {
+        order?.orderMethodID
     }
 
     var filterStatusID: Int? {

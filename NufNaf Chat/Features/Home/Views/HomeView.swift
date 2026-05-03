@@ -190,7 +190,6 @@ struct HomeView: View {
                 .zIndex(25)
             }
         }
-        .animation(.easeInOut(duration: 0.22), value: session.activeDocument)
         .animation(.easeInOut(duration: 0.22), value: store.activeComposer)
         .animation(.easeInOut(duration: 0.22), value: previewOrder?.id)
         .animation(.easeInOut(duration: 0.22), value: session.isChatFilterPresented)
@@ -393,7 +392,7 @@ struct HomeView: View {
                 onEditMessage: { message in
                     replyTarget = nil
                     editingMessage = message
-                    store.messageDraft = message.messageText ?? ""
+                    store.messageDraft = message.visibleMessageText
                     isMessageFieldFocused = true
                     scrollToBottomRequest += 1
                 },
@@ -589,7 +588,7 @@ struct HomeView: View {
                 onEdit: {
                     replyTarget = nil
                     editingMessage = messageActionsTarget
-                    store.messageDraft = messageActionsTarget.messageText ?? ""
+                    store.messageDraft = messageActionsTarget.visibleMessageText
                     isMessageFieldFocused = true
                     self.messageActionsTarget = nil
                 },
@@ -637,21 +636,21 @@ struct HomeView: View {
                     session.closeDocument()
                 }
                 .environmentObject(session)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .identity))
                 .zIndex(10)
             } else if document.kind == "inventory" {
                 InventoryDetailView(store: store, inventoryID: document.id) {
                     session.closeDocument()
                 }
                 .environmentObject(session)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .identity))
                 .zIndex(10)
             } else if document.kind == "product_registration" {
                 ProductRegistrationDetailView(store: store, productRegistrationID: document.id) {
                     session.closeDocument()
                 }
                 .environmentObject(session)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .identity))
                 .zIndex(10)
             }
         }
@@ -799,13 +798,19 @@ struct HomeView: View {
         return "| \(replyTarget.displayName)\n> \(replySnippet(for: replyTarget))\n\(text)"
     }
 
+    private func composedEditedText(from text: String, originalMessage: HomeMessage) -> String {
+        guard let replyFragment = originalMessage.replyFragment else { return text }
+        return "| \(replyFragment.author)\n> \(replyFragment.message)\n\(text)"
+    }
+
     private func submitChatInput() async {
         let trimmedText = store.messageDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
         if let editingMessage {
             do {
-                _ = try await store.updateMessage(accessToken: session.currentAccessToken, messageID: editingMessage.id, text: trimmedText)
+                let updatedText = composedEditedText(from: trimmedText, originalMessage: editingMessage)
+                _ = try await store.updateMessage(accessToken: session.currentAccessToken, messageID: editingMessage.id, text: updatedText)
                 store.messageDraft = ""
                 self.editingMessage = nil
                 isMessageFieldFocused = true
@@ -1072,6 +1077,13 @@ struct HomeView: View {
 
         if !filter.kinds.isEmpty, !filter.kinds.contains(kind) {
             return false
+        }
+
+        if kind == .order, !filter.orderMethodIDs.isEmpty {
+            guard let orderMethodID = message.filterOrderMethodID,
+                  filter.orderMethodIDs.contains(orderMethodID) else {
+                return false
+            }
         }
 
         if kind != .message, !filter.establishmentIDs.isEmpty {

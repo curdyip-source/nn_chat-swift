@@ -75,6 +75,33 @@ struct ChatFilterSheet: View {
 
                     sectionDivider
 
+                    filterSection("Сущности") {
+                        filterFlow(HomeChatFilterKind.allCases, id: \.id) { kind in
+                            filterChip(
+                                title: kind.title,
+                                isActive: isActive(kind, in: filter.kinds),
+                                action: {
+                                    filter.kinds = toggledSelection(kind, current: filter.kinds, allValues: HomeChatFilterKind.allCases)
+                                }
+                            )
+                        }
+                    }
+
+                    if !referenceData.orderMethods.isEmpty {
+                        filterSection("Методы") {
+                            filterFlow(referenceData.orderMethods, id: \.id) { method in
+                                filterChip(
+                                    title: method.orderMethodName,
+                                    isActive: isActive(method.id, in: filter.orderMethodIDs),
+                                    action: {
+                                        let allIDs = referenceData.orderMethods.map(\.id)
+                                        filter.orderMethodIDs = toggledSelection(method.id, current: filter.orderMethodIDs, allValues: allIDs)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     filterSection("Точки") {
                         filterFlow(referenceData.establishments, id: \.id) { establishment in
                             filterChip(
@@ -83,18 +110,6 @@ struct ChatFilterSheet: View {
                                 action: {
                                     let allIDs = referenceData.establishments.map(\.id)
                                     filter.establishmentIDs = toggledSelection(establishment.id, current: filter.establishmentIDs, allValues: allIDs)
-                                }
-                            )
-                        }
-                    }
-
-                    filterSection("Сущности") {
-                        filterFlow(HomeChatFilterKind.allCases, id: \.id) { kind in
-                            filterChip(
-                                title: kind.title,
-                                isActive: isActive(kind, in: filter.kinds),
-                                action: {
-                                    filter.kinds = toggledSelection(kind, current: filter.kinds, allValues: HomeChatFilterKind.allCases)
                                 }
                             )
                         }

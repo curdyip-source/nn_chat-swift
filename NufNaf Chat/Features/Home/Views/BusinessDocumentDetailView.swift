@@ -226,6 +226,9 @@ struct ProductRegistrationDetailView: View {
 }
 
 struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View {
+    @State private var dragOffsetX: CGFloat = 0
+    @State private var isInteractiveDismissInProgress = false
+
     let title: String
     let isLoading: Bool
     let isSaving: Bool
@@ -271,91 +274,163 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 12) {
-                    Button(action: onClose) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 38, height: 38)
-                            .background(Color.black.opacity(0.05), in: Circle())
-                    }
+        ZStack {
+            Color(UIColor.systemBackground)
+                .ignoresSafeArea()
 
-                    Text(title)
-                        .font(.system(size: 20, weight: .semibold, design: .rounded))
-
-                    Spacer()
-
-                    if isSaving {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Сохраняем")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        }
-                        .foregroundStyle(Color.primary)
-                        .padding(.horizontal, 12)
-                        .frame(height: 38)
-                        .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
-                    }
-
-                    if let headerActionSystemImage, let onHeaderAction {
-                        Button(action: onHeaderAction) {
-                            Image(systemName: headerActionSystemImage)
-                                .font(.system(size: 16, weight: .semibold))
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        Button(action: onClose) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(.primary)
                                 .frame(width: 38, height: 38)
                                 .background(Color.black.opacity(0.05), in: Circle())
                         }
-                        .buttonStyle(.plain)
-                    }
-                }
 
-                headerContent()
-            }
-            .padding(.horizontal, headerHorizontalPadding)
-            .padding(.top, 12)
-            .padding(.bottom, 14)
-            .background(
-                Color(UIColor.systemBackground)
-                    .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
-            )
+                        Text(title)
+                            .font(.system(size: 20, weight: .semibold, design: .rounded))
 
-            if isLoading {
-                Spacer()
-                ProgressView("Загружаем документ...")
-                Spacer()
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 16) {
-                            if let errorMessage {
-                                Text(errorMessage)
-                                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.red)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 12)
-                                    .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        Spacer()
+
+                        if isSaving {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Сохраняем")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                             }
-
-                            content()
+                            .foregroundStyle(Color.primary)
+                            .padding(.horizontal, 12)
+                            .frame(height: 38)
+                            .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
                         }
-                        .padding(.horizontal, contentHorizontalPadding)
-                        .padding(.vertical, 18)
+
+                        if let headerActionSystemImage, let onHeaderAction {
+                            Button(action: onHeaderAction) {
+                                Image(systemName: headerActionSystemImage)
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                                    .frame(width: 38, height: 38)
+                                    .background(Color.black.opacity(0.05), in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .scrollDismissesKeyboard(.interactively)
-                    .onChange(of: scrollRequest) { _, _ in
-                        guard let scrollTargetID else { return }
-                        withAnimation(.easeOut(duration: 0.22)) {
-                            proxy.scrollTo(scrollTargetID, anchor: .bottom)
+
+                    headerContent()
+                }
+                .padding(.horizontal, headerHorizontalPadding)
+                .padding(.top, 12)
+                .padding(.bottom, 14)
+                .background(
+                    Color(UIColor.systemBackground)
+                        .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
+                )
+
+                if isLoading {
+                    Spacer()
+                    ProgressView("Загружаем документ...")
+                    Spacer()
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(spacing: 16) {
+                                if let errorMessage {
+                                    Text(errorMessage)
+                                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.red)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 12)
+                                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                }
+
+                                content()
+                            }
+                            .padding(.horizontal, contentHorizontalPadding)
+                            .padding(.vertical, 18)
+                        }
+                        .scrollDismissesKeyboard(.interactively)
+                        .onChange(of: scrollRequest) { _, _ in
+                            guard let scrollTargetID else { return }
+                            withAnimation(.easeOut(duration: 0.22)) {
+                                proxy.scrollTo(scrollTargetID, anchor: .bottom)
+                            }
                         }
                     }
                 }
             }
         }
-        .background(Color(UIColor.systemBackground).ignoresSafeArea())
+        .offset(x: dragOffsetX)
+        .shadow(color: .black.opacity(interactiveShadowOpacity), radius: 18, x: -6, y: 0)
+        .contentShape(Rectangle())
+        .simultaneousGesture(backSwipeGesture)
+    }
+
+    private var backSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 18, coordinateSpace: .global)
+            .onChanged { value in
+                guard shouldTrackBackSwipe(value) else { return }
+                isInteractiveDismissInProgress = true
+                dragOffsetX = interactiveOffset(for: value.translation.width)
+            }
+            .onEnded { value in
+                guard shouldTrackBackSwipe(value) else {
+                    resetInteractiveDismiss()
+                    return
+                }
+
+                guard shouldCloseForBackSwipe(value) else {
+                    resetInteractiveDismiss()
+                    return
+                }
+
+                finishInteractiveDismiss()
+            }
+    }
+
+    private var interactiveShadowOpacity: Double {
+        guard isInteractiveDismissInProgress else { return 0 }
+        let progress = min(max(dragOffsetX / max(UIScreen.main.bounds.width, 1), 0), 1)
+        return 0.10 * (1 - progress)
+    }
+
+    private func interactiveOffset(for translationWidth: CGFloat) -> CGFloat {
+        let clampedWidth = max(translationWidth, 0)
+        let maxWidth = max(UIScreen.main.bounds.width, 1)
+        return min(clampedWidth, maxWidth)
+    }
+
+    private func shouldTrackBackSwipe(_ value: DragGesture.Value) -> Bool {
+        value.startLocation.x <= 28
+            && value.translation.width > 0
+            && abs(value.translation.width) > abs(value.translation.height)
+    }
+
+    private func shouldCloseForBackSwipe(_ value: DragGesture.Value) -> Bool {
+        let translationWidth = value.translation.width
+        let predictedWidth = value.predictedEndTranslation.width
+        return shouldTrackBackSwipe(value) && (translationWidth >= 96 || predictedWidth >= 180)
+    }
+
+    private func finishInteractiveDismiss() {
+        let screenWidth = max(UIScreen.main.bounds.width, 1)
+        withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.9)) {
+            dragOffsetX = screenWidth
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            onClose()
+        }
+    }
+
+    private func resetInteractiveDismiss() {
+        withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.86)) {
+            dragOffsetX = 0
+        }
+        isInteractiveDismissInProgress = false
     }
 }
 

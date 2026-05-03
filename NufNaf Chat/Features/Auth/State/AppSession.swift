@@ -7,6 +7,7 @@
 
 import Combine
 import Foundation
+import SwiftUI
 import LocalAuthentication
 
 struct AppDocumentDestination: Equatable {
@@ -272,7 +273,9 @@ final class AppSession: ObservableObject {
         isProfileOpen = false
         isChecklistOpen = false
         isChatFilterPresented = false
-        activeDocument = AppDocumentDestination(kind: kind, id: id)
+        withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.88, blendDuration: 0.12)) {
+            activeDocument = AppDocumentDestination(kind: kind, id: id)
+        }
     }
 
     func closeDocument() {

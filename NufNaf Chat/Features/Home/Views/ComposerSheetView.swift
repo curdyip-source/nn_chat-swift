@@ -28,6 +28,7 @@ struct ComposerSheetView: View {
     @State private var isCreatingProduct = false
     @State private var productFormErrorMessage: String?
     @State private var submitErrorMessage: String?
+    @State private var priceValidationAlertItemID: UUID?
     @State private var selectedSection: ComposerSection = .info
     @FocusState private var focusedField: FocusField?
 
@@ -153,6 +154,13 @@ struct ComposerSheetView: View {
                 transaction.animation = nil
             }
             .animation(.easeInOut(duration: 0.18), value: isCreateProductOverlayPresented || isSearchOverlayPresented)
+            .alert("Заполните цену", isPresented: priceValidationAlertBinding) {
+                Button("Ок") {
+                    focusPriceFieldForValidation()
+                }
+            } message: {
+                Text("Укажите цену у выбранного товара перед созданием заказа.")
+            }
         }
     }
 
@@ -326,7 +334,7 @@ struct ComposerSheetView: View {
     private var hasRequiredFields: Bool {
         switch kind {
         case .order:
-            return !counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !info.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return !counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .inventory:
             return true
         case .productRegistration:
@@ -737,13 +745,17 @@ struct ComposerSheetView: View {
     }
 
     private func appendProductToBasket(_ product: HomeProduct) {
+        appendProductToBasket(product, price: "")
+    }
+
+    private func appendProductToBasket(_ product: HomeProduct, price: String) {
         selectedItems.append(
             HomeComposerItemDraft(
                 productID: product.id,
                 article: product.productArticle,
                 name: product.productName,
                 quantity: 1,
-                price: product.productCostUSD,
+                price: price,
                 currencyID: defaultCurrencyID
             )
         )
@@ -771,7 +783,7 @@ struct ComposerSheetView: View {
 
         do {
             let createdProduct = try await store.createProduct(accessToken: session.currentAccessToken, article: article, name: name, costUSD: price)
-            appendProductToBasket(createdProduct)
+            appendProductToBasket(createdProduct, price: price)
             clearCustomProductForm()
             dismissProductOverlays(clearSearch: true)
         } catch {
@@ -1049,6 +1061,9 @@ struct ComposerSheetView: View {
 
     private func submit() async {
         guard let selectedEstablishmentID else { return }
+
+        guard validatePricesBeforeSubmit() else { return }
+
         isSubmitting = true
         submitErrorMessage = nil
         defer { isSubmitting = false }
@@ -1110,6 +1125,34 @@ struct ComposerSheetView: View {
     private func normalized(_ value: String) -> String? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var priceValidationAlertBinding: Binding<Bool> {
+        Binding(
+            get: { priceValidationAlertItemID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    priceValidationAlertItemID = nil
+                }
+            }
+        )
+    }
+
+    private func validatePricesBeforeSubmit() -> Bool {
+        guard let item = selectedItems.first(where: { $0.price.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            return true
+        }
+
+        priceValidationAlertItemID = item.id
+        selectedSection = .products
+        focusPriceFieldForValidation()
+        return false
+    }
+
+    private func focusPriceFieldForValidation() {
+        guard let priceValidationAlertItemID else { return }
+        selectedSection = .products
+        focusedField = .itemPrice(priceValidationAlertItemID)
     }
 
     private func normalizedPrice(_ value: String) -> String {
