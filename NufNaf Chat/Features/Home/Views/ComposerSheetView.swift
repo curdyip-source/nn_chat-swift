@@ -39,6 +39,7 @@ struct ComposerSheetView: View {
     let onClose: () -> Void
     let onOrderUpdated: ((HomeOrder) -> Void)?
 
+    @MainActor
     init(
         kind: HomeComposerKind,
         editingOrder: HomeOrder? = nil,

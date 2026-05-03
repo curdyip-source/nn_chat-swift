@@ -285,41 +285,43 @@ struct OrderDetailView: View {
     }
 
     private func orderEditOverlay(order: HomeOrder) -> some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.24)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    isEditSheetPresented = false
-                }
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.24)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        isEditSheetPresented = false
+                    }
 
-            ComposerSheetView(
-                kind: .order,
-                editingOrder: order,
-                editingItemStatusIDs: editingItemStatusIDs(for: order),
-                store: store,
-                onClose: {
-                    isEditSheetPresented = false
-                },
-                onOrderUpdated: { updatedOrder in
-                    self.order = updatedOrder
-                    self.comments = sortComments(updatedOrder.comments)
-                    markCommentsRead(updatedOrder.comments)
+                ComposerSheetView(
+                    kind: .order,
+                    editingOrder: order,
+                    editingItemStatusIDs: editingItemStatusIDs(for: order),
+                    store: store,
+                    onClose: {
+                        isEditSheetPresented = false
+                    },
+                    onOrderUpdated: { updatedOrder in
+                        self.order = updatedOrder
+                        self.comments = sortComments(updatedOrder.comments)
+                        markCommentsRead(updatedOrder.comments)
+                    }
+                )
+                .frame(maxWidth: .infinity)
+                .frame(maxHeight: proxy.size.height * 0.9)
+                .background(Color(UIColor.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                .overlay(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 3, style: .continuous)
+                        .fill(Color.black.opacity(0.10))
+                        .frame(width: 42, height: 5)
+                        .padding(.top, 10)
                 }
-            )
-            .frame(maxWidth: .infinity)
-            .frame(maxHeight: UIScreen.main.bounds.height * 0.9)
-            .background(Color(UIColor.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .overlay(alignment: .top) {
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(Color.black.opacity(0.10))
-                    .frame(width: 42, height: 5)
-                    .padding(.top, 10)
+                .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: -4)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
             }
-            .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: -4)
-            .padding(.horizontal, 8)
-            .padding(.bottom, 8)
         }
     }
 
