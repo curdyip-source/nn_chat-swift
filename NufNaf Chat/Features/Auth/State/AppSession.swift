@@ -299,6 +299,25 @@ final class AppSession: ObservableObject {
         saveChatFilterStateIfPossible()
     }
 
+    func setHomeDisplayMode(_ mode: HomeDisplayMode) {
+        guard chatFilterState.displayMode != mode else { return }
+
+        activeDocument = nil
+        isProfileOpen = false
+        isChecklistOpen = false
+        isChatFilterPresented = false
+        updateChatFilterState(HomeChatFilterState(
+            displayMode: mode,
+            year: chatFilterState.year,
+            months: chatFilterState.months,
+            kinds: chatFilterState.kinds,
+            hideCompleted: chatFilterState.hideCompleted,
+            orderMethodIDs: chatFilterState.orderMethodIDs,
+            establishmentIDs: chatFilterState.establishmentIDs,
+            statusIDs: chatFilterState.statusIDs
+        ))
+    }
+
     func resetChatFilterState() {
         updateChatFilterState(.default())
     }

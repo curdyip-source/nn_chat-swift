@@ -468,6 +468,7 @@ struct BusinessDocumentStatusButtons: View {
     }
 }
 
+
 struct BusinessDocumentInfoSection: View {
     let title: String
     let rows: [BusinessDocumentInfoRowModel]

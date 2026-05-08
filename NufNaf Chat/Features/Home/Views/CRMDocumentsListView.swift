@@ -8,11 +8,17 @@ struct CRMDocumentsListView: View {
     let updatingDocumentKey: String?
     let onOpenDocument: (String, Int) -> Void
     let onSelectOrderStatus: (HomeOrder, Int) -> Void
-    let onSelectOrderItemStatus: (HomeOrder, Int, Int, Int?, Int?) -> Void
+    let onSelectOrderItemStatus: (HomeOrder, Int, Int, Int?, Int?, String?) -> Void
+    let onSearchSupplierContacts: (String) async -> [HomeContact]
     let onSelectInventoryStatus: (HomeInventory, Int) -> Void
     let onSelectProductRegistrationStatus: (HomeProductRegistration, Int) -> Void
 
+    @State private var selectedSection: CRMSection = .orders
     @State private var movementSelection: CRMMovementSelection?
+    @State private var supplierSelection: CRMSupplierSelection?
+    @State private var supplierQuery = ""
+    @State private var supplierResults: [HomeContact] = []
+    @State private var isSearchingSuppliers = false
 
     var body: some View {
         ZStack {
@@ -33,15 +39,30 @@ struct CRMDocumentsListView: View {
                             .font(.system(size: 13, weight: .medium, design: .rounded))
                             .foregroundStyle(AppTheme.mutedText)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if messages.isEmpty {
-                        Text("По текущему фильтру документы не найдены")
+                    } else if currentSectionIsEmpty {
+                        Text(emptyStateTitle)
                             .font(.system(size: 14, weight: .medium, design: .rounded))
                             .foregroundStyle(AppTheme.mutedText)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.top, 8)
                     } else {
-                        ForEach(messages) { message in
-                            if let order = message.order {
+                        if selectedSection == .products {
+                            ForEach(productEntries) { entry in
+                                CRMOrderProductRow(
+                                    entry: entry,
+                                    itemStatuses: orderItemStatuses,
+                                    currencyTitleProvider: currencyTitle(for:),
+                                    isSaving: updatingDocumentKey == documentKey(kind: "order", id: entry.order.id),
+                                    onOpen: {
+                                        onOpenDocument("order", entry.order.id)
+                                    },
+                                    onSelectStatus: { statusID in
+                                        handleOrderItemStatusSelection(order: entry.order, itemID: entry.item.id, statusID: statusID, promptForSupplier: true)
+                                    }
+                                )
+                            }
+                        } else {
+                            ForEach(displayedOrders) { order in
                                 CRMOrderCardView(
                                     order: order,
                                     orderMethods: referenceData.orderMethods,
@@ -57,32 +78,6 @@ struct CRMDocumentsListView: View {
                                     },
                                     onSelectItemStatus: { itemID, statusID in
                                         handleOrderItemStatusSelection(order: order, itemID: itemID, statusID: statusID)
-                                    }
-                                )
-                            } else if let inventory = message.inventory {
-                                CRMInventoryCardView(
-                                    inventory: inventory,
-                                    statuses: referenceData.statuses.filter { $0.statusType == "inventory" },
-                                    currencyTitleProvider: currencyTitle(for:),
-                                    isSaving: updatingDocumentKey == documentKey(kind: "inventory", id: inventory.id),
-                                    onOpen: {
-                                        onOpenDocument("inventory", inventory.id)
-                                    },
-                                    onSelectStatus: { statusID in
-                                        onSelectInventoryStatus(inventory, statusID)
-                                    }
-                                )
-                            } else if let registration = message.productRegistration {
-                                CRMProductRegistrationCardView(
-                                    registration: registration,
-                                    statuses: referenceData.statuses.filter { $0.statusType == "product_registration" },
-                                    currencyTitleProvider: currencyTitle(for:),
-                                    isSaving: updatingDocumentKey == documentKey(kind: "product_registration", id: registration.id),
-                                    onOpen: {
-                                        onOpenDocument("product_registration", registration.id)
-                                    },
-                                    onSelectStatus: { statusID in
-                                        onSelectProductRegistrationStatus(registration, statusID)
                                     }
                                 )
                             }
@@ -115,7 +110,8 @@ struct CRMDocumentsListView: View {
                             movementSelection.itemID,
                             movementSelection.statusID,
                             sourceID,
-                            destinationID
+                            destinationID,
+                            nil
                         )
                         self.movementSelection = nil
                     }
@@ -123,11 +119,123 @@ struct CRMDocumentsListView: View {
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
+
+            if let supplierSelection {
+                Color.black.opacity(0.28)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissSupplierSelection()
+                    }
+
+                CRMSupplierSelectionSheet(
+                    query: $supplierQuery,
+                    results: supplierResults,
+                    isSearching: isSearchingSuppliers,
+                    onQueryChange: handleSupplierQueryChange,
+                    onClose: {
+                        dismissSupplierSelection()
+                    },
+                    onClear: {
+                        clearSupplierQuery()
+                    },
+                    onSelectContact: { contact in
+                        applySupplierContact(contact)
+                    },
+                    onConfirm: {
+                        let normalizedSupplier = supplierQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                        onSelectOrderItemStatus(
+                            supplierSelection.order,
+                            supplierSelection.itemID,
+                            supplierSelection.statusID,
+                            nil,
+                            nil,
+                            normalizedSupplier.isEmpty ? nil : normalizedSupplier
+                        )
+                        dismissSupplierSelection()
+                    },
+                    onSkip: {
+                        onSelectOrderItemStatus(
+                            supplierSelection.order,
+                            supplierSelection.itemID,
+                            supplierSelection.statusID,
+                            nil,
+                            nil,
+                            nil
+                        )
+                        dismissSupplierSelection()
+                    }
+                )
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            CRMSectionBar(selection: $selectedSection)
+                .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+                .padding(.top, 10)
+                .padding(.bottom, max(AppTheme.PageLayout.bottomPadding - 8, 8) + 15)
+                .background(AppTheme.background.opacity(0.96))
+        }
+    }
+
+    private var displayedOrders: [HomeOrder] {
+        switch selectedSection {
+        case .orders:
+            return orderMessages.compactMap(\.order)
+        case .shipments:
+            return orderMessages.compactMap(\.order).filter(isShipmentOrder)
+        case .products:
+            return []
+        }
+    }
+
+    private var orderMessages: [HomeMessage] {
+        messages.filter { $0.order != nil }
+    }
+
+    private var productEntries: [CRMOrderProductEntry] {
+        orderMessages.compactMap(\.order).flatMap { order in
+            order.items.map { item in
+                CRMOrderProductEntry(order: order, item: item)
+            }
+        }
+    }
+
+    private var currentSectionIsEmpty: Bool {
+        switch selectedSection {
+        case .orders, .shipments:
+            return displayedOrders.isEmpty
+        case .products:
+            return productEntries.isEmpty
+        }
+    }
+
+    private var emptyStateTitle: String {
+        switch selectedSection {
+        case .orders:
+            return "По текущему фильтру заказы не найдены"
+        case .products:
+            return "По текущему фильтру товары не найдены"
+        case .shipments:
+            return "Нет заказов в статусах На сборку или Собран"
         }
     }
 
     private var orderItemStatuses: [HomeStatus] {
         referenceData.statuses.filter { $0.statusType == "order_products" }
+    }
+
+    private func isShipmentOrder(_ order: HomeOrder) -> Bool {
+        guard let title = normalizedOrderStatusTitle(for: order) else { return false }
+        return ["На сборку", "Собран"].contains(title)
+    }
+
+    private func normalizedOrderStatusTitle(for order: HomeOrder) -> String? {
+        if let status = order.orderStatus?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
+            return status
+        }
+        return referenceData.statuses.first(where: { $0.id == order.orderStatusID })?.statusStatus
     }
 
     private func currencyTitle(for currencyID: Int?) -> String {
@@ -144,10 +252,10 @@ struct CRMDocumentsListView: View {
         "\(kind):\(id)"
     }
 
-    private func handleOrderItemStatusSelection(order: HomeOrder, itemID: Int, statusID: Int) {
+    private func handleOrderItemStatusSelection(order: HomeOrder, itemID: Int, statusID: Int, promptForSupplier: Bool = false) {
         guard let item = order.items.first(where: { $0.id == itemID }) else { return }
         guard let status = orderItemStatuses.first(where: { $0.id == statusID }) else {
-            onSelectOrderItemStatus(order, itemID, statusID, nil, nil)
+            onSelectOrderItemStatus(order, itemID, statusID, nil, nil, nil)
             return
         }
 
@@ -162,7 +270,85 @@ struct CRMDocumentsListView: View {
             return
         }
 
-        onSelectOrderItemStatus(order, itemID, statusID, nil, nil)
+        if promptForSupplier && status.statusStatus == "Заказ" {
+            supplierSelection = CRMSupplierSelection(order: order, itemID: itemID, statusID: statusID)
+            supplierQuery = item.orderItemSupplier ?? ""
+            supplierResults = []
+            isSearchingSuppliers = false
+            handleSupplierQueryChange(supplierQuery)
+            return
+        }
+
+        onSelectOrderItemStatus(order, itemID, statusID, nil, nil, nil)
+    }
+
+    private func dismissSupplierSelection() {
+        supplierSelection = nil
+        supplierResults = []
+        isSearchingSuppliers = false
+    }
+
+    private func clearSupplierQuery() {
+        supplierQuery = ""
+        supplierResults = []
+        isSearchingSuppliers = false
+    }
+
+    private func applySupplierContact(_ contact: HomeContact) {
+        supplierQuery = contact.contactName
+        supplierResults = []
+        isSearchingSuppliers = false
+    }
+
+    private func handleSupplierQueryChange(_ query: String) {
+        guard supplierSelection != nil else { return }
+
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedQuery.count >= 2 else {
+            supplierResults = []
+            isSearchingSuppliers = false
+            return
+        }
+
+        isSearchingSuppliers = true
+        let expectedQuery = query
+
+        Task {
+            let results = await onSearchSupplierContacts(expectedQuery)
+            guard supplierSelection != nil, supplierQuery == expectedQuery else { return }
+            supplierResults = results
+            isSearchingSuppliers = false
+        }
+    }
+}
+
+private enum CRMSection: String, CaseIterable, Identifiable {
+    case orders = "Список заказов"
+    case products = "Список товаров"
+    case shipments = "Отгрузки"
+
+    var id: String { rawValue }
+
+    var iconName: String {
+        switch self {
+        case .orders:
+            return "list.bullet.clipboard"
+        case .products:
+            return "shippingbox"
+        case .shipments:
+            return "truck.box"
+        }
+    }
+
+    var accessibilityTitle: String {
+        switch self {
+        case .orders:
+            return "Список заказов"
+        case .products:
+            return "Список товаров"
+        case .shipments:
+            return "Отгрузки"
+        }
     }
 }
 
@@ -175,6 +361,105 @@ private struct CRMMovementSelection: Identifiable {
 
     var id: String {
         "\(order.id)-\(itemID)-\(statusID)"
+    }
+}
+
+private struct CRMSupplierSelection: Identifiable {
+    let order: HomeOrder
+    let itemID: Int
+    let statusID: Int
+
+    var id: String {
+        "supplier-\(order.id)-\(itemID)-\(statusID)"
+    }
+}
+
+private struct CRMOrderProductEntry: Identifiable, Hashable {
+    let order: HomeOrder
+    let item: HomeOrderItem
+
+    var id: String {
+        "\(order.id)-\(item.id)"
+    }
+}
+
+private struct CRMOrderProductRow: View {
+    let entry: CRMOrderProductEntry
+    let itemStatuses: [HomeStatus]
+    let currencyTitleProvider: (Int?) -> String
+    let isSaving: Bool
+    let onOpen: () -> Void
+    let onSelectStatus: (Int) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.item.orderItemName)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text("Заказ №\(entry.order.id) * \(entry.item.orderItemQuantity) шт. * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            VStack(alignment: .trailing, spacing: 4) {
+                CRMStatusMenu(
+                    title: itemStatusTitle,
+                    color: BusinessDocumentColors.statusColor(entry.item.orderItemStatusColor),
+                    statuses: itemStatuses,
+                    selectedStatusID: entry.item.orderItemStatusID,
+                    size: .compact,
+                    isDisabled: isSaving,
+                    onSelect: onSelectStatus
+                )
+
+                if let statusSecondaryLine {
+                    Text(statusSecondaryLine)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 120, alignment: .trailing)
+                }
+            }
+
+            if isSaving {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .padding(16)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Color(uiColor: .separator).opacity(0.28), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .onTapGesture(perform: onOpen)
+    }
+
+    private var itemStatusTitle: String {
+        if let title = entry.item.orderItemStatus, !title.isEmpty {
+            return title
+        }
+        return itemStatuses.first(where: { $0.id == entry.item.orderItemStatusID })?.statusStatus ?? "Статус"
+    }
+
+    private var statusSecondaryLine: String? {
+        if let supplier = entry.item.orderItemSupplier?.trimmingCharacters(in: .whitespacesAndNewlines), !supplier.isEmpty {
+            return supplier
+        }
+
+        let sourceName = entry.item.orderItemSourceEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let destinationName = entry.item.orderItemDestinationEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sourceName, !sourceName.isEmpty,
+              let destinationName, !destinationName.isEmpty,
+              itemStatusTitle == "Перемещение" else {
+            return nil
+        }
+        return "\(sourceName) -> \(destinationName)"
     }
 }
 
@@ -544,6 +829,9 @@ private struct CRMStatusMenu: View {
             HStack(spacing: 6) {
                 Text(title)
                     .font(.system(size: size.titleFontSize, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Image(systemName: "chevron.down")
                     .font(.system(size: size.chevronFontSize, weight: .bold))
             }
@@ -558,6 +846,157 @@ private struct CRMStatusMenu: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled || statuses.isEmpty)
+    }
+}
+
+private struct CRMSupplierSelectionSheet: View {
+    @Binding var query: String
+    let results: [HomeContact]
+    let isSearching: Bool
+    let onQueryChange: (String) -> Void
+    let onClose: () -> Void
+    let onClear: () -> Void
+    let onSelectContact: (HomeContact) -> Void
+    let onConfirm: () -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Поставщик")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+
+            Text("Начните вводить имя поставщика. Выбор из базы не обязателен.")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.68))
+
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.white.opacity(0.68))
+
+                TextField("ИП Воробьев", text: $query)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                    .foregroundStyle(.white)
+
+                if !query.isEmpty {
+                    Button(action: onClear) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.72))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(14)
+            .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .onChange(of: query) { _, newValue in
+                onQueryChange(newValue)
+            }
+
+            supplierResultsPanel
+
+            HStack(spacing: 10) {
+                Button(action: onSkip) {
+                    Text("Пропустить")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onConfirm) {
+                    Text("Сохранить")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button(action: onClose) {
+                Text("Отмена")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+        .padding(.bottom, 18)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(AppTheme.background)
+                .shadow(color: .black.opacity(0.24), radius: 18, x: 0, y: 10)
+        )
+    }
+
+    @ViewBuilder
+    private var supplierResultsPanel: some View {
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text("Начните вводить имя поставщика для поиска по базе контрагентов.")
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.7))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        } else if isSearching {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .tint(.white)
+                Text("Ищем поставщиков...")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 120)
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        } else if results.isEmpty {
+            Text("Совпадений не найдено")
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(results) { contact in
+                        Button {
+                            onSelectContact(contact)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(contact.contactName)
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                if let contactInfo = contact.contactInfo, !contactInfo.isEmpty {
+                                    Text(contactInfo)
+                                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.white.opacity(0.68))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                            .padding(12)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+        }
     }
 }
 
@@ -671,6 +1110,32 @@ private struct CRMMovementRouteSheet: View {
 
     private func establishmentTitle(for id: Int?) -> String? {
         establishments.first(where: { $0.id == id })?.establishmentName
+    }
+}
+
+private struct CRMSectionBar: View {
+    @Binding var selection: CRMSection
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(CRMSection.allCases) { section in
+                Button {
+                    selection = section
+                } label: {
+                    Image(systemName: section.iconName)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(selection == section ? AppTheme.primaryButtonText : AppTheme.secondaryButtonText)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(
+                            (selection == section ? AppTheme.primaryButtonBackground : AppTheme.secondaryButtonBackground),
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(section.accessibilityTitle)
+            }
+        }
     }
 }
 

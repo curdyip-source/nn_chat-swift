@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import UIKit
 
 struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -71,123 +70,129 @@ struct HomeView: View {
         )
     }
 
+    private var currentDisplayMode: HomeDisplayMode {
+        session.chatFilterState.displayMode
+    }
+
     var body: some View {
-        ZStack {
-            mainContent
-                .blur(radius: messageActionsTarget != nil ? 18 : 0)
-                .scaleEffect(messageActionsTarget != nil ? 0.985 : 1)
+        GeometryReader { proxy in
+            ZStack {
+                swipeableMainContent(containerWidth: proxy.size.width)
+                    .blur(radius: messageActionsTarget != nil ? 18 : 0)
+                    .scaleEffect(messageActionsTarget != nil ? 0.985 : 1)
 
-            attachmentMenuOverlay
-            messageActionsBackdropOverlay
-            messageActionsOverlay
-            deleteConfirmationOverlay
-            activeDocumentOverlay
+                attachmentMenuOverlay
+                messageActionsBackdropOverlay
+                messageActionsOverlay
+                deleteConfirmationOverlay
+                activeDocumentOverlay
 
-            if let previewOrder {
-                Color.black.opacity(0.28)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        self.previewOrder = nil
-                        previewOrderErrorMessage = nil
-                    }
-                    .zIndex(15)
+                if let previewOrder {
+                    Color.black.opacity(0.28)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            self.previewOrder = nil
+                            previewOrderErrorMessage = nil
+                        }
+                        .zIndex(15)
 
-                ChatOrderPreviewSheet(
-                    order: previewOrder,
-                    statuses: orderStatuses,
-                    itemStatuses: orderItemStatuses,
-                    errorMessage: previewOrderErrorMessage,
-                    isSaving: isUpdatingPreviewOrder,
-                    currencyTitleProvider: currencyTitle(for:),
-                    onClose: {
-                        self.previewOrder = nil
-                        previewOrderErrorMessage = nil
-                    },
-                    onSelectStatus: { statusID in
-                        updatePreviewOrderStatus(statusID: statusID)
-                    },
-                    onSelectItemStatus: { itemID, statusID in
-                        updatePreviewOrderItemStatus(itemID: itemID, statusID: statusID)
-                    }
-                )
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .zIndex(16)
-            }
-
-            if let composer = store.activeComposer {
-                composerOverlay(for: composer)
+                    ChatOrderPreviewSheet(
+                        order: previewOrder,
+                        statuses: orderStatuses,
+                        itemStatuses: orderItemStatuses,
+                        errorMessage: previewOrderErrorMessage,
+                        isSaving: isUpdatingPreviewOrder,
+                        currencyTitleProvider: currencyTitle(for:),
+                        onClose: {
+                            self.previewOrder = nil
+                            previewOrderErrorMessage = nil
+                        },
+                        onSelectStatus: { statusID in
+                            updatePreviewOrderStatus(statusID: statusID)
+                        },
+                        onSelectItemStatus: { itemID, statusID in
+                            updatePreviewOrderItemStatus(itemID: itemID, statusID: statusID)
+                        }
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(20)
-            }
+                    .zIndex(16)
+                }
 
-            if session.isChecklistOpen {
-                Color.black.opacity(0.28)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        session.closeChecklist()
-                    }
-                    .zIndex(22)
+                if let composer = store.activeComposer {
+                    composerOverlay(for: composer)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(20)
+                }
 
-                CRMChecklistSheet(
-                    orders: crmDocumentMessages.compactMap(\.order),
-                    errorMessage: crmErrorMessage,
-                    updatingDocumentKey: crmUpdatingDocumentKey,
-                    onClose: {
-                        session.closeChecklist()
-                    },
-                    onToggleStarted: { order, item, isStarted in
-                        updateCRMOrderItem(order: order, itemID: item.id, checkpointStarted: isStarted)
-                    },
-                    onComplete: { order, item in
-                        let inStockStatusID = store.referenceData.statuses.first(where: {
-                            $0.statusType == "order_products" && $0.statusStatus == "В наличии"
-                        })?.id
-                        updateCRMOrderItem(
-                            order: order,
-                            itemID: item.id,
-                            statusID: inStockStatusID,
-                            checkpointStarted: true,
-                            checkpointCompleted: true
-                        )
-                    }
-                )
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .zIndex(23)
-            }
+                if session.isChecklistOpen {
+                    Color.black.opacity(0.28)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            session.closeChecklist()
+                        }
+                        .zIndex(22)
 
-            if session.isChatFilterPresented {
-                Color.black.opacity(0.28)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        session.closeChatFilterPanel()
-                    }
-                    .zIndex(24)
+                    CRMChecklistSheet(
+                        orders: crmDocumentMessages.compactMap(\.order),
+                        errorMessage: crmErrorMessage,
+                        updatingDocumentKey: crmUpdatingDocumentKey,
+                        onClose: {
+                            session.closeChecklist()
+                        },
+                        onToggleStarted: { order, item, isStarted in
+                            updateCRMOrderItem(order: order, itemID: item.id, checkpointStarted: isStarted)
+                        },
+                        onComplete: { order, item in
+                            let inStockStatusID = store.referenceData.statuses.first(where: {
+                                $0.statusType == "order_products" && $0.statusStatus == "В наличии"
+                            })?.id
+                            updateCRMOrderItem(
+                                order: order,
+                                itemID: item.id,
+                                statusID: inStockStatusID,
+                                checkpointStarted: true,
+                                checkpointCompleted: true
+                            )
+                        }
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.top, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(23)
+                }
 
-                ChatFilterSheet(
-                    filter: chatFilterBinding,
-                    messages: store.messages,
-                    referenceData: store.referenceData,
-                    onClose: {
-                        session.closeChatFilterPanel()
-                    },
-                    onReset: {
-                        session.updateChatFilterState(session.chatFilterState.resettingCriteria())
-                    }
-                )
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .zIndex(25)
+                if session.isChatFilterPresented {
+                    Color.black.opacity(0.28)
+                        .ignoresSafeArea()
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            session.closeChatFilterPanel()
+                        }
+                        .zIndex(24)
+
+                    ChatFilterSheet(
+                        filter: chatFilterBinding,
+                        messages: store.messages,
+                        referenceData: store.referenceData,
+                        onClose: {
+                            session.closeChatFilterPanel()
+                        },
+                        onReset: {
+                            session.updateChatFilterState(session.chatFilterState.resettingCriteria())
+                        }
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(25)
+                }
             }
         }
         .animation(.easeInOut(duration: 0.22), value: store.activeComposer)
@@ -336,6 +341,34 @@ struct HomeView: View {
         }
     }
 
+    @ViewBuilder
+    private func swipeableMainContent(containerWidth: CGFloat) -> some View {
+        HomePagingContainer(
+            currentPage: currentDisplayMode,
+            onSettledPage: { page in
+                guard page != currentDisplayMode else { return }
+                session.setHomeDisplayMode(page)
+            },
+            chatPage: {
+                contentView(for: .chat)
+            },
+            crmPage: {
+                contentView(for: .crm)
+            }
+        )
+    }
+
+    private func contentView(for mode: HomeDisplayMode) -> some View {
+        Group {
+            switch mode {
+            case .chat:
+                chatContent
+            case .crm:
+                crmContent
+            }
+        }
+    }
+
     private var chatContent: some View {
         VStack(spacing: 14) {
             if let loadErrorMessage = store.loadErrorMessage {
@@ -445,7 +478,7 @@ struct HomeView: View {
             )
             .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
             .padding(.top, 10)
-            .padding(.bottom, max(AppTheme.PageLayout.bottomPadding - 8, 8))
+            .padding(.bottom, max(AppTheme.PageLayout.bottomPadding - 8, 8) + 15)
             .background(AppTheme.background.opacity(0.96))
         }
     }
@@ -465,14 +498,18 @@ struct HomeView: View {
             onSelectOrderStatus: { order, statusID in
                 updateCRMOrderStatus(order: order, statusID: statusID)
             },
-            onSelectOrderItemStatus: { order, itemID, statusID, sourceID, destinationID in
+            onSelectOrderItemStatus: { order, itemID, statusID, sourceID, destinationID, supplierName in
                 updateCRMOrderItem(
                     order: order,
                     itemID: itemID,
                     statusID: statusID,
                     sourceEstablishmentID: sourceID,
-                    destinationEstablishmentID: destinationID
+                    destinationEstablishmentID: destinationID,
+                    supplierName: supplierName
                 )
+            },
+            onSearchSupplierContacts: { query in
+                await store.searchContacts(accessToken: session.currentAccessToken, contactType: "supplier", query: query)
             },
             onSelectInventoryStatus: { inventory, statusID in
                 updateCRMInventoryStatus(inventory: inventory, statusID: statusID)
@@ -930,6 +967,7 @@ struct HomeView: View {
         statusID: Int? = nil,
         sourceEstablishmentID: Int? = nil,
         destinationEstablishmentID: Int? = nil,
+        supplierName: String? = nil,
         checkpointStarted: Bool? = nil,
         checkpointCompleted: Bool? = nil
     ) {
@@ -938,11 +976,13 @@ struct HomeView: View {
         let nextStatusID = statusID ?? currentItem.orderItemStatusID
         let nextSourceID = sourceEstablishmentID ?? currentItem.orderItemSourceEstablishmentID
         let nextDestinationID = destinationEstablishmentID ?? currentItem.orderItemDestinationEstablishmentID
+        let nextSupplierName = supplierName ?? currentItem.orderItemSupplier
         let resetCheckpoints = statusID != nil && statusID != currentItem.orderItemStatusID && shouldResetChecklistState(for: nextStatusID)
         let nextStarted = checkpointStarted ?? (resetCheckpoints ? false : currentItem.orderItemCheckpointStarted)
         let nextCompleted = checkpointCompleted ?? (resetCheckpoints ? false : currentItem.orderItemCheckpointCompleted)
 
         guard currentItem.orderItemStatusID != nextStatusID
+            || currentItem.orderItemSupplier != nextSupplierName
             || currentItem.orderItemSourceEstablishmentID != nextSourceID
             || currentItem.orderItemDestinationEstablishmentID != nextDestinationID
             || currentItem.orderItemCheckpointStarted != nextStarted
@@ -970,6 +1010,7 @@ struct HomeView: View {
                             makeOrderItemRequest(
                                 item: item,
                                 statusID: item.id == itemID ? nextStatusID : item.orderItemStatusID,
+                                supplierName: item.id == itemID ? nextSupplierName : item.orderItemSupplier,
                                 sourceEstablishmentID: item.id == itemID ? nextSourceID : item.orderItemSourceEstablishmentID,
                                 destinationEstablishmentID: item.id == itemID ? nextDestinationID : item.orderItemDestinationEstablishmentID,
                                 checkpointStarted: item.id == itemID ? nextStarted : item.orderItemCheckpointStarted,
@@ -1023,6 +1064,7 @@ struct HomeView: View {
     private func makeOrderItemRequest(
         item: HomeOrderItem,
         statusID: Int? = nil,
+        supplierName: String? = nil,
         sourceEstablishmentID: Int? = nil,
         destinationEstablishmentID: Int? = nil,
         checkpointStarted: Bool? = nil,
@@ -1035,6 +1077,7 @@ struct HomeView: View {
             orderItemQuantity: item.orderItemQuantity,
             orderItemPrice: item.orderItemPrice,
             orderItemStatusID: statusID ?? item.orderItemStatusID,
+            orderItemSupplier: supplierName ?? item.orderItemSupplier,
             orderItemSourceEstablishmentID: sourceEstablishmentID ?? item.orderItemSourceEstablishmentID,
             orderItemDestinationEstablishmentID: destinationEstablishmentID ?? item.orderItemDestinationEstablishmentID,
             orderItemCurrencyID: item.orderItemCurrencyID,
@@ -1155,6 +1198,61 @@ struct HomeView: View {
                 .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: -4)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
+            }
+        }
+    }
+}
+
+private struct HomePagingContainer<ChatPage: View, CRMPage: View>: View {
+    let currentPage: HomeDisplayMode
+    let onSettledPage: (HomeDisplayMode) -> Void
+    @ViewBuilder let chatPage: () -> ChatPage
+    @ViewBuilder let crmPage: () -> CRMPage
+
+    @State private var activePage: HomeDisplayMode?
+    @State private var pendingPage: HomeDisplayMode?
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = max(proxy.size.width, 1)
+
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    chatPage()
+                        .frame(width: width)
+                        .id(HomeDisplayMode.chat)
+
+                    crmPage()
+                        .frame(width: width)
+                        .id(HomeDisplayMode.crm)
+                }
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: $activePage)
+            .onScrollPhaseChange { _, newPhase in
+                guard newPhase == .idle,
+                      let pendingPage,
+                      pendingPage != currentPage else {
+                    return
+                }
+                onSettledPage(pendingPage)
+            }
+            .onChange(of: activePage) { _, page in
+                guard let page else { return }
+                pendingPage = page
+            }
+            .onChange(of: currentPage) { _, page in
+                pendingPage = page
+                guard activePage != page else { return }
+                withAnimation(.interactiveSpring(response: 0.32, dampingFraction: 0.86)) {
+                    activePage = page
+                }
+            }
+            .onAppear {
+                activePage = currentPage
+                pendingPage = currentPage
             }
         }
     }

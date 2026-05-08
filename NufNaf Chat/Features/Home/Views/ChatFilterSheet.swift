@@ -8,15 +8,14 @@ struct ChatFilterSheet: View {
     let onClose: () -> Void
     let onReset: () -> Void
 
+    @State private var dragOffsetY: CGFloat = 0
+
     private let allMonths = Array(1 ... 12)
     private let statusGroupOrder = ["orders", "product_registration", "inventory"]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Capsule()
-                .fill(Color.white.opacity(0.18))
-                .frame(width: 42, height: 5)
-                .frame(maxWidth: .infinity)
+            dragHandle
 
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -24,7 +23,7 @@ struct ChatFilterSheet: View {
                         .font(.system(size: 20, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
 
-                    Text("Режим просмотра, сущности, точки, статусы и период")
+                    Text("Сущности, точки, статусы и период")
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.68))
                 }
@@ -43,25 +42,6 @@ struct ChatFilterSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    filterSection("Режим") {
-                        HStack(spacing: 10) {
-                            ForEach(HomeDisplayMode.allCases) { mode in
-                                modeChip(
-                                    title: mode.title,
-                                    subtitle: modeSubtitle(mode),
-                                    iconName: modeIconName(mode),
-                                    isActive: filter.displayMode == mode,
-                                    accentColor: mode == .crm
-                                        ? Color(red: 0.14, green: 0.72, blue: 0.92)
-                                        : Color(red: 0.96, green: 0.78, blue: 0.24),
-                                    action: {
-                                        filter.displayMode = mode
-                                    }
-                                )
-                            }
-                        }
-                    }
-
                     filterSection("Показ") {
                         filterToggleCard(
                             title: "Скрыть выполненные",
@@ -211,6 +191,44 @@ struct ChatFilterSheet: View {
                 )
         )
         .shadow(color: .black.opacity(0.24), radius: 18, x: 0, y: 10)
+        .offset(y: dragOffsetY)
+    }
+
+    private var dragHandle: some View {
+        Capsule()
+            .fill(Color.white.opacity(0.18))
+            .frame(width: 42, height: 5)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .gesture(closeGesture)
+    }
+
+    private var closeGesture: some Gesture {
+        DragGesture(minimumDistance: 12, coordinateSpace: .global)
+            .onChanged { value in
+                guard value.translation.height > 0,
+                      abs(value.translation.height) > abs(value.translation.width) else {
+                    return
+                }
+                dragOffsetY = value.translation.height
+            }
+            .onEnded { value in
+                let shouldClose = value.translation.height > 120 || value.predictedEndTranslation.height > 220
+                if shouldClose {
+                    withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.9)) {
+                        dragOffsetY = UIScreen.main.bounds.height
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+                        dragOffsetY = 0
+                        onClose()
+                    }
+                } else {
+                    withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.86)) {
+                        dragOffsetY = 0
+                    }
+                }
+            }
     }
 
     private var availableYears: [Int] {

@@ -448,6 +448,17 @@ final class HomeStore: ObservableObject {
         }
     }
 
+    func searchContacts(accessToken: String?, contactType: String, query: String) async -> [HomeContact] {
+        guard let accessToken, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return []
+        }
+        do {
+            return try await client.searchContacts(accessToken: accessToken, contactType: contactType, query: query)
+        } catch {
+            return []
+        }
+    }
+
     func createProduct(accessToken: String?, article: String, name: String, costUSD: String) async throws -> HomeProduct {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")
@@ -648,7 +659,7 @@ final class HomeStore: ObservableObject {
         return try await client.uploadProfilePhoto(accessToken: accessToken, jpegData: jpegData)
     }
 
-    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, counterpartyName: String, info: String, items: [HomeComposerItemDraft]) async {
+    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, counterpartyName: String, info: String, saveContact: Bool, items: [HomeComposerItemDraft]) async {
         guard let accessToken else { return }
         let normalizedItems = items.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.price.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !normalizedItems.isEmpty else { return }
@@ -663,6 +674,7 @@ final class HomeStore: ObservableObject {
                 orderSubMethod: orderSubMethod,
                 orderCustomer: counterpartyName,
                 orderInfo: info,
+                saveContact: saveContact,
                 items: normalizedItems.map {
                     HomeOrderItemCreateRequest(
                         productID: $0.productID,
@@ -692,6 +704,7 @@ final class HomeStore: ObservableObject {
             let request = HomeInventoryCreateRequest(
                 inventoryEstablishmentID: establishmentID,
                 inventorySupplier: counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : counterpartyName,
+                saveContact: saveContact,
                 items: normalizedItems.map {
                     HomeInventoryItemCreateRequest(
                         productID: $0.productID,
@@ -720,6 +733,7 @@ final class HomeStore: ObservableObject {
             let request = HomeProductRegistrationCreateRequest(
                 productRegistrationEstablishmentID: establishmentID,
                 productRegistrationSupplier: counterpartyName,
+                saveContact: saveContact,
                 items: normalizedItems.map {
                     HomeProductRegistrationItemCreateRequest(
                         productID: $0.productID,

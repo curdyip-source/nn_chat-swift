@@ -93,6 +93,22 @@ struct HomeAPIClient {
         return response.items
     }
 
+    func searchContacts(accessToken: String, contactType: String, query: String) async throws -> [HomeContact] {
+        let response: HomeContactResponse = try await send(
+            path: "contacts",
+            queryItems: [
+                URLQueryItem(name: "contact_type", value: contactType),
+                URLQueryItem(name: "search", value: query),
+                URLQueryItem(name: "page", value: "1"),
+                URLQueryItem(name: "page_size", value: "20"),
+            ],
+            method: "GET",
+            body: Optional<String>.none,
+            accessToken: accessToken
+        )
+        return response.items
+    }
+
     func createProduct(accessToken: String, request: HomeProductCreateRequest) async throws -> HomeProduct {
         let response: HomeItemEnvelope<HomeProduct> = try await send(path: "products", method: "POST", body: request, accessToken: accessToken)
         return response.item
