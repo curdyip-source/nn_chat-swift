@@ -705,16 +705,7 @@ private struct ChatMessageRow: View {
     }
 
     private var statusBadgeBackgroundColor: Color {
-        switch (message.messageStatusColor ?? "").lowercased() {
-        case "green":
-            return Color(red: 0.16, green: 0.52, blue: 0.31)
-        case "orange":
-            return Color(red: 0.78, green: 0.44, blue: 0.12)
-        case "blue":
-            return Color(red: 0.20, green: 0.40, blue: 0.78)
-        default:
-            return Color.white.opacity(0.16)
-        }
+        BusinessDocumentColors.statusColor(message.messageStatusColor)
     }
 
     private var statusBadgeForegroundColor: Color {

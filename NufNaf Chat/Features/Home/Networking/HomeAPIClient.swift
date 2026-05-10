@@ -94,14 +94,18 @@ struct HomeAPIClient {
     }
 
     func searchContacts(accessToken: String, contactType: String, query: String) async throws -> [HomeContact] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        var queryItems = [
+            URLQueryItem(name: "contact_type", value: contactType),
+            URLQueryItem(name: "page", value: "1"),
+            URLQueryItem(name: "page_size", value: "20"),
+        ]
+        if !normalizedQuery.isEmpty {
+            queryItems.insert(URLQueryItem(name: "search", value: query), at: 1)
+        }
         let response: HomeContactResponse = try await send(
             path: "contacts",
-            queryItems: [
-                URLQueryItem(name: "contact_type", value: contactType),
-                URLQueryItem(name: "search", value: query),
-                URLQueryItem(name: "page", value: "1"),
-                URLQueryItem(name: "page_size", value: "20"),
-            ],
+            queryItems: queryItems,
             method: "GET",
             body: Optional<String>.none,
             accessToken: accessToken

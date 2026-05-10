@@ -611,6 +611,10 @@ enum BusinessDocumentColors {
             return Color(red: 0.78, green: 0.44, blue: 0.12)
         case "blue":
             return Color(red: 0.20, green: 0.40, blue: 0.78)
+        case "red":
+            return Color(red: 0.86, green: 0.18, blue: 0.18)
+        case "gray", "grey":
+            return Color(uiColor: .systemGray)
         default:
             if normalized.hasPrefix("#"), let color = Color(hex: normalized) {
                 return color

@@ -156,21 +156,7 @@ struct ChatOrderPreviewSheet: View {
     }
 
     private func statusColor(_ rawValue: String?) -> Color {
-        let normalized = (rawValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-
-        switch normalized {
-        case "green":
-            return Color(red: 0.16, green: 0.52, blue: 0.31)
-        case "orange":
-            return Color(red: 0.78, green: 0.44, blue: 0.12)
-        case "blue":
-            return Color(red: 0.20, green: 0.40, blue: 0.78)
-        default:
-            if normalized.hasPrefix("#"), let color = Color(hex: normalized) {
-                return color
-            }
-            return Color.white.opacity(0.18)
-        }
+        BusinessDocumentColors.statusColor(rawValue)
     }
 }
 

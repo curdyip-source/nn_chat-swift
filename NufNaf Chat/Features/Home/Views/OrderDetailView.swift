@@ -681,7 +681,7 @@ struct OrderDetailView: View {
     private func shouldResetChecklistState(for statusID: Int?) -> Bool {
         guard let statusID else { return false }
         guard let status = orderItemStatuses.first(where: { $0.id == statusID }) else { return false }
-        return ["Заказ", "Перемещение"].contains(status.statusStatus)
+        return ["Заказ поставщику", "Перемещение"].contains(status.statusStatus)
     }
 
     private func infoRows(for order: HomeOrder) -> [BusinessDocumentInfoRowModel] {

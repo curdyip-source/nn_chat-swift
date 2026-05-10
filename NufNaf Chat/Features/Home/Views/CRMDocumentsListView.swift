@@ -142,6 +142,19 @@ struct CRMDocumentsListView: View {
                     onSelectContact: { contact in
                         applySupplierContact(contact)
                     },
+                    onCreateContact: {
+                        let normalizedSupplier = supplierQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !normalizedSupplier.isEmpty else { return }
+                        onSelectOrderItemStatus(
+                            supplierSelection.order,
+                            supplierSelection.itemID,
+                            supplierSelection.statusID,
+                            nil,
+                            nil,
+                            normalizedSupplier
+                        )
+                        dismissSupplierSelection()
+                    },
                     onConfirm: {
                         let normalizedSupplier = supplierQuery.trimmingCharacters(in: .whitespacesAndNewlines)
                         onSelectOrderItemStatus(
@@ -195,11 +208,26 @@ struct CRMDocumentsListView: View {
     }
 
     private var productEntries: [CRMOrderProductEntry] {
-        orderMessages.compactMap(\.order).flatMap { order in
-            order.items.map { item in
-                CRMOrderProductEntry(order: order, item: item)
+        orderMessages.compactMap(\.order)
+            .flatMap { order in
+                order.items.map { item in
+                    CRMOrderProductEntry(order: order, item: item)
+                }
             }
-        }
+            .filter { entry in
+                !hiddenProductStatuses.contains(normalizedOrderItemStatusTitle(for: entry).lowercased())
+            }
+            .sorted { lhs, rhs in
+                let lhsPriority = orderItemStatusPriority(for: lhs)
+                let rhsPriority = orderItemStatusPriority(for: rhs)
+                if lhsPriority != rhsPriority {
+                    return lhsPriority < rhsPriority
+                }
+                if lhs.order.id != rhs.order.id {
+                    return lhs.order.id > rhs.order.id
+                }
+                return lhs.item.id > rhs.item.id
+            }
     }
 
     private var currentSectionIsEmpty: Bool {
@@ -226,6 +254,10 @@ struct CRMDocumentsListView: View {
         referenceData.statuses.filter { $0.statusType == "order_products" }
     }
 
+    private var hiddenProductStatuses: Set<String> {
+        ["отгружено", "принято на складе", "в наличии"]
+    }
+
     private func isShipmentOrder(_ order: HomeOrder) -> Bool {
         guard let title = normalizedOrderStatusTitle(for: order) else { return false }
         return ["На сборку", "Собран"].contains(title)
@@ -236,6 +268,26 @@ struct CRMDocumentsListView: View {
             return status
         }
         return referenceData.statuses.first(where: { $0.id == order.orderStatusID })?.statusStatus
+    }
+
+    private func normalizedOrderItemStatusTitle(for entry: CRMOrderProductEntry) -> String {
+        if let status = entry.item.orderItemStatus?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
+            return status
+        }
+        return orderItemStatuses.first(where: { $0.id == entry.item.orderItemStatusID })?.statusStatus ?? ""
+    }
+
+    private func orderItemStatusPriority(for entry: CRMOrderProductEntry) -> Int {
+        switch normalizedOrderItemStatusTitle(for: entry).lowercased() {
+        case "не обработан":
+            return 0
+        case "заказ поставщику":
+            return 1
+        case "перемещение":
+            return 2
+        default:
+            return 3
+        }
     }
 
     private func currencyTitle(for currencyID: Int?) -> String {
@@ -270,11 +322,11 @@ struct CRMDocumentsListView: View {
             return
         }
 
-        if promptForSupplier && status.statusStatus == "Заказ" {
+        if promptForSupplier && status.statusStatus == "Заказ поставщику" {
             supplierSelection = CRMSupplierSelection(order: order, itemID: itemID, statusID: statusID)
             supplierQuery = item.orderItemSupplier ?? ""
             supplierResults = []
-            isSearchingSuppliers = false
+            isSearchingSuppliers = true
             handleSupplierQueryChange(supplierQuery)
             return
         }
@@ -290,8 +342,7 @@ struct CRMDocumentsListView: View {
 
     private func clearSupplierQuery() {
         supplierQuery = ""
-        supplierResults = []
-        isSearchingSuppliers = false
+        handleSupplierQueryChange("")
     }
 
     private func applySupplierContact(_ contact: HomeContact) {
@@ -302,13 +353,6 @@ struct CRMDocumentsListView: View {
 
     private func handleSupplierQueryChange(_ query: String) {
         guard supplierSelection != nil else { return }
-
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedQuery.count >= 2 else {
-            supplierResults = []
-            isSearchingSuppliers = false
-            return
-        }
 
         isSearchingSuppliers = true
         let expectedQuery = query
@@ -399,7 +443,7 @@ private struct CRMOrderProductRow: View {
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text("Заказ №\(entry.order.id) * \(entry.item.orderItemQuantity) шт. * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
+                Text("Заказ №\(entry.order.id) * \(orderEstablishmentTitle) * \(entry.item.orderItemQuantity) шт. * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -445,6 +489,14 @@ private struct CRMOrderProductRow: View {
             return title
         }
         return itemStatuses.first(where: { $0.id == entry.item.orderItemStatusID })?.statusStatus ?? "Статус"
+    }
+
+    private var orderEstablishmentTitle: String {
+        let trimmedTitle = entry.order.orderEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedTitle, !trimmedTitle.isEmpty {
+            return trimmedTitle
+        }
+        return "Без точки"
     }
 
     private var statusSecondaryLine: String? {
@@ -857,8 +909,13 @@ private struct CRMSupplierSelectionSheet: View {
     let onClose: () -> Void
     let onClear: () -> Void
     let onSelectContact: (HomeContact) -> Void
+    let onCreateContact: () -> Void
     let onConfirm: () -> Void
     let onSkip: () -> Void
+
+    private var normalizedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -866,7 +923,7 @@ private struct CRMSupplierSelectionSheet: View {
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
 
-            Text("Начните вводить имя поставщика. Выбор из базы не обязателен.")
+            Text("Можно выбрать поставщика из базы или ввести нового. Новый поставщик сохранится в базе после подтверждения.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.68))
 
@@ -942,18 +999,11 @@ private struct CRMSupplierSelectionSheet: View {
 
     @ViewBuilder
     private var supplierResultsPanel: some View {
-        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            Text("Начните вводить имя поставщика для поиска по базе контрагентов.")
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.7))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        } else if isSearching {
+        if isSearching {
             VStack(spacing: 12) {
                 ProgressView()
                     .tint(.white)
-                Text("Ищем поставщиков...")
+                Text(normalizedQuery.isEmpty ? "Загружаем поставщиков..." : "Ищем поставщиков...")
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundStyle(.white.opacity(0.72))
             }
@@ -961,12 +1011,32 @@ private struct CRMSupplierSelectionSheet: View {
             .frame(minHeight: 120)
             .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else if results.isEmpty {
-            Text("Совпадений не найдено")
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.72))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            VStack(alignment: .leading, spacing: 10) {
+                Text(normalizedQuery.isEmpty ? "Поставщики не найдены" : "Поставщик не найден")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+
+                Text(normalizedQuery.isEmpty
+                     ? "В базе пока нет поставщиков. Можно ввести нового вручную и сохранить его."
+                     : "Можно добавить нового поставщика в базу и сразу выбрать его для товара.")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.72))
+
+                if !normalizedQuery.isEmpty {
+                    Button(action: onCreateContact) {
+                        Text("Добавить в базу и выбрать")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 42)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {

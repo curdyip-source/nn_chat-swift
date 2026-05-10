@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct CRMChecklistSheet: View {
     enum Category: String, CaseIterable, Identifiable {
@@ -43,35 +44,43 @@ struct CRMChecklistSheet: View {
     let onComplete: (HomeOrder, HomeOrderItem) -> Void
 
     @State private var selectedCategory: Category = .order
+    @State private var activeAlert: ChecklistAlertContent?
+    @State private var isPreparingCopy = false
+    @State private var startedOverrides: [String: Bool] = [:]
+    @State private var completedOverrides: [String: Bool] = [:]
+    @State private var copyStartStartedEntryIDs: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Capsule()
-                .fill(Color.white.opacity(0.18))
-                .frame(width: 42, height: 5)
-                .frame(maxWidth: .infinity)
-
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Чек-лист")
                         .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
 
-                    Text("Позиции со статусами Заказ и Перемещение")
+                    Text("Позиции со статусами Заказ поставщику и Перемещение")
                         .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.68))
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
-                        .background(Color.white.opacity(0.10), in: Circle())
+                if selectedCategory == .order {
+                    Button(action: handleCopyButtonTap) {
+                        HStack(spacing: 6) {
+                            Image(systemName: isPreparingCopy ? "checkmark.circle" : "doc.on.doc")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text(isPreparingCopy ? "Готово" : "Скопировать")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        }
+                        .foregroundStyle(orderEntries.isEmpty ? Color.secondary : Color.primary)
+                        .padding(.horizontal, 12)
+                        .frame(height: 34)
+                        .background(Color(uiColor: .secondarySystemFill), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(orderEntries.isEmpty)
                 }
-                .buttonStyle(.plain)
             }
 
             HStack(spacing: 8) {
@@ -81,13 +90,13 @@ struct CRMChecklistSheet: View {
                     } label: {
                         Text(category.title)
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(selectedCategory == category ? Color.black : Color.white)
+                            .foregroundStyle(selectedCategory == category ? Color.black : Color.primary)
                             .frame(maxWidth: .infinity)
                             .frame(height: 40)
                             .background(
                                 selectedCategory == category
                                     ? Color.white
-                                    : Color.white.opacity(0.08),
+                                    : Color(uiColor: .secondarySystemFill),
                                 in: RoundedRectangle(cornerRadius: 14, style: .continuous)
                             )
                     }
@@ -107,6 +116,10 @@ struct CRMChecklistSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
+                    if selectedCategory == .order {
+                        orderToolbar
+                    }
+
                     headerRow(for: selectedCategory)
 
                     if selectedCategory == .movement {
@@ -118,28 +131,45 @@ struct CRMChecklistSheet: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .scrollIndicators(.hidden)
-            .frame(maxWidth: .infinity, maxHeight: 420, alignment: .top)
         }
-        .frame(maxWidth: .infinity, alignment: .top)
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+        .padding(.top, 12)
+        .padding(.bottom, AppTheme.PageLayout.bottomPadding)
+        .onAppear(perform: reconcileCheckpointOverrides)
+        .onChange(of: checklistCheckpointSignature) { _, _ in
+            reconcileCheckpointOverrides()
+        }
+        .alert(item: $activeAlert) { alert in
+            let dismissPrimaryAction = {
+                alert.primaryAction?()
+                activeAlert = nil
+            }
+            if let secondaryButton = alert.secondaryButton {
+                return Alert(
+                    title: Text(alert.title),
+                    message: Text(alert.message),
+                    primaryButton: .default(Text(alert.primaryButtonTitle), action: dismissPrimaryAction),
+                    secondaryButton: secondaryButton.alertButton
                 )
-        )
-        .shadow(color: .black.opacity(0.24), radius: 18, x: 0, y: 10)
+            } else {
+                return Alert(
+                    title: Text(alert.title),
+                    message: Text(alert.message),
+                    dismissButton: .default(Text(alert.primaryButtonTitle), action: dismissPrimaryAction)
+                )
+            }
+        }
     }
 
     private var orderEntries: [Entry] {
         orders.flatMap { order in
             order.items.compactMap { item in
-                guard item.orderItemStatus == "Заказ" else { return nil }
+                guard item.orderItemStatus == "Заказ поставщику" else { return nil }
                 return Entry(order: order, item: item)
             }
         }
+        .sorted(by: orderEntryComparator)
     }
 
     private var movementEntries: [Entry] {
@@ -154,11 +184,21 @@ struct CRMChecklistSheet: View {
     @ViewBuilder
     private var orderContent: some View {
         if orderEntries.isEmpty {
-            emptyState(text: "Нет позиций в статусе Заказ")
+            emptyState(text: "Нет позиций в статусе Заказ поставщику")
         } else {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(orderEntries) { entry in
-                    checklistRow(entry: entry, category: .order)
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(groupedOrderEntries, id: \.title) { group in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(group.title)
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(.secondary)
+
+                        VStack(spacing: 10) {
+                            ForEach(group.entries) { entry in
+                                checklistRow(entry: entry, category: .order)
+                            }
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -176,7 +216,7 @@ struct CRMChecklistSheet: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(key)
                             .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.78))
+                            .foregroundStyle(.secondary)
                         VStack(spacing: 10) {
                             ForEach(grouped[key] ?? []) { entry in
                                 checklistRow(entry: entry, category: .movement)
@@ -187,6 +227,29 @@ struct CRMChecklistSheet: View {
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
+    }
+
+    private var groupedOrderEntries: [(title: String, entries: [Entry])] {
+        Dictionary(grouping: orderEntries, by: supplierTitle(for:))
+            .keys
+            .sorted(by: supplierTitleComparator)
+            .map { key in
+                (title: key, entries: (Dictionary(grouping: orderEntries, by: supplierTitle(for:))[key] ?? []).sorted(by: orderEntryComparator))
+            }
+    }
+
+    private var orderToolbar: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Группировка по поставщикам")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+            Text(orderToolbarSubtitle)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func movementGroupTitle(for entry: Entry) -> String {
@@ -202,50 +265,59 @@ struct CRMChecklistSheet: View {
 
             Text(category.checkpointTitle)
                 .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(.secondary)
                 .frame(width: 82)
 
             Text("Выполнено")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.68))
+                .foregroundStyle(.secondary)
                 .frame(width: 82)
         }
     }
 
     private func checklistRow(entry: Entry, category: Category) -> some View {
         let isSaving = updatingDocumentKey == "order:\(entry.order.id)"
+        let isStarted = currentStartedState(for: entry)
+        let isCompleted = currentCompletedState(for: entry)
 
         return HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.item.orderItemName)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.primary)
                 Text("Заказ №\(entry.order.id) * \(entry.order.orderCustomer)")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
             checklistMarkButton(
-                isActive: entry.item.orderItemCheckpointStarted,
+                isActive: isStarted,
                 isDisabled: isSaving,
                 action: {
-                    onToggleStarted(entry.order, entry.item, !entry.item.orderItemCheckpointStarted)
+                    let nextStarted = !isStarted
+                    startedOverrides[entry.id] = nextStarted
+                    if !nextStarted {
+                        completedOverrides[entry.id] = false
+                    }
+                    onToggleStarted(entry.order, entry.item, nextStarted)
                 }
             )
             .frame(width: 82)
 
             checklistMarkButton(
-                isActive: entry.item.orderItemCheckpointCompleted,
-                isDisabled: isSaving || entry.item.orderItemCheckpointCompleted,
+                isActive: isCompleted,
+                isDisabled: isSaving || isCompleted,
                 action: {
+                    startedOverrides[entry.id] = true
+                    completedOverrides[entry.id] = true
                     onComplete(entry.order, entry.item)
                 }
             )
             .frame(width: 82)
         }
         .padding(14)
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func checklistMarkButton(isActive: Bool, isDisabled: Bool, action: @escaping () -> Void) -> some View {
@@ -254,17 +326,197 @@ struct CRMChecklistSheet: View {
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(isActive ? Color(red: 0.27, green: 0.83, blue: 0.48) : Color.white.opacity(0.72))
                 .frame(width: 42, height: 42)
-                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
     }
 
+    private var orderToolbarSubtitle: String {
+        if isPreparingCopy {
+            if selectedEntriesForCopy.isEmpty {
+                return "Отметьте новые позиции в колонке Заказано, затем нажмите Готово, чтобы скопировать только их."
+            }
+            return "Новые отмеченные позиции готовы. Нажмите Готово, и в буфер скопируется только это дополнение."
+        }
+        return "Нажмите Скопировать, затем отметьте новые позиции в колонке Заказано, чтобы подготовить дополнение к списку поставщику."
+    }
+
+    private var selectedEntriesForCopy: [Entry] {
+        orderEntries.filter { entry in
+            currentStartedState(for: entry) && !copyStartStartedEntryIDs.contains(entry.id)
+        }
+    }
+
+    private var checklistCheckpointSignature: [String] {
+        (orderEntries + movementEntries).map {
+            "\($0.id):\($0.item.orderItemCheckpointStarted):\($0.item.orderItemCheckpointCompleted)"
+        }
+    }
+
+    private func handleCopyButtonTap() {
+        if isPreparingCopy {
+            finalizeCopyOrderChecklist()
+            return
+        }
+
+        copyStartStartedEntryIDs = Set(
+            orderEntries.compactMap { entry in
+                currentStartedState(for: entry) ? entry.id : nil
+            }
+        )
+        isPreparingCopy = true
+        activeAlert = ChecklistAlertContent(
+            title: "Подготовьте список",
+            message: "Отметьте новые позиции в колонке Заказано. Уже отмеченные ранее товары в новый список не попадут. После этого нажмите Готово."
+        )
+    }
+
+    private func finalizeCopyOrderChecklist() {
+        guard !orderEntries.isEmpty else { return }
+
+        if selectedEntriesForCopy.isEmpty {
+            activeAlert = ChecklistAlertContent(
+                title: "Нет новых позиций",
+                message: "Отметьте хотя бы одну новую позицию в колонке Заказано после нажатия Скопировать. Уже отмеченные ранее товары повторно в список не добавляются.",
+                secondaryButton: ChecklistAlertButton(
+                    title: "Отменить",
+                    role: .cancel,
+                    action: resetCopyPreparation
+                )
+            )
+            return
+        }
+
+        UIPasteboard.general.string = copyText
+        isPreparingCopy = false
+        copyStartStartedEntryIDs = []
+        activeAlert = ChecklistAlertContent(
+            title: "Список скопирован",
+            message: "Скопированы только новые отмеченные позиции. Список можно вставить в почту, Telegram или WhatsApp поставщику."
+        )
+    }
+
+    private var copyText: String {
+        Dictionary(grouping: selectedEntriesForCopy, by: supplierTitle(for:))
+            .keys
+            .sorted(by: supplierTitleComparator)
+            .map { key in
+                let entries = (Dictionary(grouping: selectedEntriesForCopy, by: supplierTitle(for:))[key] ?? [])
+                    .sorted(by: orderEntryComparator)
+                let itemsText = entries
+                    .map { "- \($0.item.orderItemName) * \($0.item.orderItemQuantity) шт." }
+                    .joined(separator: "\n")
+                return "\(key)\n\(itemsText)"
+            }
+            .map { group in
+                group
+            }
+            .joined(separator: "\n\n")
+    }
+
+    private func supplierTitle(for entry: Entry) -> String {
+        let trimmedTitle = entry.item.orderItemSupplier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedTitle, !trimmedTitle.isEmpty {
+            return trimmedTitle
+        }
+        return "Без поставщика"
+    }
+
+    private func supplierTitleComparator(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == "Без поставщика" { return false }
+        if rhs == "Без поставщика" { return true }
+        return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
+    }
+
+    private func orderEntryComparator(_ lhs: Entry, _ rhs: Entry) -> Bool {
+        let lhsSupplier = supplierTitle(for: lhs)
+        let rhsSupplier = supplierTitle(for: rhs)
+        if lhsSupplier != rhsSupplier {
+            return supplierTitleComparator(lhsSupplier, rhsSupplier)
+        }
+        if lhs.order.id != rhs.order.id {
+            return lhs.order.id > rhs.order.id
+        }
+        let lhsStarted = currentStartedState(for: lhs)
+        let rhsStarted = currentStartedState(for: rhs)
+        if lhsStarted != rhsStarted {
+            return lhsStarted && !rhsStarted
+        }
+        return lhs.item.id > rhs.item.id
+    }
+
+    private func currentStartedState(for entry: Entry) -> Bool {
+        startedOverrides[entry.id] ?? entry.item.orderItemCheckpointStarted
+    }
+
+    private func currentCompletedState(for entry: Entry) -> Bool {
+        completedOverrides[entry.id] ?? entry.item.orderItemCheckpointCompleted
+    }
+
+    private func reconcileCheckpointOverrides() {
+        let allEntries = orderEntries + movementEntries
+        let existingIDs = Set(allEntries.map(\.id))
+
+        startedOverrides = startedOverrides.reduce(into: [:]) { result, item in
+            guard existingIDs.contains(item.key) else { return }
+            guard let entry = allEntries.first(where: { $0.id == item.key }) else { return }
+            if entry.item.orderItemCheckpointStarted != item.value {
+                result[item.key] = item.value
+            }
+        }
+
+        completedOverrides = completedOverrides.reduce(into: [:]) { result, item in
+            guard existingIDs.contains(item.key) else { return }
+            guard let entry = allEntries.first(where: { $0.id == item.key }) else { return }
+            if entry.item.orderItemCheckpointCompleted != item.value {
+                result[item.key] = item.value
+            }
+        }
+    }
+
+    private func resetCopyPreparation() {
+        isPreparingCopy = false
+        copyStartStartedEntryIDs = []
+    }
+
     private func emptyState(text: String) -> some View {
         Text(text)
             .font(.system(size: 14, weight: .medium, design: .rounded))
-            .foregroundStyle(.white.opacity(0.72))
+            .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 18)
+    }
+}
+
+private struct ChecklistAlertContent: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+    var primaryButtonTitle: String = "Понятно"
+    var primaryAction: (() -> Void)? = nil
+    var secondaryButton: ChecklistAlertButton? = nil
+}
+
+private struct ChecklistAlertButton {
+    enum Role {
+        case `default`
+        case cancel
+        case destructive
+    }
+
+    let title: String
+    let role: Role
+    let action: (() -> Void)?
+
+    var alertButton: Alert.Button {
+        switch role {
+        case .default:
+            return .default(Text(title), action: action)
+        case .cancel:
+            return .cancel(Text(title), action: action)
+        case .destructive:
+            return .destructive(Text(title), action: action)
+        }
     }
 }

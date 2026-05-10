@@ -128,45 +128,6 @@ struct HomeView: View {
                         .zIndex(20)
                 }
 
-                if session.isChecklistOpen {
-                    Color.black.opacity(0.28)
-                        .ignoresSafeArea()
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            session.closeChecklist()
-                        }
-                        .zIndex(22)
-
-                    CRMChecklistSheet(
-                        orders: crmDocumentMessages.compactMap(\.order),
-                        errorMessage: crmErrorMessage,
-                        updatingDocumentKey: crmUpdatingDocumentKey,
-                        onClose: {
-                            session.closeChecklist()
-                        },
-                        onToggleStarted: { order, item, isStarted in
-                            updateCRMOrderItem(order: order, itemID: item.id, checkpointStarted: isStarted)
-                        },
-                        onComplete: { order, item in
-                            let inStockStatusID = store.referenceData.statuses.first(where: {
-                                $0.statusType == "order_products" && $0.statusStatus == "В наличии"
-                            })?.id
-                            updateCRMOrderItem(
-                                order: order,
-                                itemID: item.id,
-                                statusID: inStockStatusID,
-                                checkpointStarted: true,
-                                checkpointCompleted: true
-                            )
-                        }
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.top, 12)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(23)
-                }
-
                 if session.isChatFilterPresented {
                     Color.black.opacity(0.28)
                         .ignoresSafeArea()
@@ -484,40 +445,68 @@ struct HomeView: View {
     }
 
     private var crmContent: some View {
-        CRMDocumentsListView(
-            messages: crmDocumentMessages,
-            referenceData: store.referenceData,
-            isLoading: store.isLoading,
-            errorMessage: crmErrorMessage ?? store.loadErrorMessage,
-            updatingDocumentKey: crmUpdatingDocumentKey,
-            onOpenDocument: { kind, id in
-                session.closeChatFilterPanel()
-                previewOrder = nil
-                session.openDocument(kind: kind, id: id)
-            },
-            onSelectOrderStatus: { order, statusID in
-                updateCRMOrderStatus(order: order, statusID: statusID)
-            },
-            onSelectOrderItemStatus: { order, itemID, statusID, sourceID, destinationID, supplierName in
-                updateCRMOrderItem(
-                    order: order,
-                    itemID: itemID,
-                    statusID: statusID,
-                    sourceEstablishmentID: sourceID,
-                    destinationEstablishmentID: destinationID,
-                    supplierName: supplierName
+        Group {
+            if session.isChecklistOpen {
+                CRMChecklistSheet(
+                    orders: crmDocumentMessages.compactMap(\.order),
+                    errorMessage: crmErrorMessage,
+                    updatingDocumentKey: crmUpdatingDocumentKey,
+                    onClose: {
+                        session.closeChecklist()
+                    },
+                    onToggleStarted: { order, item, isStarted in
+                        updateCRMOrderItem(order: order, itemID: item.id, checkpointStarted: isStarted)
+                    },
+                    onComplete: { order, item in
+                        let inStockStatusID = store.referenceData.statuses.first(where: {
+                            $0.statusType == "order_products" && $0.statusStatus == "В наличии"
+                        })?.id
+                        updateCRMOrderItem(
+                            order: order,
+                            itemID: item.id,
+                            statusID: inStockStatusID,
+                            checkpointStarted: true,
+                            checkpointCompleted: true
+                        )
+                    }
                 )
-            },
-            onSearchSupplierContacts: { query in
-                await store.searchContacts(accessToken: session.currentAccessToken, contactType: "supplier", query: query)
-            },
-            onSelectInventoryStatus: { inventory, statusID in
-                updateCRMInventoryStatus(inventory: inventory, statusID: statusID)
-            },
-            onSelectProductRegistrationStatus: { registration, statusID in
-                updateCRMProductRegistrationStatus(registration: registration, statusID: statusID)
+            } else {
+                CRMDocumentsListView(
+                    messages: crmDocumentMessages,
+                    referenceData: store.referenceData,
+                    isLoading: store.isLoading,
+                    errorMessage: crmErrorMessage ?? store.loadErrorMessage,
+                    updatingDocumentKey: crmUpdatingDocumentKey,
+                    onOpenDocument: { kind, id in
+                        session.closeChatFilterPanel()
+                        previewOrder = nil
+                        session.openDocument(kind: kind, id: id)
+                    },
+                    onSelectOrderStatus: { order, statusID in
+                        updateCRMOrderStatus(order: order, statusID: statusID)
+                    },
+                    onSelectOrderItemStatus: { order, itemID, statusID, sourceID, destinationID, supplierName in
+                        updateCRMOrderItem(
+                            order: order,
+                            itemID: itemID,
+                            statusID: statusID,
+                            sourceEstablishmentID: sourceID,
+                            destinationEstablishmentID: destinationID,
+                            supplierName: supplierName
+                        )
+                    },
+                    onSearchSupplierContacts: { query in
+                        await store.searchContacts(accessToken: session.currentAccessToken, contactType: "supplier", query: query)
+                    },
+                    onSelectInventoryStatus: { inventory, statusID in
+                        updateCRMInventoryStatus(inventory: inventory, statusID: statusID)
+                    },
+                    onSelectProductRegistrationStatus: { registration, statusID in
+                        updateCRMProductRegistrationStatus(registration: registration, statusID: statusID)
+                    }
+                )
             }
-        )
+        }
     }
 
     private var inputContext: ChatInputContext? {
@@ -1089,7 +1078,7 @@ struct HomeView: View {
     private func shouldResetChecklistState(for statusID: Int?) -> Bool {
         guard let statusID else { return false }
         guard let status = store.referenceData.statuses.first(where: { $0.id == statusID }) else { return false }
-        return status.statusType == "order_products" && ["Заказ", "Перемещение"].contains(status.statusStatus)
+        return status.statusType == "order_products" && ["Заказ поставщику", "Перемещение"].contains(status.statusStatus)
     }
 
     private func currencyTitle(for currencyID: Int?) -> String {
@@ -1680,16 +1669,7 @@ private struct ChatFocusedMessagePreview: View {
     }
 
     private var statusBackgroundColor: Color {
-        switch (message.messageStatusColor ?? "").lowercased() {
-        case "green":
-            return Color(red: 0.16, green: 0.52, blue: 0.31)
-        case "orange":
-            return Color(red: 0.78, green: 0.44, blue: 0.12)
-        case "blue":
-            return Color(red: 0.20, green: 0.40, blue: 0.78)
-        default:
-            return Color.white.opacity(0.16)
-        }
+        BusinessDocumentColors.statusColor(message.messageStatusColor)
     }
 
     private var formattedTimestamp: String {

@@ -449,7 +449,7 @@ final class HomeStore: ObservableObject {
     }
 
     func searchContacts(accessToken: String?, contactType: String, query: String) async -> [HomeContact] {
-        guard let accessToken, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let accessToken else {
             return []
         }
         do {
