@@ -659,7 +659,7 @@ final class HomeStore: ObservableObject {
         return try await client.uploadProfilePhoto(accessToken: accessToken, jpegData: jpegData)
     }
 
-    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, counterpartyName: String, info: String, saveContact: Bool, items: [HomeComposerItemDraft]) async {
+    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, counterpartyName: String, info: String, saveContact: Bool, orderStatusID: Int? = nil, defaultOrderItemStatusID: Int? = nil, items: [HomeComposerItemDraft]) async {
         guard let accessToken else { return }
         let normalizedItems = items.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.price.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !normalizedItems.isEmpty else { return }
@@ -674,6 +674,7 @@ final class HomeStore: ObservableObject {
                 orderSubMethod: orderSubMethod,
                 orderCustomer: counterpartyName,
                 orderInfo: info,
+                orderStatusID: orderStatusID,
                 saveContact: saveContact,
                 items: normalizedItems.map {
                     HomeOrderItemCreateRequest(
@@ -682,7 +683,7 @@ final class HomeStore: ObservableObject {
                         productName: $0.productID == nil ? $0.name : nil,
                         orderItemQuantity: $0.quantity,
                         orderItemPrice: $0.price,
-                        orderItemStatusID: nil,
+                        orderItemStatusID: $0.statusID ?? defaultOrderItemStatusID,
                         orderItemCurrencyID: $0.currencyID
                     )
                 }
