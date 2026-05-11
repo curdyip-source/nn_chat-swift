@@ -25,6 +25,7 @@ final class AppSession: ObservableObject {
     @Published var activeDocument: AppDocumentDestination?
     @Published private(set) var chatFilterState = HomeChatFilterState.default()
     @Published var isChatFilterPresented = false
+    @Published var crmSearchQuery = ""
 
     private let client: AuthAPIClient
     private let defaults: UserDefaults

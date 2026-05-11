@@ -27,6 +27,7 @@ struct HomeView: View {
     @State private var isUpdatingPreviewOrder = false
     @State private var crmErrorMessage: String?
     @State private var crmUpdatingDocumentKey: String?
+    @State private var crmSelectedSection: CRMSection = .orders
     @State private var isPhotoLibraryPresented = false
     @State private var isCameraPresented = false
     @State private var isFilePickerPresented = false
@@ -59,8 +60,15 @@ struct HomeView: View {
             guard seenKeys.insert(key).inserted else {
                 return nil
             }
+            guard matchesCRMSearch(message) else {
+                return nil
+            }
             return message
         }
+    }
+
+    private var normalizedCRMSearchQuery: String {
+        session.crmSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var chatFilterBinding: Binding<HomeChatFilterState> {
@@ -477,6 +485,7 @@ struct HomeView: View {
                     isLoading: store.isLoading,
                     errorMessage: crmErrorMessage ?? store.loadErrorMessage,
                     updatingDocumentKey: crmUpdatingDocumentKey,
+                    selectedSection: $crmSelectedSection,
                     onOpenDocument: { kind, id in
                         session.closeChatFilterPanel()
                         previewOrder = nil
@@ -966,7 +975,8 @@ struct HomeView: View {
         let nextSourceID = sourceEstablishmentID ?? currentItem.orderItemSourceEstablishmentID
         let nextDestinationID = destinationEstablishmentID ?? currentItem.orderItemDestinationEstablishmentID
         let nextSupplierName = supplierName ?? currentItem.orderItemSupplier
-        let resetCheckpoints = statusID != nil && statusID != currentItem.orderItemStatusID && shouldResetChecklistState(for: nextStatusID)
+        let didChangeSupplier = normalizedSupplierName(nextSupplierName) != normalizedSupplierName(currentItem.orderItemSupplier)
+        let resetCheckpoints = didChangeSupplier || (statusID != nil && statusID != currentItem.orderItemStatusID && shouldResetChecklistState(for: nextStatusID))
         let nextStarted = checkpointStarted ?? (resetCheckpoints ? false : currentItem.orderItemCheckpointStarted)
         let nextCompleted = checkpointCompleted ?? (resetCheckpoints ? false : currentItem.orderItemCheckpointCompleted)
 
@@ -1075,6 +1085,10 @@ struct HomeView: View {
         )
     }
 
+    private func normalizedSupplierName(_ value: String?) -> String {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
     private func shouldResetChecklistState(for statusID: Int?) -> Bool {
         guard let statusID else { return false }
         guard let status = store.referenceData.statuses.first(where: { $0.id == statusID }) else { return false }
@@ -1138,6 +1152,32 @@ struct HomeView: View {
         }
 
         return true
+    }
+
+    private func matchesCRMSearch(_ message: HomeMessage) -> Bool {
+        let query = normalizedCRMSearchQuery
+        guard !query.isEmpty else { return true }
+        guard let order = message.order else { return true }
+
+        let searchableParts = [
+            String(order.id),
+            order.orderCustomer,
+            order.orderEstablishmentName ?? "",
+            order.orderInfo,
+            order.items.map(\.orderItemName).joined(separator: " "),
+            order.items.compactMap(\.orderItemArticle).joined(separator: " ")
+        ]
+
+        let haystack = searchableParts
+            .joined(separator: " ")
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "ru_RU"))
+            .lowercased()
+
+        let normalizedQuery = query
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "ru_RU"))
+            .lowercased()
+
+        return haystack.contains(normalizedQuery)
     }
 
     private func isExplicitlySelectedCompletedStatus(_ statusID: Int?, in selectedStatusIDs: Set<Int>) -> Bool {
@@ -1555,11 +1595,9 @@ private struct ChatFocusedMessagePreview: View {
                         .font(.system(size: 17, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
 
-                    if let documentID = message.documentID {
-                        Text("document_id: \(documentID)")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.68))
-                    }
+                    Text(documentSubtitle)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.68))
                 }
 
                 Spacer(minLength: 0)
@@ -1658,6 +1696,9 @@ private struct ChatFocusedMessagePreview: View {
     private var documentTitle: String {
         switch message.documentKind {
         case "order":
+            if let documentID = message.documentID {
+                return "Заказ №\(documentID)"
+            }
             return "Заказ"
         case "inventory":
             return "Инвентаризация"
@@ -1666,6 +1707,85 @@ private struct ChatFocusedMessagePreview: View {
         default:
             return "Документ"
         }
+    }
+
+    private var documentSubtitle: String {
+        if message.documentKind == "order" {
+            let establishment = orderEstablishmentTitle
+            let orderCustomer = orderCustomerTitle
+
+            if !orderCustomer.isEmpty {
+                return "\(establishment) * \(orderCustomer)"
+            }
+            return establishment
+        }
+
+        if message.documentKind == "inventory" {
+            return inventoryEstablishmentTitle
+        }
+
+        if message.documentKind == "product_registration" {
+            let establishment = productRegistrationEstablishmentTitle
+            let supplier = productRegistrationSupplierTitle
+
+            if !supplier.isEmpty {
+                return "\(establishment) * \(supplier)"
+            }
+            return establishment
+        }
+
+        if let documentID = message.documentID {
+            return "document_id: \(documentID)"
+        }
+
+        return ""
+    }
+
+    private var orderCustomerTitle: String {
+        if let orderCustomer = message.order?.orderCustomer.trimmingCharacters(in: .whitespacesAndNewlines), !orderCustomer.isEmpty {
+            return orderCustomer
+        }
+
+        guard let messageText = message.messageText else { return "" }
+        let firstSegment = messageText
+            .components(separatedBy: "|")
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return firstSegment
+    }
+
+    private var orderEstablishmentTitle: String {
+        if let establishment = message.order?.orderEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines), !establishment.isEmpty {
+            return establishment
+        }
+        return "Точка"
+    }
+
+    private var inventoryEstablishmentTitle: String {
+        if let establishment = message.inventory?.inventoryEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines), !establishment.isEmpty {
+            return establishment
+        }
+        return "Точка"
+    }
+
+    private var productRegistrationEstablishmentTitle: String {
+        if let establishment = message.productRegistration?.productRegistrationEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines), !establishment.isEmpty {
+            return establishment
+        }
+        return "Точка"
+    }
+
+    private var productRegistrationSupplierTitle: String {
+        if let supplier = message.productRegistration?.productRegistrationSupplier?.trimmingCharacters(in: .whitespacesAndNewlines), !supplier.isEmpty {
+            return supplier
+        }
+
+        guard let messageText = message.messageText else { return "" }
+        let firstSegment = messageText
+            .components(separatedBy: "|")
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return firstSegment
     }
 
     private var statusBackgroundColor: Color {

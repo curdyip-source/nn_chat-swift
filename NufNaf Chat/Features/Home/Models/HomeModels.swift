@@ -581,6 +581,7 @@ struct HomeOrderCreateRequest: Encodable {
     let orderSubMethod: String?
     let orderCustomer: String
     let orderInfo: String
+    let orderStatusID: Int?
     let saveContact: Bool
     let items: [HomeOrderItemCreateRequest]
 
@@ -590,6 +591,7 @@ struct HomeOrderCreateRequest: Encodable {
         case orderSubMethod = "order_sub_method"
         case orderCustomer = "order_customer"
         case orderInfo = "order_info"
+        case orderStatusID = "order_status_id"
         case saveContact = "save_contact"
         case items
     }

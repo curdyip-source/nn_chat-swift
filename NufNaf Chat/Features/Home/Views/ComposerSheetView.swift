@@ -23,6 +23,7 @@ struct ComposerSheetView: View {
     @State private var isSearchingContacts = false
     @State private var isCounterpartyOverlayPresented = false
     @State private var shouldSaveContact = false
+    @State private var shouldMarkItemsInStock = false
     @State private var searchQuery = ""
     @State private var searchResults: [HomeProduct] = []
     @State private var customArticle = ""
@@ -234,8 +235,25 @@ struct ComposerSheetView: View {
     @ViewBuilder
     private var productsComposerContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Корзина")
-                .font(.system(size: 18, weight: .bold, design: .rounded))
+            HStack(alignment: .center, spacing: 10) {
+                Text("Корзина")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+
+                Spacer(minLength: 12)
+
+                if shouldShowItemsInStockToggle {
+                    HStack(spacing: 8) {
+                        Text("товары в наличии")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+
+                        Toggle("", isOn: $shouldMarkItemsInStock)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .scaleEffect(0.82)
+                    }
+                }
+            }
 
             productSearchField
 
@@ -443,6 +461,22 @@ struct ComposerSheetView: View {
 
     private var shouldShowSaveContactToggle: Bool {
         editingOrder == nil
+    }
+
+    private var shouldShowItemsInStockToggle: Bool {
+        kind == .order && editingOrder == nil
+    }
+
+    private var orderAssemblyStatusID: Int? {
+        store.referenceData.statuses.first(where: {
+            $0.statusType == "orders" && $0.statusStatus == "На сборку"
+        })?.id
+    }
+
+    private var inStockOrderItemStatusID: Int? {
+        store.referenceData.statuses.first(where: {
+            $0.statusType == "order_products" && $0.statusStatus == "В наличии"
+        })?.id
     }
 
     private var actionButtonTitle: String {
@@ -1427,6 +1461,8 @@ struct ComposerSheetView: View {
             counterpartyName: counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines),
             info: info.trimmingCharacters(in: .whitespacesAndNewlines),
             saveContact: shouldSaveContact,
+            orderStatusID: shouldMarkItemsInStock ? orderAssemblyStatusID : nil,
+            defaultOrderItemStatusID: shouldMarkItemsInStock ? inStockOrderItemStatusID : nil,
             items: selectedItems
         )
         dismissProductOverlays(clearSearch: true)

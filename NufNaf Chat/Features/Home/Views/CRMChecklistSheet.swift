@@ -49,6 +49,7 @@ struct CRMChecklistSheet: View {
     @State private var startedOverrides: [String: Bool] = [:]
     @State private var completedOverrides: [String: Bool] = [:]
     @State private var copyStartStartedEntryIDs: Set<String> = []
+    @State private var supplierSnapshots: [String: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -58,7 +59,7 @@ struct CRMChecklistSheet: View {
                         .font(.system(size: 20, weight: .bold, design: .rounded))
                         .foregroundStyle(.primary)
 
-                    Text("Позиции со статусами Заказ поставщику и Перемещение")
+                    Text("Заказы и Перемещение")
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
@@ -116,10 +117,6 @@ struct CRMChecklistSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if selectedCategory == .order {
-                        orderToolbar
-                    }
-
                     headerRow(for: selectedCategory)
 
                     if selectedCategory == .movement {
@@ -140,9 +137,16 @@ struct CRMChecklistSheet: View {
         .onChange(of: checklistCheckpointSignature) { _, _ in
             reconcileCheckpointOverrides()
         }
+        .onChange(of: checklistSupplierSignature) { _, _ in
+            reconcileCheckpointOverrides()
+        }
         .alert(item: $activeAlert) { alert in
             let dismissPrimaryAction = {
                 alert.primaryAction?()
+                activeAlert = nil
+            }
+            let dismissSecondaryAction = {
+                alert.secondaryButton?.action?()
                 activeAlert = nil
             }
             if let secondaryButton = alert.secondaryButton {
@@ -150,7 +154,7 @@ struct CRMChecklistSheet: View {
                     title: Text(alert.title),
                     message: Text(alert.message),
                     primaryButton: .default(Text(alert.primaryButtonTitle), action: dismissPrimaryAction),
-                    secondaryButton: secondaryButton.alertButton
+                    secondaryButton: secondaryButton.alertButton(action: dismissSecondaryAction)
                 )
             } else {
                 return Alert(
@@ -238,20 +242,6 @@ struct CRMChecklistSheet: View {
             }
     }
 
-    private var orderToolbar: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Группировка по поставщикам")
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(.secondary)
-            Text(orderToolbarSubtitle)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
     private func movementGroupTitle(for entry: Entry) -> String {
         let from = entry.item.orderItemSourceEstablishmentName ?? "Не указано"
         let to = entry.item.orderItemDestinationEstablishmentName ?? "Не указано"
@@ -307,11 +297,23 @@ struct CRMChecklistSheet: View {
 
             checklistMarkButton(
                 isActive: isCompleted,
-                isDisabled: isSaving || isCompleted,
+                isDisabled: isSaving || isCompleted || isPreparingCopy,
                 action: {
-                    startedOverrides[entry.id] = true
-                    completedOverrides[entry.id] = true
-                    onComplete(entry.order, entry.item)
+                    activeAlert = ChecklistAlertContent(
+                        title: "Подтвердите выполнение",
+                        message: "Отметить позицию как выполненную? Это защищает от случайных нажатий.",
+                        primaryButtonTitle: "Подтвердить",
+                        primaryAction: {
+                            startedOverrides[entry.id] = true
+                            completedOverrides[entry.id] = true
+                            onComplete(entry.order, entry.item)
+                        },
+                        secondaryButton: ChecklistAlertButton(
+                            title: "Отмена",
+                            role: .cancel,
+                            action: nil
+                        )
+                    )
                 }
             )
             .frame(width: 82)
@@ -332,16 +334,6 @@ struct CRMChecklistSheet: View {
         .disabled(isDisabled)
     }
 
-    private var orderToolbarSubtitle: String {
-        if isPreparingCopy {
-            if selectedEntriesForCopy.isEmpty {
-                return "Отметьте новые позиции в колонке Заказано, затем нажмите Готово, чтобы скопировать только их."
-            }
-            return "Новые отмеченные позиции готовы. Нажмите Готово, и в буфер скопируется только это дополнение."
-        }
-        return "Нажмите Скопировать, затем отметьте новые позиции в колонке Заказано, чтобы подготовить дополнение к списку поставщику."
-    }
-
     private var selectedEntriesForCopy: [Entry] {
         orderEntries.filter { entry in
             currentStartedState(for: entry) && !copyStartStartedEntryIDs.contains(entry.id)
@@ -351,6 +343,12 @@ struct CRMChecklistSheet: View {
     private var checklistCheckpointSignature: [String] {
         (orderEntries + movementEntries).map {
             "\($0.id):\($0.item.orderItemCheckpointStarted):\($0.item.orderItemCheckpointCompleted)"
+        }
+    }
+
+    private var checklistSupplierSignature: [String] {
+        orderEntries.map {
+            "\($0.id):\(supplierTitle(for: $0))"
         }
     }
 
@@ -366,10 +364,6 @@ struct CRMChecklistSheet: View {
             }
         )
         isPreparingCopy = true
-        activeAlert = ChecklistAlertContent(
-            title: "Подготовьте список",
-            message: "Отметьте новые позиции в колонке Заказано. Уже отмеченные ранее товары в новый список не попадут. После этого нажмите Готово."
-        )
     }
 
     private func finalizeCopyOrderChecklist() {
@@ -458,6 +452,20 @@ struct CRMChecklistSheet: View {
         let allEntries = orderEntries + movementEntries
         let existingIDs = Set(allEntries.map(\.id))
 
+        let currentSupplierSnapshots = Dictionary(uniqueKeysWithValues: orderEntries.map { ($0.id, supplierTitle(for: $0)) })
+        for entry in orderEntries {
+            guard let previousSupplier = supplierSnapshots[entry.id] else { continue }
+            let currentSupplier = currentSupplierSnapshots[entry.id] ?? supplierTitle(for: entry)
+            guard previousSupplier != currentSupplier, currentStartedState(for: entry) else { continue }
+
+            startedOverrides[entry.id] = false
+            completedOverrides[entry.id] = false
+            copyStartStartedEntryIDs.remove(entry.id)
+            onToggleStarted(entry.order, entry.item, false)
+        }
+
+        supplierSnapshots = currentSupplierSnapshots
+
         startedOverrides = startedOverrides.reduce(into: [:]) { result, item in
             guard existingIDs.contains(item.key) else { return }
             guard let entry = allEntries.first(where: { $0.id == item.key }) else { return }
@@ -509,14 +517,15 @@ private struct ChecklistAlertButton {
     let role: Role
     let action: (() -> Void)?
 
-    var alertButton: Alert.Button {
+    func alertButton(action overrideAction: (() -> Void)? = nil) -> Alert.Button {
+        let buttonAction = overrideAction ?? action
         switch role {
         case .default:
-            return .default(Text(title), action: action)
+            return .default(Text(title), action: buttonAction)
         case .cancel:
-            return .cancel(Text(title), action: action)
+            return .cancel(Text(title), action: buttonAction)
         case .destructive:
-            return .destructive(Text(title), action: action)
+            return .destructive(Text(title), action: buttonAction)
         }
     }
 }

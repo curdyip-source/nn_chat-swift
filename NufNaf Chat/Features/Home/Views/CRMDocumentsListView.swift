@@ -1,11 +1,14 @@
 import SwiftUI
 
 struct CRMDocumentsListView: View {
+    @EnvironmentObject private var session: AppSession
+
     let messages: [HomeMessage]
     let referenceData: HomeReferenceDataResponse
     let isLoading: Bool
     let errorMessage: String?
     let updatingDocumentKey: String?
+    @Binding var selectedSection: CRMSection
     let onOpenDocument: (String, Int) -> Void
     let onSelectOrderStatus: (HomeOrder, Int) -> Void
     let onSelectOrderItemStatus: (HomeOrder, Int, Int, Int?, Int?, String?) -> Void
@@ -13,7 +16,6 @@ struct CRMDocumentsListView: View {
     let onSelectInventoryStatus: (HomeInventory, Int) -> Void
     let onSelectProductRegistrationStatus: (HomeProductRegistration, Int) -> Void
 
-    @State private var selectedSection: CRMSection = .orders
     @State private var movementSelection: CRMMovementSelection?
     @State private var supplierSelection: CRMSupplierSelection?
     @State private var supplierQuery = ""
@@ -22,71 +24,77 @@ struct CRMDocumentsListView: View {
 
     var body: some View {
         ZStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let errorMessage, !errorMessage.isEmpty {
-                        Text(errorMessage)
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundStyle(.red.opacity(0.92))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    }
+            VStack(spacing: 6) {
+                crmSearchField
+                    .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+                    .padding(.top, 8)
 
-                    if isLoading && messages.isEmpty {
-                        Text("Загружаем CRM...")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundStyle(AppTheme.mutedText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if currentSectionIsEmpty {
-                        Text(emptyStateTitle)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundStyle(AppTheme.mutedText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 8)
-                    } else {
-                        if selectedSection == .products {
-                            ForEach(productEntries) { entry in
-                                CRMOrderProductRow(
-                                    entry: entry,
-                                    itemStatuses: orderItemStatuses,
-                                    currencyTitleProvider: currencyTitle(for:),
-                                    isSaving: updatingDocumentKey == documentKey(kind: "order", id: entry.order.id),
-                                    onOpen: {
-                                        onOpenDocument("order", entry.order.id)
-                                    },
-                                    onSelectStatus: { statusID in
-                                        handleOrderItemStatusSelection(order: entry.order, itemID: entry.item.id, statusID: statusID, promptForSupplier: true)
-                                    }
-                                )
-                            }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if let errorMessage, !errorMessage.isEmpty {
+                            Text(errorMessage)
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundStyle(.red.opacity(0.92))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+
+                        if isLoading && messages.isEmpty {
+                            Text("Загружаем CRM...")
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundStyle(AppTheme.mutedText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else if currentSectionIsEmpty {
+                            Text(emptyStateTitle)
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundStyle(AppTheme.mutedText)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 8)
                         } else {
-                            ForEach(displayedOrders) { order in
-                                CRMOrderCardView(
-                                    order: order,
-                                    orderMethods: referenceData.orderMethods,
-                                    itemStatuses: orderItemStatuses,
-                                    statuses: referenceData.statuses.filter { $0.statusType == "orders" },
-                                    currencyTitleProvider: currencyTitle(for:),
-                                    isSaving: updatingDocumentKey == documentKey(kind: "order", id: order.id),
-                                    onOpen: {
-                                        onOpenDocument("order", order.id)
-                                    },
-                                    onSelectStatus: { statusID in
-                                        onSelectOrderStatus(order, statusID)
-                                    },
-                                    onSelectItemStatus: { itemID, statusID in
-                                        handleOrderItemStatusSelection(order: order, itemID: itemID, statusID: statusID)
-                                    }
-                                )
+                            if selectedSection == .products {
+                                ForEach(productEntries) { entry in
+                                    CRMOrderProductRow(
+                                        entry: entry,
+                                        itemStatuses: orderItemStatuses,
+                                        currencyTitleProvider: currencyTitle(for:),
+                                        isSaving: updatingDocumentKey == documentKey(kind: "order", id: entry.order.id),
+                                        onOpen: {
+                                            onOpenDocument("order", entry.order.id)
+                                        },
+                                        onSelectStatus: { statusID in
+                                            handleOrderItemStatusSelection(order: entry.order, itemID: entry.item.id, statusID: statusID, promptForSupplier: true)
+                                        }
+                                    )
+                                }
+                            } else {
+                                ForEach(displayedOrders) { order in
+                                    CRMOrderCardView(
+                                        order: order,
+                                        orderMethods: referenceData.orderMethods,
+                                        itemStatuses: orderItemStatuses,
+                                        statuses: referenceData.statuses.filter { $0.statusType == "orders" },
+                                        currencyTitleProvider: currencyTitle(for:),
+                                        isSaving: updatingDocumentKey == documentKey(kind: "order", id: order.id),
+                                        onOpen: {
+                                            onOpenDocument("order", order.id)
+                                        },
+                                        onSelectStatus: { statusID in
+                                            onSelectOrderStatus(order, statusID)
+                                        },
+                                        onSelectItemStatus: { itemID, statusID in
+                                            handleOrderItemStatusSelection(order: order, itemID: itemID, statusID: statusID)
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
+                    .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+                    .padding(.top, 8)
+                    .padding(.bottom, AppTheme.PageLayout.bottomPadding)
                 }
-                .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
-                .padding(.top, 8)
-                .padding(.bottom, AppTheme.PageLayout.bottomPadding)
             }
 
             if let movementSelection {
@@ -192,6 +200,38 @@ struct CRMDocumentsListView: View {
         }
     }
 
+    private var crmSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.68))
+
+            TextField("Товар, заказ, точка, клиент", text: $session.crmSearchQuery)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(Color.white)
+                .submitLabel(.search)
+
+            if !session.crmSearchQuery.isEmpty {
+                Button {
+                    session.crmSearchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.72))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 34)
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 17, style: .continuous)
+                .stroke(Color.white.opacity(0.82), lineWidth: 1)
+        )
+    }
+
     private var displayedOrders: [HomeOrder] {
         switch selectedSection {
         case .orders:
@@ -255,7 +295,7 @@ struct CRMDocumentsListView: View {
     }
 
     private var hiddenProductStatuses: Set<String> {
-        ["отгружено", "принято на складе", "в наличии"]
+        ["отгружено", "принято на складе", "в наличии", "собрано", "возврат"]
     }
 
     private func isShipmentOrder(_ order: HomeOrder) -> Bool {
@@ -366,9 +406,9 @@ struct CRMDocumentsListView: View {
     }
 }
 
-private enum CRMSection: String, CaseIterable, Identifiable {
-    case orders = "Список заказов"
-    case products = "Список товаров"
+enum CRMSection: String, CaseIterable, Identifiable {
+    case orders = "Все заказы"
+    case products = "Товары"
     case shipments = "Отгрузки"
 
     var id: String { rawValue }
@@ -387,9 +427,9 @@ private enum CRMSection: String, CaseIterable, Identifiable {
     var accessibilityTitle: String {
         switch self {
         case .orders:
-            return "Список заказов"
+            return "Все заказы"
         case .products:
-            return "Список товаров"
+            return "Товары"
         case .shipments:
             return "Отгрузки"
         }
@@ -1192,15 +1232,22 @@ private struct CRMSectionBar: View {
                 Button {
                     selection = section
                 } label: {
-                    Image(systemName: section.iconName)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(selection == section ? AppTheme.primaryButtonText : AppTheme.secondaryButtonText)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .background(
-                            (selection == section ? AppTheme.primaryButtonBackground : AppTheme.secondaryButtonBackground),
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        )
+                    VStack(spacing: 4) {
+                        Image(systemName: section.iconName)
+                            .font(.system(size: 17, weight: .bold))
+
+                        Text(section.rawValue)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                    }
+                    .foregroundStyle(selection == section ? AppTheme.primaryButtonText : AppTheme.secondaryButtonText)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(
+                        (selection == section ? AppTheme.primaryButtonBackground : AppTheme.secondaryButtonBackground),
+                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(section.accessibilityTitle)
