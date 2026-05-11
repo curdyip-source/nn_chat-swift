@@ -295,7 +295,7 @@ struct CRMDocumentsListView: View {
     }
 
     private var hiddenProductStatuses: Set<String> {
-        ["отгружено", "принято на складе", "в наличии"]
+        ["отгружено", "принято на складе", "в наличии", "собрано", "возврат"]
     }
 
     private func isShipmentOrder(_ order: HomeOrder) -> Bool {

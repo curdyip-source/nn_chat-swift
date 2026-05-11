@@ -59,7 +59,7 @@ struct CRMChecklistSheet: View {
                         .font(.system(size: 20, weight: .bold, design: .rounded))
                         .foregroundStyle(.primary)
 
-                    Text("Позиции со статусами Заказ поставщику и Перемещение")
+                    Text("Заказы и Перемещение")
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
@@ -117,10 +117,6 @@ struct CRMChecklistSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    if selectedCategory == .order {
-                        orderToolbar
-                    }
-
                     headerRow(for: selectedCategory)
 
                     if selectedCategory == .movement {
@@ -149,12 +145,16 @@ struct CRMChecklistSheet: View {
                 alert.primaryAction?()
                 activeAlert = nil
             }
+            let dismissSecondaryAction = {
+                alert.secondaryButton?.action?()
+                activeAlert = nil
+            }
             if let secondaryButton = alert.secondaryButton {
                 return Alert(
                     title: Text(alert.title),
                     message: Text(alert.message),
                     primaryButton: .default(Text(alert.primaryButtonTitle), action: dismissPrimaryAction),
-                    secondaryButton: secondaryButton.alertButton
+                    secondaryButton: secondaryButton.alertButton(action: dismissSecondaryAction)
                 )
             } else {
                 return Alert(
@@ -240,20 +240,6 @@ struct CRMChecklistSheet: View {
             .map { key in
                 (title: key, entries: (Dictionary(grouping: orderEntries, by: supplierTitle(for:))[key] ?? []).sorted(by: orderEntryComparator))
             }
-    }
-
-    private var orderToolbar: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Группировка по поставщикам")
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(.secondary)
-            Text(orderToolbarSubtitle)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func movementGroupTitle(for entry: Entry) -> String {
@@ -348,16 +334,6 @@ struct CRMChecklistSheet: View {
         .disabled(isDisabled)
     }
 
-    private var orderToolbarSubtitle: String {
-        if isPreparingCopy {
-            if selectedEntriesForCopy.isEmpty {
-                return "Отметьте новые позиции в колонке Заказано, затем нажмите Готово, чтобы скопировать только их."
-            }
-            return "Новые отмеченные позиции готовы. Нажмите Готово, и в буфер скопируется только это дополнение."
-        }
-        return "Нажмите Скопировать, затем отметьте новые позиции в колонке Заказано, чтобы подготовить дополнение к списку поставщику."
-    }
-
     private var selectedEntriesForCopy: [Entry] {
         orderEntries.filter { entry in
             currentStartedState(for: entry) && !copyStartStartedEntryIDs.contains(entry.id)
@@ -388,10 +364,6 @@ struct CRMChecklistSheet: View {
             }
         )
         isPreparingCopy = true
-        activeAlert = ChecklistAlertContent(
-            title: "Подготовьте список",
-            message: "Отметьте новые позиции в колонке Заказано. Уже отмеченные ранее товары в новый список не попадут. После этого нажмите Готово."
-        )
     }
 
     private func finalizeCopyOrderChecklist() {
@@ -545,14 +517,15 @@ private struct ChecklistAlertButton {
     let role: Role
     let action: (() -> Void)?
 
-    var alertButton: Alert.Button {
+    func alertButton(action overrideAction: (() -> Void)? = nil) -> Alert.Button {
+        let buttonAction = overrideAction ?? action
         switch role {
         case .default:
-            return .default(Text(title), action: action)
+            return .default(Text(title), action: buttonAction)
         case .cancel:
-            return .cancel(Text(title), action: action)
+            return .cancel(Text(title), action: buttonAction)
         case .destructive:
-            return .destructive(Text(title), action: action)
+            return .destructive(Text(title), action: buttonAction)
         }
     }
 }
