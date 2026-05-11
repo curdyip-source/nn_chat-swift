@@ -440,10 +440,10 @@ private struct ChatMessageRow: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(documentTitle(kind: kind))
+                    Text(documentTitle(kind: kind, id: id))
                         .font(.system(size: 16, weight: .bold, design: .rounded))
                         .foregroundColor(.white)
-                    Text(documentSubtitle(id: id))
+                    Text(documentSubtitle(kind: kind, id: id))
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundColor(.white.opacity(0.68))
                 }
@@ -677,10 +677,10 @@ private struct ChatMessageRow: View {
         return formatter
     }()
 
-    private func documentTitle(kind: String) -> String {
+    private func documentTitle(kind: String, id: Int) -> String {
         switch kind {
         case "order":
-            return "Заказ"
+            return "Заказ №\(id)"
         case "inventory":
             return "Инвентаризация"
         case "product_registration":
@@ -690,7 +690,31 @@ private struct ChatMessageRow: View {
         }
     }
 
-    private func documentSubtitle(id: Int) -> String {
+    private func documentSubtitle(kind: String, id: Int) -> String {
+        if kind == "order" {
+            let establishment = orderEstablishmentTitle
+            let orderCustomer = orderCustomerTitle
+
+            if !orderCustomer.isEmpty {
+                return "\(establishment) * \(orderCustomer)"
+            }
+            return establishment
+        }
+
+        if kind == "inventory" {
+            return inventoryEstablishmentTitle
+        }
+
+        if kind == "product_registration" {
+            let establishment = productRegistrationEstablishmentTitle
+            let supplier = productRegistrationSupplierTitle
+
+            if !supplier.isEmpty {
+                return "\(establishment) * \(supplier)"
+            }
+            return establishment
+        }
+
         if message.isLocalOnly {
             switch message.deliveryState {
             case .pending:
@@ -704,17 +728,55 @@ private struct ChatMessageRow: View {
         return "document_id: \(id)"
     }
 
-    private var statusBadgeBackgroundColor: Color {
-        switch (message.messageStatusColor ?? "").lowercased() {
-        case "green":
-            return Color(red: 0.16, green: 0.52, blue: 0.31)
-        case "orange":
-            return Color(red: 0.78, green: 0.44, blue: 0.12)
-        case "blue":
-            return Color(red: 0.20, green: 0.40, blue: 0.78)
-        default:
-            return Color.white.opacity(0.16)
+    private var orderCustomerTitle: String {
+        if let orderCustomer = message.order?.orderCustomer.trimmingCharacters(in: .whitespacesAndNewlines), !orderCustomer.isEmpty {
+            return orderCustomer
         }
+
+        guard let messageText = message.messageText else { return "" }
+        let firstSegment = messageText
+            .components(separatedBy: "|")
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return firstSegment
+    }
+
+    private var orderEstablishmentTitle: String {
+        if let establishment = message.order?.orderEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines), !establishment.isEmpty {
+            return establishment
+        }
+        return "Точка"
+    }
+
+    private var inventoryEstablishmentTitle: String {
+        if let establishment = message.inventory?.inventoryEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines), !establishment.isEmpty {
+            return establishment
+        }
+        return "Точка"
+    }
+
+    private var productRegistrationEstablishmentTitle: String {
+        if let establishment = message.productRegistration?.productRegistrationEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines), !establishment.isEmpty {
+            return establishment
+        }
+        return "Точка"
+    }
+
+    private var productRegistrationSupplierTitle: String {
+        if let supplier = message.productRegistration?.productRegistrationSupplier?.trimmingCharacters(in: .whitespacesAndNewlines), !supplier.isEmpty {
+            return supplier
+        }
+
+        guard let messageText = message.messageText else { return "" }
+        let firstSegment = messageText
+            .components(separatedBy: "|")
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return firstSegment
+    }
+
+    private var statusBadgeBackgroundColor: Color {
+        BusinessDocumentColors.statusColor(message.messageStatusColor)
     }
 
     private var statusBadgeForegroundColor: Color {

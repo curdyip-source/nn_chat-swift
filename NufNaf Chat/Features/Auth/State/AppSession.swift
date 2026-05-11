@@ -25,6 +25,7 @@ final class AppSession: ObservableObject {
     @Published var activeDocument: AppDocumentDestination?
     @Published private(set) var chatFilterState = HomeChatFilterState.default()
     @Published var isChatFilterPresented = false
+    @Published var crmSearchQuery = ""
 
     private let client: AuthAPIClient
     private let defaults: UserDefaults
@@ -297,6 +298,25 @@ final class AppSession: ObservableObject {
     func updateChatFilterState(_ state: HomeChatFilterState) {
         chatFilterState = state
         saveChatFilterStateIfPossible()
+    }
+
+    func setHomeDisplayMode(_ mode: HomeDisplayMode) {
+        guard chatFilterState.displayMode != mode else { return }
+
+        activeDocument = nil
+        isProfileOpen = false
+        isChecklistOpen = false
+        isChatFilterPresented = false
+        updateChatFilterState(HomeChatFilterState(
+            displayMode: mode,
+            year: chatFilterState.year,
+            months: chatFilterState.months,
+            kinds: chatFilterState.kinds,
+            hideCompleted: chatFilterState.hideCompleted,
+            orderMethodIDs: chatFilterState.orderMethodIDs,
+            establishmentIDs: chatFilterState.establishmentIDs,
+            statusIDs: chatFilterState.statusIDs
+        ))
     }
 
     func resetChatFilterState() {

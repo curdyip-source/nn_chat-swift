@@ -81,6 +81,34 @@ struct HomeProductResponse: Decodable {
     let items: [HomeProduct]
 }
 
+struct HomeContactResponse: Decodable {
+    let items: [HomeContact]
+}
+
+struct HomeContact: Decodable, Identifiable, Hashable {
+    let id: Int
+    let contactType: String
+    let contactName: String
+    let contactInfo: String?
+    let contactEstablishmentID: Int?
+    let contactEstablishmentName: String?
+    let contactOrderMethodID: Int?
+    let contactOrderMethodName: String?
+    let contactOrderSubMethod: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "contact_id"
+        case contactType = "contact_type"
+        case contactName = "contact_name"
+        case contactInfo = "contact_info"
+        case contactEstablishmentID = "contact_establishment_id"
+        case contactEstablishmentName = "contact_establishment_name"
+        case contactOrderMethodID = "contact_order_method_id"
+        case contactOrderMethodName = "contact_order_method_name"
+        case contactOrderSubMethod = "contact_order_sub_method"
+    }
+}
+
 struct HomeProduct: Decodable, Identifiable, Hashable {
     let id: Int
     let productArticle: String
@@ -553,6 +581,8 @@ struct HomeOrderCreateRequest: Encodable {
     let orderSubMethod: String?
     let orderCustomer: String
     let orderInfo: String
+    let orderStatusID: Int?
+    let saveContact: Bool
     let items: [HomeOrderItemCreateRequest]
 
     enum CodingKeys: String, CodingKey {
@@ -561,6 +591,8 @@ struct HomeOrderCreateRequest: Encodable {
         case orderSubMethod = "order_sub_method"
         case orderCustomer = "order_customer"
         case orderInfo = "order_info"
+        case orderStatusID = "order_status_id"
+        case saveContact = "save_contact"
         case items
     }
 }
@@ -762,6 +794,7 @@ struct HomeOrderItem: Decodable, Identifiable, Hashable {
     let orderItemStatusID: Int?
     let orderItemStatus: String?
     let orderItemStatusColor: String?
+    let orderItemSupplier: String?
     let orderItemSourceEstablishmentID: Int?
     let orderItemSourceEstablishmentName: String?
     let orderItemDestinationEstablishmentID: Int?
@@ -780,6 +813,7 @@ struct HomeOrderItem: Decodable, Identifiable, Hashable {
         case orderItemStatusID = "order_item_status_id"
         case orderItemStatus = "order_item_status"
         case orderItemStatusColor = "order_item_status_color"
+        case orderItemSupplier = "order_item_supplier"
         case orderItemSourceEstablishmentID = "order_item_source_establishment_id"
         case orderItemSourceEstablishmentName = "order_item_source_establishment_name"
         case orderItemDestinationEstablishmentID = "order_item_destination_establishment_id"
@@ -800,6 +834,7 @@ struct HomeOrderItem: Decodable, Identifiable, Hashable {
         orderItemStatusID = try container.decodeIfPresent(Int.self, forKey: .orderItemStatusID)
         orderItemStatus = try container.decodeIfPresent(String.self, forKey: .orderItemStatus)
         orderItemStatusColor = try container.decodeIfPresent(String.self, forKey: .orderItemStatusColor)
+        orderItemSupplier = try container.decodeIfPresent(String.self, forKey: .orderItemSupplier)
         orderItemSourceEstablishmentID = try container.decodeIfPresent(Int.self, forKey: .orderItemSourceEstablishmentID)
         orderItemSourceEstablishmentName = try container.decodeIfPresent(String.self, forKey: .orderItemSourceEstablishmentName)
         orderItemDestinationEstablishmentID = try container.decodeIfPresent(Int.self, forKey: .orderItemDestinationEstablishmentID)
@@ -817,6 +852,7 @@ struct HomeOrderItemCreateRequest: Encodable {
     let orderItemQuantity: Int
     let orderItemPrice: String
     let orderItemStatusID: Int?
+    let orderItemSupplier: String?
     let orderItemSourceEstablishmentID: Int?
     let orderItemDestinationEstablishmentID: Int?
     let orderItemCurrencyID: Int?
@@ -830,6 +866,7 @@ struct HomeOrderItemCreateRequest: Encodable {
         orderItemQuantity: Int,
         orderItemPrice: String,
         orderItemStatusID: Int?,
+        orderItemSupplier: String? = nil,
         orderItemSourceEstablishmentID: Int? = nil,
         orderItemDestinationEstablishmentID: Int? = nil,
         orderItemCurrencyID: Int?,
@@ -842,6 +879,7 @@ struct HomeOrderItemCreateRequest: Encodable {
         self.orderItemQuantity = orderItemQuantity
         self.orderItemPrice = orderItemPrice
         self.orderItemStatusID = orderItemStatusID
+        self.orderItemSupplier = orderItemSupplier
         self.orderItemSourceEstablishmentID = orderItemSourceEstablishmentID
         self.orderItemDestinationEstablishmentID = orderItemDestinationEstablishmentID
         self.orderItemCurrencyID = orderItemCurrencyID
@@ -856,6 +894,7 @@ struct HomeOrderItemCreateRequest: Encodable {
         case orderItemQuantity = "order_item_quantity"
         case orderItemPrice = "order_item_price"
         case orderItemStatusID = "order_item_status_id"
+        case orderItemSupplier = "order_item_supplier"
         case orderItemSourceEstablishmentID = "order_item_source_establishment_id"
         case orderItemDestinationEstablishmentID = "order_item_destination_establishment_id"
         case orderItemCurrencyID = "order_item_currency_id"
@@ -920,11 +959,13 @@ struct HomeOrderItemDraft: Identifiable, Hashable {
 struct HomeInventoryCreateRequest: Encodable {
     let inventoryEstablishmentID: Int
     let inventorySupplier: String?
+    let saveContact: Bool
     let items: [HomeInventoryItemCreateRequest]
 
     enum CodingKeys: String, CodingKey {
         case inventoryEstablishmentID = "inventory_establishment_id"
         case inventorySupplier = "inventory_supplier"
+        case saveContact = "save_contact"
         case items
     }
 }
@@ -1002,11 +1043,13 @@ struct HomeInventoryItemCreateRequest: Encodable {
 struct HomeProductRegistrationCreateRequest: Encodable {
     let productRegistrationEstablishmentID: Int
     let productRegistrationSupplier: String
+    let saveContact: Bool
     let items: [HomeProductRegistrationItemCreateRequest]
 
     enum CodingKeys: String, CodingKey {
         case productRegistrationEstablishmentID = "product_registration_establishment_id"
         case productRegistrationSupplier = "product_registration_supplier"
+        case saveContact = "save_contact"
         case items
     }
 }

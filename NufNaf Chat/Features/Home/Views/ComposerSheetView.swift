@@ -9,12 +9,21 @@ import SwiftUI
 import UIKit
 
 struct ComposerSheetView: View {
+    private enum ComposerPagingConstants {
+        static let animation = Animation.interactiveSpring(response: 0.32, dampingFraction: 0.86)
+    }
+
     @EnvironmentObject private var session: AppSession
     @State private var selectedEstablishmentID: Int?
     @State private var selectedOrderMethodID: Int?
     @State private var selectedOrderSubMethod: String?
     @State private var counterpartyName = ""
     @State private var info = ""
+    @State private var counterpartyResults: [HomeContact] = []
+    @State private var isSearchingContacts = false
+    @State private var isCounterpartyOverlayPresented = false
+    @State private var shouldSaveContact = false
+    @State private var shouldMarkItemsInStock = false
     @State private var searchQuery = ""
     @State private var searchResults: [HomeProduct] = []
     @State private var customArticle = ""
@@ -30,6 +39,8 @@ struct ComposerSheetView: View {
     @State private var submitErrorMessage: String?
     @State private var priceValidationAlertItemID: UUID?
     @State private var selectedSection: ComposerSection = .info
+    @State private var activeSection: ComposerSection?
+    @State private var pendingSection: ComposerSection?
     @FocusState private var focusedField: FocusField?
 
     let kind: HomeComposerKind
@@ -87,33 +98,22 @@ struct ComposerSheetView: View {
                     sheetHeader
 
                     GeometryReader { proxy in
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 14) {
-                                if let submitErrorMessage, !submitErrorMessage.isEmpty {
-                                    Text(submitErrorMessage)
-                                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                                        .foregroundStyle(.red)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 12)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        ComposerSectionPager(
+                            selection: $selectedSection,
+                            activeSection: $activeSection,
+                            pendingSection: $pendingSection,
+                            pageWidth: proxy.size.width,
+                            infoPage: {
+                                composerPage(minHeight: proxy.size.height - 12) {
+                                    infoComposerContent
                                 }
-
-                                composerContent
+                            },
+                            productsPage: {
+                                composerPage(minHeight: proxy.size.height - 12) {
+                                    productsComposerContent
+                                }
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .frame(minHeight: proxy.size.height - 12, alignment: .top)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 12)
-                            .padding(.bottom, 16)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                dismissKeyboard()
-                            }
-                        }
-                        .scrollDismissesKeyboard(.interactively)
-                        .scrollBounceBehavior(.basedOnSize)
-                        .scrollIndicators(.hidden)
+                        )
                     }
                 }
 
@@ -147,8 +147,17 @@ struct ComposerSheetView: View {
                 applyDefaultCurrencyToItems()
             }
             .onChange(of: selectedSection) { _, newValue in
+                pendingSection = newValue
+                if activeSection != newValue {
+                    withAnimation(ComposerPagingConstants.animation) {
+                        activeSection = newValue
+                    }
+                }
                 if newValue != .products {
                     dismissProductOverlays(clearSearch: false)
+                }
+                if newValue != .info {
+                    dismissCounterpartySearch(clearResults: false)
                 }
             }
             .transaction { transaction in
@@ -162,91 +171,186 @@ struct ComposerSheetView: View {
             } message: {
                 Text("Укажите цену у выбранного товара перед созданием заказа.")
             }
+            .onAppear {
+                activeSection = selectedSection
+                pendingSection = selectedSection
+            }
         }
     }
 
     @ViewBuilder
-    private var composerContent: some View {
-        if selectedSection == .info {
-            if showsCounterpartyField {
-                composerField(title: counterpartyTitle, text: $counterpartyName, placeholder: counterpartyPlaceholder, focus: .counterparty)
-            }
+    private var infoComposerContent: some View {
+        if showsCounterpartyField {
+            counterpartySearchField
 
-            if kind == .order {
-                composerField(title: "Информация", text: $info, placeholder: "г. Москва, улица Восьмая 6", focus: .info)
-                composerDivider
-            } else if showsCounterpartyField {
-                composerDivider
-            }
-
-            if !store.referenceData.establishments.isEmpty {
-                composerChoiceGroup(
-                    items: store.referenceData.establishments,
-                    selectedID: selectedEstablishmentID,
-                    title: nil,
-                    layout: .equalWidthRow,
-                    value: { $0.establishmentName },
-                    onSelect: { selectedEstablishmentID = $0.id }
-                )
-            }
-
-            if kind == .order, !store.referenceData.orderMethods.isEmpty {
-                composerDivider
-
-                composerChoiceGroup(
-                    items: store.referenceData.orderMethods,
-                    selectedID: selectedOrderMethodID,
-                    title: nil,
-                    layout: .threeColumnGrid,
-                    value: { $0.orderMethodName },
-                    onSelect: { selectedOrderMethodID = $0.id }
-                )
-
-                if !availableOrderSubMethods.isEmpty {
-                    composerDivider
-
-                    composerSubMethodGroup(
-                        title: "Подспособ",
-                        options: availableOrderSubMethods,
-                        selectedValue: selectedOrderSubMethod,
-                        onSelect: { selectedOrderSubMethod = $0 }
-                    )
-                }
+            if isCounterpartyOverlayPresented {
+                counterpartyResultsPanel
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
 
-        if selectedSection == .products {
-            VStack(alignment: .leading, spacing: 12) {
+        if kind == .order {
+            composerField(title: "Информация", text: $info, placeholder: "г. Москва, улица Восьмая 6", focus: .info)
+            composerDivider
+        } else if showsCounterpartyField {
+            composerDivider
+        }
+
+        if !store.referenceData.establishments.isEmpty {
+            composerChoiceGroup(
+                items: store.referenceData.establishments,
+                selectedID: selectedEstablishmentID,
+                title: nil,
+                layout: .equalWidthRow,
+                value: { $0.establishmentName },
+                onSelect: { selectedEstablishmentID = $0.id }
+            )
+        }
+
+        if kind == .order, !store.referenceData.orderMethods.isEmpty {
+            composerDivider
+
+            composerChoiceGroup(
+                items: store.referenceData.orderMethods,
+                selectedID: selectedOrderMethodID,
+                title: nil,
+                layout: .threeColumnGrid,
+                value: { $0.orderMethodName },
+                onSelect: { selectedOrderMethodID = $0.id }
+            )
+
+            if !availableOrderSubMethods.isEmpty {
+                composerDivider
+
+                composerSubMethodGroup(
+                    title: "Подспособ",
+                    options: availableOrderSubMethods,
+                    selectedValue: selectedOrderSubMethod,
+                    onSelect: { selectedOrderSubMethod = $0 }
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var productsComposerContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
                 Text("Корзина")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
 
-                productSearchField
+                Spacer(minLength: 12)
 
-                if isSearchOverlayPresented {
-                    searchResultsPanel
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                }
+                if shouldShowItemsInStockToggle {
+                    HStack(spacing: 8) {
+                        Text("товары в наличии")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
 
-                if selectedItems.isEmpty {
-                    Text("Добавьте товары через поиск или создайте новый товар из нижнего окна.")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.black.opacity(0.04))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                } else {
-                    composerDivider
-
-                    Text("Добавленные позиции")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach($selectedItems) { $item in
-                            compactSelectedItemCard($item)
-                        }
+                        Toggle("", isOn: $shouldMarkItemsInStock)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .scaleEffect(0.82)
                     }
                 }
+            }
+
+            productSearchField
+
+            if isSearchOverlayPresented {
+                searchResultsPanel
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            if selectedItems.isEmpty {
+                Text("Добавьте товары через поиск или создайте новый товар из нижнего окна.")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.black.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            } else {
+                composerDivider
+
+                Text("Добавленные позиции")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach($selectedItems) { $item in
+                        compactSelectedItemCard($item)
+                    }
+                }
+            }
+        }
+    }
+
+    private func composerPage<PageContent: View>(minHeight: CGFloat, @ViewBuilder content: @escaping () -> PageContent) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if let submitErrorMessage, !submitErrorMessage.isEmpty {
+                    Text(submitErrorMessage)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(.red)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                content()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: minHeight, alignment: .top)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 16)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                dismissKeyboard()
+            }
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollIndicators(.hidden)
+    }
+
+    private struct ComposerSectionPager<InfoPage: View, ProductsPage: View>: View {
+        @Binding var selection: ComposerSection
+        @Binding var activeSection: ComposerSection?
+        @Binding var pendingSection: ComposerSection?
+        let pageWidth: CGFloat
+
+        @ViewBuilder let infoPage: () -> InfoPage
+        @ViewBuilder let productsPage: () -> ProductsPage
+
+        var body: some View {
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    infoPage()
+                        .frame(width: pageWidth)
+                        .id(ComposerSection.info)
+
+                    productsPage()
+                        .frame(width: pageWidth)
+                        .id(ComposerSection.products)
+                }
+                .scrollTargetLayout()
+            }
+            .scrollIndicators(.hidden)
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: $activeSection)
+            .onScrollPhaseChange { _, newPhase in
+                guard newPhase == .idle,
+                      let pendingSection,
+                      pendingSection != selection else {
+                    return
+                }
+                selection = pendingSection
+            }
+            .onChange(of: activeSection) { _, section in
+                guard let section else { return }
+                pendingSection = section
             }
         }
     }
@@ -355,6 +459,26 @@ struct ComposerSheetView: View {
         kind == .order ? "Марина" : "ООО Восток"
     }
 
+    private var shouldShowSaveContactToggle: Bool {
+        editingOrder == nil
+    }
+
+    private var shouldShowItemsInStockToggle: Bool {
+        kind == .order && editingOrder == nil
+    }
+
+    private var orderAssemblyStatusID: Int? {
+        store.referenceData.statuses.first(where: {
+            $0.statusType == "orders" && $0.statusStatus == "На сборку"
+        })?.id
+    }
+
+    private var inStockOrderItemStatusID: Int? {
+        store.referenceData.statuses.first(where: {
+            $0.statusType == "order_products" && $0.statusStatus == "В наличии"
+        })?.id
+    }
+
     private var actionButtonTitle: String {
         if editingOrder != nil {
             return "Сохранить заказ"
@@ -379,6 +503,23 @@ struct ComposerSheetView: View {
 
     private var normalizedSearchQuery: String {
         searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var normalizedCounterpartyQuery: String {
+        counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var currentContactType: String? {
+        guard showsCounterpartyField else { return nil }
+        return kind == .order ? "buyer" : "supplier"
+    }
+
+    private var counterpartySearchPrompt: String {
+        kind == .order ? "Начните вводить имя клиента." : "Начните вводить имя поставщика."
+    }
+
+    private var counterpartyEmptyStateTitle: String {
+        kind == .order ? "Клиент не найден" : "Поставщик не найден"
     }
 
     private var availableCurrencies: [HomeCurrency] {
@@ -476,6 +617,140 @@ struct ComposerSheetView: View {
         .onChange(of: searchQuery) { _, newValue in
             handleSearchQueryChange(newValue)
         }
+    }
+
+    private var counterpartySearchField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                Text(counterpartyTitle)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 12)
+
+                if shouldShowSaveContactToggle {
+                    HStack(spacing: 8) {
+                        Text("добавить контакт")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+
+                        Toggle("", isOn: $shouldSaveContact)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .scaleEffect(0.82)
+                    }
+                }
+            }
+
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+
+                TextField(counterpartyPlaceholder, text: $counterpartyName)
+                    .focused($focusedField, equals: .counterparty)
+                    .submitLabel(.search)
+                    .foregroundStyle(.primary)
+
+                if !counterpartyName.isEmpty {
+                    Button {
+                        clearCounterpartyQuery()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(14)
+            .background(inputFieldBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(inputFieldBorder, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .onTapGesture {
+                presentCounterpartyOverlay()
+            }
+        }
+        .onChange(of: focusedField) { _, newValue in
+            if newValue == .counterparty {
+                presentCounterpartyOverlay()
+            } else if newValue != .search {
+                dismissCounterpartySearch(clearResults: false)
+            }
+        }
+        .onChange(of: counterpartyName) { _, newValue in
+            handleCounterpartyQueryChange(newValue)
+        }
+    }
+
+    private var counterpartyResultsPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if normalizedCounterpartyQuery.isEmpty {
+                Text(counterpartySearchPrompt)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if isSearchingContacts {
+                VStack(spacing: 12) {
+                    Spacer(minLength: 0)
+                    ProgressView()
+                    Text("Ищем контакты...")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 120)
+            } else if counterpartyResults.isEmpty {
+                Text(counterpartyEmptyStateTitle)
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(counterpartyResults) { contact in
+                            Button {
+                                applyContactSelection(contact)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(contact.contactName)
+                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(.primary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                    if let contactInfo = contact.contactInfo, !contactInfo.isEmpty {
+                                        Text(contactInfo)
+                                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                                .padding(12)
+                                .background(Color.black.opacity(0.04))
+                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 220)
+            }
+        }
+        .padding(.top, 12)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(uiColor: .tertiarySystemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(inputFieldBorder, lineWidth: 1)
+                )
+        )
     }
 
     private var searchResultsPanel: some View {
@@ -686,6 +961,13 @@ struct ComposerSheetView: View {
         }
     }
 
+    private func presentCounterpartyOverlay() {
+        isCounterpartyOverlayPresented = true
+        if normalizedCounterpartyQuery.count >= 2 {
+            handleCounterpartyQueryChange(counterpartyName)
+        }
+    }
+
     private func dismissProductOverlays(clearSearch: Bool) {
         isCreateProductOverlayPresented = false
         isSearchingProducts = false
@@ -696,6 +978,14 @@ struct ComposerSheetView: View {
             isSearchOverlayPresented = false
             searchQuery = ""
             searchResults = []
+        }
+    }
+
+    private func dismissCounterpartySearch(clearResults: Bool) {
+        isCounterpartyOverlayPresented = false
+        isSearchingContacts = false
+        if clearResults {
+            counterpartyResults = []
         }
     }
 
@@ -737,12 +1027,65 @@ struct ComposerSheetView: View {
         }
     }
 
+    private func handleCounterpartyQueryChange(_ query: String) {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard (isCounterpartyOverlayPresented || focusedField == .counterparty),
+              let currentContactType else {
+            return
+        }
+
+        guard normalizedQuery.count >= 2 else {
+            counterpartyResults = []
+            isSearchingContacts = false
+            isCounterpartyOverlayPresented = true
+            return
+        }
+
+        isSearchingContacts = true
+        let expectedQuery = query
+
+        Task {
+            let results = await store.searchContacts(accessToken: session.currentAccessToken, contactType: currentContactType, query: expectedQuery)
+            guard counterpartyName == expectedQuery else { return }
+            counterpartyResults = results
+            isSearchingContacts = false
+        }
+    }
+
     private func clearSearchQuery() {
         searchQuery = ""
         searchResults = []
         isSearchingProducts = false
         isSearchOverlayPresented = true
         focusedField = .search
+    }
+
+    private func clearCounterpartyQuery() {
+        counterpartyName = ""
+        counterpartyResults = []
+        isSearchingContacts = false
+        isCounterpartyOverlayPresented = true
+        focusedField = .counterparty
+    }
+
+    private func applyContactSelection(_ contact: HomeContact) {
+        counterpartyName = contact.contactName
+
+        if contact.contactType == "buyer" {
+            info = contact.contactInfo ?? ""
+            if let contactEstablishmentID = contact.contactEstablishmentID {
+                selectedEstablishmentID = contactEstablishmentID
+            }
+            if let contactOrderMethodID = contact.contactOrderMethodID {
+                selectedOrderMethodID = contactOrderMethodID
+            }
+            selectedOrderSubMethod = contact.contactOrderSubMethod
+        }
+
+        counterpartyResults = []
+        isCounterpartyOverlayPresented = false
+        focusedField = nil
     }
 
     private func appendProductToBasket(_ product: HomeProduct) {
@@ -1117,6 +1460,9 @@ struct ComposerSheetView: View {
             orderSubMethod: selectedOrderSubMethod,
             counterpartyName: counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines),
             info: info.trimmingCharacters(in: .whitespacesAndNewlines),
+            saveContact: shouldSaveContact,
+            orderStatusID: shouldMarkItemsInStock ? orderAssemblyStatusID : nil,
+            defaultOrderItemStatusID: shouldMarkItemsInStock ? inStockOrderItemStatusID : nil,
             items: selectedItems
         )
         dismissProductOverlays(clearSearch: true)
