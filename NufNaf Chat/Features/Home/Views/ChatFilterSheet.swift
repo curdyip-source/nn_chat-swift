@@ -14,8 +14,15 @@ struct ChatFilterSheet: View {
     private let statusGroupOrder = ["orders", "product_registration", "inventory"]
 
     var body: some View {
+        GeometryReader { proxy in
+            content(containerHeight: proxy.size.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    private func content(containerHeight: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            dragHandle
+            dragHandle(containerHeight: containerHeight)
 
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -194,17 +201,17 @@ struct ChatFilterSheet: View {
         .offset(y: dragOffsetY)
     }
 
-    private var dragHandle: some View {
+    private func dragHandle(containerHeight: CGFloat) -> some View {
         Capsule()
             .fill(Color.white.opacity(0.18))
             .frame(width: 42, height: 5)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 6)
             .contentShape(Rectangle())
-            .gesture(closeGesture)
+            .gesture(closeGesture(containerHeight: containerHeight))
     }
 
-    private var closeGesture: some Gesture {
+    private func closeGesture(containerHeight: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
             .onChanged { value in
                 guard value.translation.height > 0,
@@ -217,7 +224,7 @@ struct ChatFilterSheet: View {
                 let shouldClose = value.translation.height > 120 || value.predictedEndTranslation.height > 220
                 if shouldClose {
                     withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.9)) {
-                        dragOffsetY = UIScreen.main.bounds.height
+                        dragOffsetY = max(containerHeight, value.translation.height)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
                         dragOffsetY = 0
