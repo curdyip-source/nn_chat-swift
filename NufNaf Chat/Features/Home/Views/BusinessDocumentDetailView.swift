@@ -236,6 +236,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
     let onClose: () -> Void
     let headerActionSystemImage: String?
     let onHeaderAction: (() -> Void)?
+    let prefersDarkHeader: Bool
     let scrollTargetID: String?
     let scrollRequest: Int
     let headerHorizontalPadding: CGFloat
@@ -251,6 +252,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         onClose: @escaping () -> Void,
         headerActionSystemImage: String? = nil,
         onHeaderAction: (() -> Void)? = nil,
+        prefersDarkHeader: Bool = false,
         scrollTargetID: String? = nil,
         scrollRequest: Int = 0,
         headerHorizontalPadding: CGFloat = 16,
@@ -265,6 +267,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         self.onClose = onClose
         self.headerActionSystemImage = headerActionSystemImage
         self.onHeaderAction = onHeaderAction
+        self.prefersDarkHeader = prefersDarkHeader
         self.scrollTargetID = scrollTargetID
         self.scrollRequest = scrollRequest
         self.headerHorizontalPadding = headerHorizontalPadding
@@ -285,13 +288,14 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                             Button(action: onClose) {
                                 Image(systemName: "chevron.left")
                                     .font(.system(size: 17, weight: .semibold))
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(prefersDarkHeader ? Color.white : Color.primary)
                                     .frame(width: 38, height: 38)
-                                    .background(Color.black.opacity(0.05), in: Circle())
+                                    .background((prefersDarkHeader ? Color.white.opacity(0.14) : Color.black.opacity(0.05)), in: Circle())
                             }
 
                             Text(title)
                                 .font(.system(size: 20, weight: .semibold, design: .rounded))
+                                .foregroundStyle(prefersDarkHeader ? Color.white : Color.primary)
 
                             Spacer()
 
@@ -302,19 +306,19 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                                     Text("Сохраняем")
                                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                                 }
-                                .foregroundStyle(Color.primary)
+                                .foregroundStyle(prefersDarkHeader ? Color.white : Color.primary)
                                 .padding(.horizontal, 12)
                                 .frame(height: 38)
-                                .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+                                .background((prefersDarkHeader ? Color.white.opacity(0.14) : Color(uiColor: .secondarySystemBackground)), in: Capsule())
                             }
 
                             if let headerActionSystemImage, let onHeaderAction {
                                 Button(action: onHeaderAction) {
                                     Image(systemName: headerActionSystemImage)
                                         .font(.system(size: 16, weight: .semibold))
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(prefersDarkHeader ? Color.white : Color.primary)
                                         .frame(width: 38, height: 38)
-                                        .background(Color.black.opacity(0.05), in: Circle())
+                                        .background((prefersDarkHeader ? Color.white.opacity(0.14) : Color.black.opacity(0.05)), in: Circle())
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -325,10 +329,25 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                     .padding(.horizontal, headerHorizontalPadding)
                     .padding(.top, 12)
                     .padding(.bottom, 14)
-                    .background(
-                        Color(UIColor.systemBackground)
-                            .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
-                    )
+                    .background {
+                        if prefersDarkHeader {
+                            LinearGradient(
+                                stops: [
+                                    .init(color: Color.black, location: 0),
+                                    .init(color: Color.black, location: 0.84),
+                                    .init(color: Color.black.opacity(0.98), location: 0.95),
+                                    .init(color: Color.black.opacity(0.10), location: 0.99),
+                                    .init(color: Color.black.opacity(0.04), location: 1)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
+                        } else {
+                            Color(UIColor.systemBackground)
+                                .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
+                        }
+                    }
 
                     if isLoading {
                         Spacer()
@@ -440,7 +459,22 @@ struct BusinessDocumentStatusButtons: View {
     let statuses: [HomeStatus]
     let selectedStatusID: Int
     let isSaving: Bool
+    let prefersDarkAppearance: Bool
     let onSelect: (Int) -> Void
+
+    init(
+        statuses: [HomeStatus],
+        selectedStatusID: Int,
+        isSaving: Bool,
+        prefersDarkAppearance: Bool = false,
+        onSelect: @escaping (Int) -> Void
+    ) {
+        self.statuses = statuses
+        self.selectedStatusID = selectedStatusID
+        self.isSaving = isSaving
+        self.prefersDarkAppearance = prefersDarkAppearance
+        self.onSelect = onSelect
+    }
 
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
@@ -453,12 +487,25 @@ struct BusinessDocumentStatusButtons: View {
                 } label: {
                     Text(status.statusStatus)
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(isSelected ? Color.white : Color(uiColor: .label))
+                        .foregroundStyle(isSelected ? Color.white : (prefersDarkAppearance ? Color.white.opacity(0.94) : Color(uiColor: .label)))
                         .lineLimit(1)
                         .minimumScaleFactor(0.76)
                         .frame(maxWidth: .infinity)
                         .frame(height: 40)
-                        .background(isSelected ? BusinessDocumentColors.statusColor(status.statusColor) : Color(uiColor: .secondarySystemFill))
+                        .background(
+                            isSelected
+                                ? BusinessDocumentColors.statusColor(status.statusColor)
+                                : (prefersDarkAppearance ? Color.white.opacity(0.12) : Color(uiColor: .secondarySystemFill))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(
+                                    isSelected
+                                        ? Color.clear
+                                        : (prefersDarkAppearance ? Color.white.opacity(0.28) : Color.black.opacity(0.06)),
+                                    lineWidth: 1
+                                )
+                        )
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(BusinessDocumentStaticPressButtonStyle())

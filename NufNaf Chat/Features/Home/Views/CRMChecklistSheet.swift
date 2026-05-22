@@ -83,6 +83,10 @@ struct CRMChecklistSheet: View {
                             .padding(.horizontal, 12)
                             .frame(height: 34)
                             .background(controlFillColor, in: Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                            )
                         }
                         .buttonStyle(.plain)
                         .disabled(orderEntries.isEmpty)
@@ -104,6 +108,10 @@ struct CRMChecklistSheet: View {
                                         ? selectedTabFillColor
                                         : controlFillColor,
                                     in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(Color.white.opacity(selectedCategory == category ? 0.30 : 0.18), lineWidth: 1)
                                 )
                         }
                         .buttonStyle(.plain)
@@ -677,19 +685,20 @@ private struct ChecklistCompletionActionSheet: View {
                 Button(action: onConfirm) {
                     Text("Подтвердить")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(Color(red: 0.48, green: 0.84, blue: 0.60), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
 
                 Button(action: onCancel) {
                     Text("Отмена")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.82))
+                        .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
+                        .background(Color(red: 0.78, green: 0.25, blue: 0.29), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
@@ -697,10 +706,10 @@ private struct ChecklistCompletionActionSheet: View {
         .padding(18)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+                .fill(Color(red: 0.14, green: 0.15, blue: 0.18))
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.28), lineWidth: 1.2)
                 )
         )
         .shadow(color: .black.opacity(0.24), radius: 18, x: 0, y: 10)
@@ -753,7 +762,7 @@ private struct ChecklistMovementRouteSheet: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(Color(red: 0.78, green: 0.25, blue: 0.29), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
 
@@ -766,7 +775,7 @@ private struct ChecklistMovementRouteSheet: View {
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(Color(red: 0.48, green: 0.84, blue: 0.60), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(sourceEstablishmentID == nil || destinationEstablishmentID == nil || sourceEstablishmentID == destinationEstablishmentID)
@@ -776,10 +785,10 @@ private struct ChecklistMovementRouteSheet: View {
         .padding(18)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+                .fill(Color(red: 0.14, green: 0.15, blue: 0.18))
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.28), lineWidth: 1.2)
                 )
         )
         .shadow(color: .black.opacity(0.24), radius: 18, x: 0, y: 10)

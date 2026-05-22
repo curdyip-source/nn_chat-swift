@@ -157,6 +157,7 @@ struct OrderDetailView: View {
             onClose: onClose,
             headerActionSystemImage: order == nil ? nil : "pencil",
             onHeaderAction: order == nil ? nil : { isEditSheetPresented = true },
+            prefersDarkHeader: true,
             scrollTargetID: "order-comments-section",
             scrollRequest: commentScrollRequest,
             contentHorizontalPadding: 0,
@@ -166,6 +167,7 @@ struct OrderDetailView: View {
                         statuses: orderStatuses,
                         selectedStatusID: order.orderStatusID,
                         isSaving: isSaving,
+                        prefersDarkAppearance: true,
                         onSelect: updateStatus
                     )
                 }

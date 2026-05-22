@@ -231,9 +231,14 @@ struct CRMDocumentsListView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.68))
+                .foregroundStyle(Color.white.opacity(0.78))
 
-            TextField("Товар, заказ, точка, клиент", text: $session.crmSearchQuery)
+            TextField(
+                "",
+                text: $session.crmSearchQuery,
+                prompt: Text("Товар, заказ, точка, клиент")
+                    .foregroundStyle(Color.white.opacity(0.82))
+            )
                 .textFieldStyle(.plain)
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(Color.white)
@@ -245,14 +250,14 @@ struct CRMDocumentsListView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.72))
+                        .foregroundStyle(Color.white.opacity(0.78))
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 12)
         .frame(height: 34)
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        .background(Color.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 17, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 17, style: .continuous)
                 .stroke(Color.white.opacity(0.82), lineWidth: 1)
@@ -413,9 +418,19 @@ struct CRMDocumentsListView: View {
     }
 
     private func applySupplierContact(_ contact: HomeContact) {
-        supplierQuery = contact.contactName
-        supplierResults = []
-        isSearchingSuppliers = false
+        let normalizedSupplier = contact.contactName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSupplier.isEmpty, let supplierSelection else { return }
+
+        supplierQuery = normalizedSupplier
+        onSelectOrderItemStatus(
+            supplierSelection.order,
+            supplierSelection.itemID,
+            supplierSelection.statusID,
+            nil,
+            nil,
+            normalizedSupplier
+        )
+        dismissSupplierSelection()
     }
 
     private func handleSupplierQueryChange(_ query: String) {
@@ -1167,7 +1182,7 @@ private struct CRMSupplierSelectionSheet: View {
                 .font(.system(size: 20, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
 
-            Text("Можно выбрать поставщика из базы или ввести нового. Новый поставщик сохранится в базе после подтверждения.")
+            Text("Можно выбрать поставщика из базы или ввести нового. Тап по существующему поставщику сразу сохранит его для товара.")
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.68))
 
@@ -1218,16 +1233,18 @@ private struct CRMSupplierSelectionSheet: View {
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(Color(red: 0.48, green: 0.84, blue: 0.60), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
 
             Button(action: onClose) {
                 Text("Отмена")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.72))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color(red: 0.78, green: 0.25, blue: 0.29), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .buttonStyle(.plain)
         }
@@ -1236,7 +1253,11 @@ private struct CRMSupplierSelectionSheet: View {
         .padding(.bottom, 18)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(AppTheme.background)
+                .fill(Color(red: 0.14, green: 0.15, blue: 0.18))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(Color.white.opacity(0.28), lineWidth: 1.2)
+                )
                 .shadow(color: .black.opacity(0.24), radius: 18, x: 0, y: 10)
         )
     }
@@ -1360,7 +1381,7 @@ private struct CRMMovementRouteSheet: View {
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(Color(red: 0.78, green: 0.25, blue: 0.29), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
 
@@ -1373,7 +1394,7 @@ private struct CRMMovementRouteSheet: View {
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .frame(height: 46)
-                        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .background(Color(red: 0.48, green: 0.84, blue: 0.60), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .disabled(sourceEstablishmentID == nil || destinationEstablishmentID == nil || sourceEstablishmentID == destinationEstablishmentID)
@@ -1383,10 +1404,10 @@ private struct CRMMovementRouteSheet: View {
         .padding(18)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+                .fill(Color(red: 0.14, green: 0.15, blue: 0.18))
                 .overlay(
                     RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        .stroke(Color.white.opacity(0.28), lineWidth: 1.2)
                 )
         )
         .shadow(color: .black.opacity(0.24), radius: 18, x: 0, y: 10)

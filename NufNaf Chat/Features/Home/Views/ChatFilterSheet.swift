@@ -16,7 +16,7 @@ struct ChatFilterSheet: View {
     var body: some View {
         GeometryReader { proxy in
             content(containerHeight: proxy.size.height)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
     }
 
