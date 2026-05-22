@@ -12,12 +12,16 @@ struct CRMDocumentsListView: View {
     let onOpenDocument: (String, Int) -> Void
     let onSelectOrderStatus: (HomeOrder, Int) -> Void
     let onSelectOrderItemStatus: (HomeOrder, Int, Int, Int?, Int?, String?) -> Void
+    let onCollectShipmentItem: (HomeOrder, Int) -> Void
+    let onCompleteShipmentOrder: (HomeOrder) -> Void
+    let onUpdateOrderItemNote: (HomeOrder, Int, String?) -> Void
     let onSearchSupplierContacts: (String) async -> [HomeContact]
     let onSelectInventoryStatus: (HomeInventory, Int) -> Void
     let onSelectProductRegistrationStatus: (HomeProductRegistration, Int) -> Void
 
     @State private var movementSelection: CRMMovementSelection?
     @State private var supplierSelection: CRMSupplierSelection?
+    @State private var shipmentCompletionConfirmation: CRMShipmentOrderCompletionConfirmation?
     @State private var supplierQuery = ""
     @State private var supplierResults: [HomeContact] = []
     @State private var isSearchingSuppliers = false
@@ -65,6 +69,9 @@ struct CRMDocumentsListView: View {
                                         },
                                         onSelectStatus: { statusID in
                                             handleOrderItemStatusSelection(order: entry.order, itemID: entry.item.id, statusID: statusID, promptForSupplier: true)
+                                        },
+                                        onUpdateNote: { note in
+                                            onUpdateOrderItemNote(entry.order, entry.item.id, note)
                                         }
                                     )
                                 }
@@ -72,6 +79,7 @@ struct CRMDocumentsListView: View {
                                 ForEach(displayedOrders) { order in
                                     CRMOrderCardView(
                                         order: order,
+                                        isShipmentMode: selectedSection == .shipments,
                                         orderMethods: referenceData.orderMethods,
                                         itemStatuses: orderItemStatuses,
                                         statuses: referenceData.statuses.filter { $0.statusType == "orders" },
@@ -85,6 +93,12 @@ struct CRMDocumentsListView: View {
                                         },
                                         onSelectItemStatus: { itemID, statusID in
                                             handleOrderItemStatusSelection(order: order, itemID: itemID, statusID: statusID)
+                                        },
+                                        onCollectShipmentItem: { itemID in
+                                            onCollectShipmentItem(order, itemID)
+                                        },
+                                        onCompleteShipmentOrder: {
+                                            shipmentCompletionConfirmation = CRMShipmentOrderCompletionConfirmation(order: order)
                                         }
                                     )
                                 }
@@ -198,6 +212,19 @@ struct CRMDocumentsListView: View {
                 .padding(.bottom, max(AppTheme.PageLayout.bottomPadding - 8, 8) + 15)
                 .background(AppTheme.background.opacity(0.96))
         }
+        .alert(item: $shipmentCompletionConfirmation) { confirmation in
+            Alert(
+                title: Text("Подтвердите выполнение"),
+                message: Text("Отметить заказ как выполненный?"),
+                primaryButton: .default(Text("Подтвердить"), action: {
+                    onCompleteShipmentOrder(confirmation.order)
+                    shipmentCompletionConfirmation = nil
+                }),
+                secondaryButton: .cancel(Text("Отмена"), action: {
+                    shipmentCompletionConfirmation = nil
+                })
+            )
+        }
     }
 
     private var crmSearchField: some View {
@@ -255,7 +282,7 @@ struct CRMDocumentsListView: View {
                 }
             }
             .filter { entry in
-                !hiddenProductStatuses.contains(normalizedOrderItemStatusTitle(for: entry).lowercased())
+                visibleProductStatuses.contains(normalizedOrderItemStatusTitle(for: entry).lowercased())
             }
             .sorted { lhs, rhs in
                 let lhsPriority = orderItemStatusPriority(for: lhs)
@@ -294,8 +321,8 @@ struct CRMDocumentsListView: View {
         referenceData.statuses.filter { $0.statusType == "order_products" }
     }
 
-    private var hiddenProductStatuses: Set<String> {
-        ["отгружено", "принято на складе", "в наличии", "собрано", "возврат"]
+    private var visibleProductStatuses: Set<String> {
+        ["не обработан", "перемещение", "заказ поставщику"]
     }
 
     private func isShipmentOrder(_ order: HomeOrder) -> Bool {
@@ -474,45 +501,90 @@ private struct CRMOrderProductRow: View {
     let isSaving: Bool
     let onOpen: () -> Void
     let onSelectStatus: (Int) -> Void
+    let onUpdateNote: (String?) -> Void
+
+    @State private var noteText: String
+    @State private var syncedNoteText: String
+    @State private var noteSaveTask: Task<Void, Never>?
+    @FocusState private var isNoteFocused: Bool
+
+    init(
+        entry: CRMOrderProductEntry,
+        itemStatuses: [HomeStatus],
+        currencyTitleProvider: @escaping (Int?) -> String,
+        isSaving: Bool,
+        onOpen: @escaping () -> Void,
+        onSelectStatus: @escaping (Int) -> Void,
+        onUpdateNote: @escaping (String?) -> Void
+    ) {
+        self.entry = entry
+        self.itemStatuses = itemStatuses
+        self.currencyTitleProvider = currencyTitleProvider
+        self.isSaving = isSaving
+        self.onOpen = onOpen
+        self.onSelectStatus = onSelectStatus
+        self.onUpdateNote = onUpdateNote
+
+        let initialNote = entry.item.orderItemNote ?? ""
+        _noteText = State(initialValue: initialNote)
+        _syncedNoteText = State(initialValue: initialNote)
+    }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(entry.item.orderItemName)
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.item.orderItemName)
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                Text("Заказ №\(entry.order.id) * \(orderEstablishmentTitle) * \(entry.item.orderItemQuantity) шт. * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            VStack(alignment: .trailing, spacing: 4) {
-                CRMStatusMenu(
-                    title: itemStatusTitle,
-                    color: BusinessDocumentColors.statusColor(entry.item.orderItemStatusColor),
-                    statuses: itemStatuses,
-                    selectedStatusID: entry.item.orderItemStatusID,
-                    size: .compact,
-                    isDisabled: isSaving,
-                    onSelect: onSelectStatus
-                )
-
-                if let statusSecondaryLine {
-                    Text(statusSecondaryLine)
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                    Text("Заказ №\(entry.order.id) * \(orderEstablishmentTitle) * \(entry.item.orderItemQuantity) шт. * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.trailing)
-                        .frame(maxWidth: 120, alignment: .trailing)
+                        .lineLimit(1)
+                }
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    CRMStatusMenu(
+                        title: itemStatusTitle,
+                        color: BusinessDocumentColors.statusColor(entry.item.orderItemStatusColor),
+                        statuses: itemStatuses,
+                        selectedStatusID: entry.item.orderItemStatusID,
+                        size: .compact,
+                        isDisabled: isSaving,
+                        onSelect: onSelectStatus
+                    )
+
+                    if let statusSecondaryLine {
+                        Text(statusSecondaryLine)
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 120, alignment: .trailing)
+                    }
+                }
+
+                if isSaving {
+                    ProgressView()
+                        .controlSize(.small)
                 }
             }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onOpen)
 
-            if isSaving {
-                ProgressView()
-                    .controlSize(.small)
-            }
+            TextField("Заметка", text: $noteText, axis: .horizontal)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .textFieldStyle(.plain)
+                .focused($isNoteFocused)
+                .lineLimit(1)
+                .submitLabel(.done)
+                .padding(.horizontal, 12)
+                .frame(height: 25)
+                .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .onChange(of: noteText) { _, newValue in
+                    queueNoteSave(for: newValue)
+                }
         }
         .padding(16)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -520,8 +592,15 @@ private struct CRMOrderProductRow: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(Color(uiColor: .separator).opacity(0.28), lineWidth: 1)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .onTapGesture(perform: onOpen)
+        .onChange(of: entry.item.orderItemNote ?? "") { oldValue, newValue in
+            syncedNoteText = newValue
+            if !isNoteFocused || noteText == oldValue {
+                noteText = newValue
+            }
+        }
+        .onDisappear {
+            noteSaveTask?.cancel()
+        }
     }
 
     private var itemStatusTitle: String {
@@ -553,10 +632,32 @@ private struct CRMOrderProductRow: View {
         }
         return "\(sourceName) -> \(destinationName)"
     }
+
+    private func queueNoteSave(for value: String) {
+        noteSaveTask?.cancel()
+
+        let normalizedValue = normalizedNote(value)
+        guard normalizedValue != normalizedNote(syncedNoteText) else { return }
+
+        noteSaveTask = Task {
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                onUpdateNote(normalizedValue.isEmpty ? nil : normalizedValue)
+            }
+        }
+    }
+
+    private func normalizedNote(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 private struct CRMOrderCardView: View {
     let order: HomeOrder
+    let isShipmentMode: Bool
     let orderMethods: [HomeOrderMethod]
     let itemStatuses: [HomeStatus]
     let statuses: [HomeStatus]
@@ -565,6 +666,8 @@ private struct CRMOrderCardView: View {
     let onOpen: () -> Void
     let onSelectStatus: (Int) -> Void
     let onSelectItemStatus: (Int, Int) -> Void
+    let onCollectShipmentItem: (Int) -> Void
+    let onCompleteShipmentOrder: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -584,14 +687,21 @@ private struct CRMOrderCardView: View {
                         .controlSize(.small)
                 }
 
-                CRMStatusMenu(
-                    title: order.orderStatus ?? "Статус",
-                    color: BusinessDocumentColors.statusColor(order.orderStatusColor),
-                    statuses: statuses,
-                    selectedStatusID: order.orderStatusID,
-                    isDisabled: isSaving,
-                    onSelect: onSelectStatus
-                )
+                if isShipmentMode {
+                    CRMShipmentOrderCompleteButton(
+                        isDisabled: isSaving || !isReadyForShipmentCompletion,
+                        action: onCompleteShipmentOrder
+                    )
+                } else {
+                    CRMStatusMenu(
+                        title: order.orderStatus ?? "Статус",
+                        color: BusinessDocumentColors.statusColor(order.orderStatusColor),
+                        statuses: statuses,
+                        selectedStatusID: order.orderStatusID,
+                        isDisabled: isSaving,
+                        onSelect: onSelectStatus
+                    )
+                }
             }
 
             if !normalizedComment.isEmpty {
@@ -608,17 +718,27 @@ private struct CRMOrderCardView: View {
                 ForEach(order.items) { item in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(alignment: .top, spacing: 10) {
-                            CRMStatusMenu(
-                                title: itemStatusTitle(for: item),
-                                color: BusinessDocumentColors.statusColor(item.orderItemStatusColor),
-                                statuses: itemStatuses,
-                                selectedStatusID: item.orderItemStatusID,
-                                size: .compact,
-                                isDisabled: isSaving,
-                                onSelect: { statusID in
-                                    onSelectItemStatus(item.id, statusID)
-                                }
-                            )
+                            if isShipmentMode {
+                                CRMShipmentCollectButton(
+                                    isCollected: itemStatusTitle(for: item) == "Собрано",
+                                    isDisabled: isSaving,
+                                    action: {
+                                        onCollectShipmentItem(item.id)
+                                    }
+                                )
+                            } else {
+                                CRMStatusMenu(
+                                    title: itemStatusTitle(for: item),
+                                    color: BusinessDocumentColors.statusColor(item.orderItemStatusColor),
+                                    statuses: itemStatuses,
+                                    selectedStatusID: item.orderItemStatusID,
+                                    size: .compact,
+                                    isDisabled: isSaving,
+                                    onSelect: { statusID in
+                                        onSelectItemStatus(item.id, statusID)
+                                    }
+                                )
+                            }
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(item.orderItemName)
@@ -681,12 +801,96 @@ private struct CRMOrderCardView: View {
         return totals.isEmpty ? "Итого: \(order.items.count) поз." : "Итого: \(totals)"
     }
 
+    private var isReadyForShipmentCompletion: Bool {
+        guard (order.orderStatus ?? "") != "Выполнен" else { return false }
+        guard !order.items.isEmpty else { return false }
+        return order.items.allSatisfy { itemStatusTitle(for: $0) == "Собрано" }
+    }
+
     private func itemStatusTitle(for item: HomeOrderItem) -> String {
         if let status = item.orderItemStatus, !status.isEmpty {
             return status
         }
         return itemStatuses.first(where: { $0.id == item.orderItemStatusID })?.statusStatus ?? "Статус"
     }
+}
+
+private struct CRMShipmentCollectButton: View {
+    let isCollected: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text("Собран")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(buttonColor)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(buttonColor.opacity(0.14), in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(buttonColor.opacity(0.26), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled || isCollected)
+        .opacity(isDisabled && !isCollected ? 0.6 : 1)
+    }
+
+    private var buttonColor: Color {
+        isCollected ? Color(red: 0.06, green: 0.46, blue: 0.43) : Color(red: 0.39, green: 0.40, blue: 0.95)
+    }
+}
+
+private struct CRMShipmentOrderCompleteButton: View {
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text("Выполнено")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(foregroundColor)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(backgroundColor, in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(borderColor, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+    }
+
+    private var foregroundColor: Color {
+        isDisabled ? Color(uiColor: .systemGray) : Color(red: 0.09, green: 0.64, blue: 0.35)
+    }
+
+    private var backgroundColor: Color {
+        isDisabled ? Color(uiColor: .systemGray5) : Color(red: 0.09, green: 0.64, blue: 0.35).opacity(0.14)
+    }
+
+    private var borderColor: Color {
+        isDisabled ? Color(uiColor: .systemGray3) : Color(red: 0.09, green: 0.64, blue: 0.35).opacity(0.26)
+    }
+}
+
+private struct CRMShipmentOrderCompletionConfirmation: Identifiable {
+    let order: HomeOrder
+
+    var id: Int { order.id }
 }
 
 private struct CRMInventoryCardView: View {

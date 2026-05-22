@@ -1433,6 +1433,7 @@ struct ComposerSheetView: View {
                                 orderItemQuantity: max($0.quantity, 1),
                                 orderItemPrice: normalizedPrice($0.price),
                                 orderItemStatusID: resolveEditingOrderItemStatusID(for: $0),
+                                orderItemNote: existingItem?.orderItemNote,
                                 orderItemSourceEstablishmentID: existingItem?.orderItemSourceEstablishmentID,
                                 orderItemDestinationEstablishmentID: existingItem?.orderItemDestinationEstablishmentID,
                                 orderItemCurrencyID: $0.currencyID,

@@ -37,102 +37,154 @@ struct CRMChecklistSheet: View {
     }
 
     let orders: [HomeOrder]
+    let establishments: [HomeEstablishment]
     let errorMessage: String?
     let updatingDocumentKey: String?
     let onClose: () -> Void
     let onToggleStarted: (HomeOrder, HomeOrderItem, Bool) -> Void
     let onComplete: (HomeOrder, HomeOrderItem) -> Void
+    let onMoveToMovement: (HomeOrder, HomeOrderItem, Int, Int) -> Void
 
     @State private var selectedCategory: Category = .order
     @State private var activeAlert: ChecklistAlertContent?
     @State private var isPreparingCopy = false
+    @State private var completionSelection: Entry?
+    @State private var movementSelection: ChecklistMovementSelection?
     @State private var startedOverrides: [String: Bool] = [:]
     @State private var completedOverrides: [String: Bool] = [:]
     @State private var copyStartStartedEntryIDs: Set<String> = []
     @State private var supplierSnapshots: [String: String] = [:]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Чек-лист")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
+        ZStack {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Чек-лист")
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundStyle(.primary)
 
-                    Text("Заказы и Перемещение")
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
+                        Text("Заказы и Перемещение")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(readableSecondaryTextColor)
+                    }
 
-                Spacer()
+                    Spacer()
 
-                if selectedCategory == .order {
-                    Button(action: handleCopyButtonTap) {
-                        HStack(spacing: 6) {
-                            Image(systemName: isPreparingCopy ? "checkmark.circle" : "doc.on.doc")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text(isPreparingCopy ? "Готово" : "Скопировать")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    if selectedCategory == .order {
+                        Button(action: handleCopyButtonTap) {
+                            HStack(spacing: 6) {
+                                Image(systemName: isPreparingCopy ? "checkmark.circle" : "doc.on.doc")
+                                    .font(.system(size: 13, weight: .semibold))
+                                Text(isPreparingCopy ? "Готово" : "Скопировать")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundStyle(orderEntries.isEmpty ? disabledControlTextColor : primaryControlTextColor)
+                            .padding(.horizontal, 12)
+                            .frame(height: 34)
+                            .background(controlFillColor, in: Capsule())
                         }
-                        .foregroundStyle(orderEntries.isEmpty ? Color.secondary : Color.primary)
+                        .buttonStyle(.plain)
+                        .disabled(orderEntries.isEmpty)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    ForEach(Category.allCases) { category in
+                        Button {
+                            selectedCategory = category
+                        } label: {
+                            Text(category.title)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(selectedCategory == category ? primaryControlTextColor : readableSecondaryTextColor)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 40)
+                                .background(
+                                    selectedCategory == category
+                                        ? selectedTabFillColor
+                                        : controlFillColor,
+                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                if let errorMessage, !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.red.opacity(0.92))
                         .padding(.horizontal, 12)
-                        .frame(height: 34)
-                        .background(Color(uiColor: .secondarySystemFill), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(orderEntries.isEmpty)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-            }
 
-            HStack(spacing: 8) {
-                ForEach(Category.allCases) { category in
-                    Button {
-                        selectedCategory = category
-                    } label: {
-                        Text(category.title)
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(selectedCategory == category ? Color.black : Color.primary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 40)
-                            .background(
-                                selectedCategory == category
-                                    ? Color.white
-                                    : Color(uiColor: .secondarySystemFill),
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            )
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        headerRow(for: selectedCategory)
+
+                        if selectedCategory == .movement {
+                            movementContent
+                        } else {
+                            orderContent
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
+                .scrollIndicators(.hidden)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+            .padding(.top, 12)
+            .padding(.bottom, AppTheme.PageLayout.bottomPadding)
 
-            if let errorMessage, !errorMessage.isEmpty {
-                Text(errorMessage)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.red.opacity(0.92))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    headerRow(for: selectedCategory)
-
-                    if selectedCategory == .movement {
-                        movementContent
-                    } else {
-                        orderContent
+            if let completionSelection {
+                Color.black.opacity(0.28)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        self.completionSelection = nil
                     }
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                ChecklistCompletionActionSheet(
+                    onCancel: {
+                        self.completionSelection = nil
+                    },
+                    onMoveToMovement: {
+                        beginMovementFlow(for: completionSelection)
+                    },
+                    onConfirm: {
+                        confirmCompletion(for: completionSelection)
+                    }
+                )
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
-            .scrollIndicators(.hidden)
+
+            if let movementSelection {
+                Color.black.opacity(0.28)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        self.movementSelection = nil
+                    }
+
+                ChecklistMovementRouteSheet(
+                    establishments: establishments,
+                    initialSourceEstablishmentID: movementSelection.sourceEstablishmentID,
+                    initialDestinationEstablishmentID: movementSelection.destinationEstablishmentID,
+                    onClose: {
+                        self.movementSelection = nil
+                    },
+                    onConfirm: { sourceID, destinationID in
+                        applyMovementSelection(movementSelection, sourceID: sourceID, destinationID: destinationID)
+                    }
+                )
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
-        .padding(.top, 12)
-        .padding(.bottom, AppTheme.PageLayout.bottomPadding)
         .onAppear(perform: reconcileCheckpointOverrides)
         .onChange(of: checklistCheckpointSignature) { _, _ in
             reconcileCheckpointOverrides()
@@ -195,7 +247,7 @@ struct CRMChecklistSheet: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(group.title)
                             .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(readableSecondaryTextColor)
 
                         VStack(spacing: 10) {
                             ForEach(group.entries) { entry in
@@ -220,7 +272,7 @@ struct CRMChecklistSheet: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(key)
                             .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(readableSecondaryTextColor)
                         VStack(spacing: 10) {
                             ForEach(grouped[key] ?? []) { entry in
                                 checklistRow(entry: entry, category: .movement)
@@ -255,12 +307,12 @@ struct CRMChecklistSheet: View {
 
             Text(category.checkpointTitle)
                 .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(readableSecondaryTextColor)
                 .frame(width: 82)
 
             Text("Выполнено")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(readableSecondaryTextColor)
                 .frame(width: 82)
         }
     }
@@ -277,7 +329,7 @@ struct CRMChecklistSheet: View {
                     .foregroundStyle(.primary)
                 Text("Заказ №\(entry.order.id) * \(entry.order.orderCustomer)")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.black.opacity(0.82))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -299,21 +351,7 @@ struct CRMChecklistSheet: View {
                 isActive: isCompleted,
                 isDisabled: isSaving || isCompleted || isPreparingCopy,
                 action: {
-                    activeAlert = ChecklistAlertContent(
-                        title: "Подтвердите выполнение",
-                        message: "Отметить позицию как выполненную? Это защищает от случайных нажатий.",
-                        primaryButtonTitle: "Подтвердить",
-                        primaryAction: {
-                            startedOverrides[entry.id] = true
-                            completedOverrides[entry.id] = true
-                            onComplete(entry.order, entry.item)
-                        },
-                        secondaryButton: ChecklistAlertButton(
-                            title: "Отмена",
-                            role: .cancel,
-                            action: nil
-                        )
-                    )
+                    presentCompletionConfirmation(for: entry, category: category)
                 }
             )
             .frame(width: 82)
@@ -326,12 +364,36 @@ struct CRMChecklistSheet: View {
         Button(action: action) {
             Image(systemName: isActive ? "checkmark.square.fill" : "square")
                 .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(isActive ? Color(red: 0.27, green: 0.83, blue: 0.48) : Color.white.opacity(0.72))
+                .foregroundStyle(isActive ? Color(red: 0.27, green: 0.83, blue: 0.48) : inactiveMarkColor)
                 .frame(width: 42, height: 42)
-                .background(Color(uiColor: .secondarySystemFill), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .background(controlFillColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
+    }
+
+    private var readableSecondaryTextColor: Color {
+        Color.white.opacity(0.88)
+    }
+
+    private var primaryControlTextColor: Color {
+        Color.white.opacity(0.96)
+    }
+
+    private var disabledControlTextColor: Color {
+        Color.white.opacity(0.52)
+    }
+
+    private var controlFillColor: Color {
+        Color.white.opacity(0.12)
+    }
+
+    private var selectedTabFillColor: Color {
+        Color.white.opacity(0.18)
+    }
+
+    private var inactiveMarkColor: Color {
+        Color.black.opacity(0.82)
     }
 
     private var selectedEntriesForCopy: [Entry] {
@@ -364,6 +426,54 @@ struct CRMChecklistSheet: View {
             }
         )
         isPreparingCopy = true
+    }
+
+    private func presentCompletionConfirmation(for entry: Entry, category: Category) {
+        guard category == .order else {
+            activeAlert = ChecklistAlertContent(
+                title: "Подтвердите выполнение",
+                message: "Отметить позицию как выполненную? Это защищает от случайных нажатий.",
+                primaryButtonTitle: "Подтвердить",
+                primaryAction: {
+                    startedOverrides[entry.id] = true
+                    completedOverrides[entry.id] = true
+                    onComplete(entry.order, entry.item)
+                },
+                secondaryButton: ChecklistAlertButton(
+                    title: "Отмена",
+                    role: .cancel,
+                    action: nil
+                )
+            )
+            return
+        }
+
+        completionSelection = entry
+    }
+
+    private func confirmCompletion(for entry: Entry) {
+        completionSelection = nil
+        startedOverrides[entry.id] = true
+        completedOverrides[entry.id] = true
+        onComplete(entry.order, entry.item)
+    }
+
+    private func beginMovementFlow(for entry: Entry) {
+        completionSelection = nil
+        movementSelection = ChecklistMovementSelection(
+            entry: entry,
+            sourceEstablishmentID: entry.item.orderItemSourceEstablishmentID,
+            destinationEstablishmentID: entry.item.orderItemDestinationEstablishmentID
+        )
+    }
+
+    private func applyMovementSelection(_ selection: ChecklistMovementSelection, sourceID: Int, destinationID: Int) {
+        movementSelection = nil
+        isPreparingCopy = false
+        copyStartStartedEntryIDs.remove(selection.entry.id)
+        startedOverrides[selection.entry.id] = false
+        completedOverrides[selection.entry.id] = false
+        onMoveToMovement(selection.entry.order, selection.entry.item, sourceID, destinationID)
     }
 
     private func finalizeCopyOrderChecklist() {
@@ -491,7 +601,7 @@ struct CRMChecklistSheet: View {
     private func emptyState(text: String) -> some View {
         Text(text)
             .font(.system(size: 14, weight: .medium, design: .rounded))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(readableSecondaryTextColor)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 18)
     }
@@ -527,5 +637,185 @@ private struct ChecklistAlertButton {
         case .destructive:
             return .destructive(Text(title), action: buttonAction)
         }
+    }
+}
+
+private struct ChecklistMovementSelection: Identifiable {
+    let entry: CRMChecklistSheet.Entry
+    let sourceEstablishmentID: Int?
+    let destinationEstablishmentID: Int?
+
+    var id: String { entry.id }
+}
+
+private struct ChecklistCompletionActionSheet: View {
+    let onCancel: () -> Void
+    let onMoveToMovement: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Подтвердите выполнение")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+
+            Text("Можно сразу отметить позицию как выполненную или перевести ее в перемещение с выбором маршрута.")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.72))
+
+            VStack(spacing: 10) {
+                Button(action: onMoveToMovement) {
+                    Text("В перемещение")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onConfirm) {
+                    Text("Подтвердить")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onCancel) {
+                    Text("Отмена")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.82))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                )
+        )
+        .shadow(color: .black.opacity(0.24), radius: 18, x: 0, y: 10)
+    }
+}
+
+private struct ChecklistMovementRouteSheet: View {
+    let establishments: [HomeEstablishment]
+    let initialSourceEstablishmentID: Int?
+    let initialDestinationEstablishmentID: Int?
+    let onClose: () -> Void
+    let onConfirm: (Int, Int) -> Void
+
+    @State private var sourceEstablishmentID: Int?
+    @State private var destinationEstablishmentID: Int?
+
+    init(
+        establishments: [HomeEstablishment],
+        initialSourceEstablishmentID: Int?,
+        initialDestinationEstablishmentID: Int?,
+        onClose: @escaping () -> Void,
+        onConfirm: @escaping (Int, Int) -> Void
+    ) {
+        self.establishments = establishments
+        self.initialSourceEstablishmentID = initialSourceEstablishmentID
+        self.initialDestinationEstablishmentID = initialDestinationEstablishmentID
+        self.onClose = onClose
+        self.onConfirm = onConfirm
+        _sourceEstablishmentID = State(initialValue: initialSourceEstablishmentID)
+        _destinationEstablishmentID = State(initialValue: initialDestinationEstablishmentID)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Перемещение")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+
+            Text("Выбери точки Откуда и Куда")
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.68))
+
+            routeSelector(title: "Откуда", selection: $sourceEstablishmentID)
+            routeSelector(title: "Куда", selection: $destinationEstablishmentID)
+
+            HStack(spacing: 10) {
+                Button(action: onClose) {
+                    Text("Отмена")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(Color.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    guard let sourceEstablishmentID, let destinationEstablishmentID else { return }
+                    onConfirm(sourceEstablishmentID, destinationEstablishmentID)
+                } label: {
+                    Text("Сохранить")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 46)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(sourceEstablishmentID == nil || destinationEstablishmentID == nil || sourceEstablishmentID == destinationEstablishmentID)
+                .opacity(sourceEstablishmentID == nil || destinationEstablishmentID == nil || sourceEstablishmentID == destinationEstablishmentID ? 0.55 : 1)
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(red: 0.10, green: 0.10, blue: 0.12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                )
+        )
+        .shadow(color: .black.opacity(0.24), radius: 18, x: 0, y: 10)
+    }
+
+    private func routeSelector(title: String, selection: Binding<Int?>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.82))
+
+            Menu {
+                ForEach(establishments) { establishment in
+                    Button {
+                        selection.wrappedValue = establishment.id
+                    } label: {
+                        Text(establishment.establishmentName)
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(establishmentTitle(for: selection.wrappedValue) ?? "Выбери точку")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+        }
+    }
+
+    private func establishmentTitle(for id: Int?) -> String? {
+        establishments.first(where: { $0.id == id })?.establishmentName
     }
 }

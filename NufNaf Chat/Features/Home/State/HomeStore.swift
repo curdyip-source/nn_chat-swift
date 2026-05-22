@@ -594,6 +594,7 @@ final class HomeStore: ObservableObject {
                         orderItemQuantity: $0.orderItemQuantity,
                         orderItemPrice: $0.orderItemPrice,
                         orderItemStatusID: $0.orderItemStatusID,
+                        orderItemNote: $0.orderItemNote,
                         orderItemSourceEstablishmentID: $0.orderItemSourceEstablishmentID,
                         orderItemDestinationEstablishmentID: $0.orderItemDestinationEstablishmentID,
                         orderItemCurrencyID: $0.orderItemCurrencyID,

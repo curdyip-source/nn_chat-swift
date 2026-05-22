@@ -795,6 +795,7 @@ struct HomeOrderItem: Decodable, Identifiable, Hashable {
     let orderItemStatus: String?
     let orderItemStatusColor: String?
     let orderItemSupplier: String?
+    let orderItemNote: String?
     let orderItemSourceEstablishmentID: Int?
     let orderItemSourceEstablishmentName: String?
     let orderItemDestinationEstablishmentID: Int?
@@ -814,6 +815,7 @@ struct HomeOrderItem: Decodable, Identifiable, Hashable {
         case orderItemStatus = "order_item_status"
         case orderItemStatusColor = "order_item_status_color"
         case orderItemSupplier = "order_item_supplier"
+        case orderItemNote = "order_item_note"
         case orderItemSourceEstablishmentID = "order_item_source_establishment_id"
         case orderItemSourceEstablishmentName = "order_item_source_establishment_name"
         case orderItemDestinationEstablishmentID = "order_item_destination_establishment_id"
@@ -835,6 +837,7 @@ struct HomeOrderItem: Decodable, Identifiable, Hashable {
         orderItemStatus = try container.decodeIfPresent(String.self, forKey: .orderItemStatus)
         orderItemStatusColor = try container.decodeIfPresent(String.self, forKey: .orderItemStatusColor)
         orderItemSupplier = try container.decodeIfPresent(String.self, forKey: .orderItemSupplier)
+        orderItemNote = try container.decodeIfPresent(String.self, forKey: .orderItemNote)
         orderItemSourceEstablishmentID = try container.decodeIfPresent(Int.self, forKey: .orderItemSourceEstablishmentID)
         orderItemSourceEstablishmentName = try container.decodeIfPresent(String.self, forKey: .orderItemSourceEstablishmentName)
         orderItemDestinationEstablishmentID = try container.decodeIfPresent(Int.self, forKey: .orderItemDestinationEstablishmentID)
@@ -853,6 +856,7 @@ struct HomeOrderItemCreateRequest: Encodable {
     let orderItemPrice: String
     let orderItemStatusID: Int?
     let orderItemSupplier: String?
+    let orderItemNote: String?
     let orderItemSourceEstablishmentID: Int?
     let orderItemDestinationEstablishmentID: Int?
     let orderItemCurrencyID: Int?
@@ -867,6 +871,7 @@ struct HomeOrderItemCreateRequest: Encodable {
         orderItemPrice: String,
         orderItemStatusID: Int?,
         orderItemSupplier: String? = nil,
+        orderItemNote: String? = nil,
         orderItemSourceEstablishmentID: Int? = nil,
         orderItemDestinationEstablishmentID: Int? = nil,
         orderItemCurrencyID: Int?,
@@ -880,6 +885,7 @@ struct HomeOrderItemCreateRequest: Encodable {
         self.orderItemPrice = orderItemPrice
         self.orderItemStatusID = orderItemStatusID
         self.orderItemSupplier = orderItemSupplier
+        self.orderItemNote = orderItemNote
         self.orderItemSourceEstablishmentID = orderItemSourceEstablishmentID
         self.orderItemDestinationEstablishmentID = orderItemDestinationEstablishmentID
         self.orderItemCurrencyID = orderItemCurrencyID
@@ -895,6 +901,7 @@ struct HomeOrderItemCreateRequest: Encodable {
         case orderItemPrice = "order_item_price"
         case orderItemStatusID = "order_item_status_id"
         case orderItemSupplier = "order_item_supplier"
+        case orderItemNote = "order_item_note"
         case orderItemSourceEstablishmentID = "order_item_source_establishment_id"
         case orderItemDestinationEstablishmentID = "order_item_destination_establishment_id"
         case orderItemCurrencyID = "order_item_currency_id"

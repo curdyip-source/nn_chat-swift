@@ -670,6 +670,7 @@ struct OrderDetailView: View {
             orderItemQuantity: item.orderItemQuantity,
             orderItemPrice: item.orderItemPrice,
             orderItemStatusID: statusID,
+            orderItemNote: item.orderItemNote,
             orderItemSourceEstablishmentID: sourceEstablishmentID,
             orderItemDestinationEstablishmentID: destinationEstablishmentID,
             orderItemCurrencyID: item.orderItemCurrencyID,

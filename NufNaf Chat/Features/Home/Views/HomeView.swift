@@ -457,6 +457,7 @@ struct HomeView: View {
             if session.isChecklistOpen {
                 CRMChecklistSheet(
                     orders: crmDocumentMessages.compactMap(\.order),
+                    establishments: store.referenceData.establishments,
                     errorMessage: crmErrorMessage,
                     updatingDocumentKey: crmUpdatingDocumentKey,
                     onClose: {
@@ -475,6 +476,26 @@ struct HomeView: View {
                             statusID: inStockStatusID,
                             checkpointStarted: true,
                             checkpointCompleted: true
+                        )
+                    },
+                    onMoveToMovement: { order, item, sourceID, destinationID in
+                        let movementStatusID = store.referenceData.statuses.first(where: {
+                            $0.statusType == "order_products" && $0.statusStatus == "Перемещение"
+                        })?.id
+
+                        guard let movementStatusID else {
+                            crmErrorMessage = "Не найден статус Перемещение"
+                            return
+                        }
+
+                        updateCRMOrderItem(
+                            order: order,
+                            itemID: item.id,
+                            statusID: movementStatusID,
+                            sourceEstablishmentID: sourceID,
+                            destinationEstablishmentID: destinationID,
+                            checkpointStarted: false,
+                            checkpointCompleted: false
                         )
                     }
                 )
@@ -503,6 +524,15 @@ struct HomeView: View {
                             destinationEstablishmentID: destinationID,
                             supplierName: supplierName
                         )
+                    },
+                    onCollectShipmentItem: { order, itemID in
+                        updateCRMShipmentItemCollected(order: order, itemID: itemID)
+                    },
+                    onCompleteShipmentOrder: { order in
+                        updateCRMShipmentOrderCompleted(order: order)
+                    },
+                    onUpdateOrderItemNote: { order, itemID, note in
+                        updateCRMOrderItem(order: order, itemID: itemID, note: note, noteWasProvided: true)
                     },
                     onSearchSupplierContacts: { query in
                         await store.searchContacts(accessToken: session.currentAccessToken, contactType: "supplier", query: query)
@@ -959,6 +989,121 @@ struct HomeView: View {
         updateCRMOrderItem(order: order, itemID: itemID, statusID: statusID)
     }
 
+    private func updateCRMShipmentItemCollected(order: HomeOrder, itemID: Int) {
+        guard let collectedItemStatusID = store.referenceData.statuses.first(where: {
+            $0.statusType == "order_products" && $0.statusStatus == "Собрано"
+        })?.id else {
+            crmErrorMessage = "Не найден статус товара Собрано"
+            return
+        }
+
+        guard let collectedOrderStatusID = store.referenceData.statuses.first(where: {
+            $0.statusType == "orders" && $0.statusStatus == "Собран"
+        })?.id else {
+            crmErrorMessage = "Не найден статус заказа Собран"
+            return
+        }
+
+        guard let currentItem = order.items.first(where: { $0.id == itemID }) else { return }
+        guard currentItem.orderItemStatusID != collectedItemStatusID else { return }
+
+        let allItemsWillBeCollected = order.items.allSatisfy { item in
+            item.id == itemID || item.orderItemStatusID == collectedItemStatusID
+        }
+        let nextOrderStatusID = allItemsWillBeCollected ? collectedOrderStatusID : order.orderStatusID
+
+        Task {
+            crmUpdatingDocumentKey = documentKey(kind: "order", id: order.id)
+            crmErrorMessage = nil
+            defer { crmUpdatingDocumentKey = nil }
+
+            do {
+                _ = try await store.updateOrder(
+                    accessToken: session.currentAccessToken,
+                    orderID: order.id,
+                    request: HomeOrderUpdateRequest(
+                        orderEstablishmentID: order.orderEstablishmentID,
+                        orderMethodID: order.orderMethodID,
+                        orderSubMethod: order.orderSubMethod,
+                        orderCustomer: order.orderCustomer,
+                        orderInfo: order.orderInfo,
+                        orderStatusID: nextOrderStatusID,
+                        items: order.items.map { item in
+                            makeOrderItemRequest(
+                                item: item,
+                                statusID: item.id == itemID ? collectedItemStatusID : item.orderItemStatusID,
+                                supplierName: item.orderItemSupplier,
+                                note: item.orderItemNote,
+                                sourceEstablishmentID: item.orderItemSourceEstablishmentID,
+                                destinationEstablishmentID: item.orderItemDestinationEstablishmentID,
+                                checkpointStarted: item.orderItemCheckpointStarted,
+                                checkpointCompleted: item.orderItemCheckpointCompleted
+                            )
+                        }
+                    )
+                )
+            } catch {
+                crmErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func updateCRMShipmentOrderCompleted(order: HomeOrder) {
+        guard let completedOrderStatusID = store.referenceData.statuses.first(where: {
+            $0.statusType == "orders" && $0.statusStatus == "Выполнен"
+        })?.id else {
+            crmErrorMessage = "Не найден статус заказа Выполнен"
+            return
+        }
+
+        guard let shippedItemStatusID = store.referenceData.statuses.first(where: {
+            $0.statusType == "order_products" && $0.statusStatus == "Отгружено"
+        })?.id else {
+            crmErrorMessage = "Не найден статус товара Отгружено"
+            return
+        }
+
+        let requiresUpdate = order.orderStatusID != completedOrderStatusID
+            || order.items.contains(where: { $0.orderItemStatusID != shippedItemStatusID })
+
+        guard requiresUpdate else { return }
+
+        Task {
+            crmUpdatingDocumentKey = documentKey(kind: "order", id: order.id)
+            crmErrorMessage = nil
+            defer { crmUpdatingDocumentKey = nil }
+
+            do {
+                _ = try await store.updateOrder(
+                    accessToken: session.currentAccessToken,
+                    orderID: order.id,
+                    request: HomeOrderUpdateRequest(
+                        orderEstablishmentID: order.orderEstablishmentID,
+                        orderMethodID: order.orderMethodID,
+                        orderSubMethod: order.orderSubMethod,
+                        orderCustomer: order.orderCustomer,
+                        orderInfo: order.orderInfo,
+                        orderStatusID: completedOrderStatusID,
+                        items: order.items.map { item in
+                            makeOrderItemRequest(
+                                item: item,
+                                statusID: shippedItemStatusID,
+                                supplierName: item.orderItemSupplier,
+                                note: item.orderItemNote,
+                                sourceEstablishmentID: item.orderItemSourceEstablishmentID,
+                                destinationEstablishmentID: item.orderItemDestinationEstablishmentID,
+                                checkpointStarted: item.orderItemCheckpointStarted,
+                                checkpointCompleted: item.orderItemCheckpointCompleted
+                            )
+                        }
+                    )
+                )
+            } catch {
+                crmErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func updateCRMOrderItem(
         order: HomeOrder,
         itemID: Int,
@@ -966,6 +1111,8 @@ struct HomeView: View {
         sourceEstablishmentID: Int? = nil,
         destinationEstablishmentID: Int? = nil,
         supplierName: String? = nil,
+        note: String? = nil,
+        noteWasProvided: Bool = false,
         checkpointStarted: Bool? = nil,
         checkpointCompleted: Bool? = nil
     ) {
@@ -975,6 +1122,7 @@ struct HomeView: View {
         let nextSourceID = sourceEstablishmentID ?? currentItem.orderItemSourceEstablishmentID
         let nextDestinationID = destinationEstablishmentID ?? currentItem.orderItemDestinationEstablishmentID
         let nextSupplierName = supplierName ?? currentItem.orderItemSupplier
+        let nextNote = noteWasProvided ? note : currentItem.orderItemNote
         let didChangeSupplier = normalizedSupplierName(nextSupplierName) != normalizedSupplierName(currentItem.orderItemSupplier)
         let resetCheckpoints = didChangeSupplier || (statusID != nil && statusID != currentItem.orderItemStatusID && shouldResetChecklistState(for: nextStatusID))
         let nextStarted = checkpointStarted ?? (resetCheckpoints ? false : currentItem.orderItemCheckpointStarted)
@@ -982,6 +1130,7 @@ struct HomeView: View {
 
         guard currentItem.orderItemStatusID != nextStatusID
             || currentItem.orderItemSupplier != nextSupplierName
+            || currentItem.orderItemNote != nextNote
             || currentItem.orderItemSourceEstablishmentID != nextSourceID
             || currentItem.orderItemDestinationEstablishmentID != nextDestinationID
             || currentItem.orderItemCheckpointStarted != nextStarted
@@ -1010,6 +1159,7 @@ struct HomeView: View {
                                 item: item,
                                 statusID: item.id == itemID ? nextStatusID : item.orderItemStatusID,
                                 supplierName: item.id == itemID ? nextSupplierName : item.orderItemSupplier,
+                                note: item.id == itemID ? nextNote : item.orderItemNote,
                                 sourceEstablishmentID: item.id == itemID ? nextSourceID : item.orderItemSourceEstablishmentID,
                                 destinationEstablishmentID: item.id == itemID ? nextDestinationID : item.orderItemDestinationEstablishmentID,
                                 checkpointStarted: item.id == itemID ? nextStarted : item.orderItemCheckpointStarted,
@@ -1064,6 +1214,7 @@ struct HomeView: View {
         item: HomeOrderItem,
         statusID: Int? = nil,
         supplierName: String? = nil,
+        note: String? = nil,
         sourceEstablishmentID: Int? = nil,
         destinationEstablishmentID: Int? = nil,
         checkpointStarted: Bool? = nil,
@@ -1077,6 +1228,7 @@ struct HomeView: View {
             orderItemPrice: item.orderItemPrice,
             orderItemStatusID: statusID ?? item.orderItemStatusID,
             orderItemSupplier: supplierName ?? item.orderItemSupplier,
+            orderItemNote: note ?? item.orderItemNote,
             orderItemSourceEstablishmentID: sourceEstablishmentID ?? item.orderItemSourceEstablishmentID,
             orderItemDestinationEstablishmentID: destinationEstablishmentID ?? item.orderItemDestinationEstablishmentID,
             orderItemCurrencyID: item.orderItemCurrencyID,
