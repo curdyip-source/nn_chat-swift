@@ -30,7 +30,7 @@ final class NotificationRouter: ObservableObject {
         switch eventType {
         case "mention_chat":
             pendingRoute = .chatMessage(id: entityID)
-        case "mention_order":
+        case "mention_order", "order_updated":
             pendingRoute = .order(id: entityID)
         default:
             break
