@@ -10,6 +10,7 @@ import SwiftUI
 struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var notificationRouter: NotificationRouter
     @StateObject private var store = HomeStore()
     @FocusState private var isMessageFieldFocused: Bool
     @State private var scrollToBottomRequest = 0
@@ -208,6 +209,17 @@ struct HomeView: View {
             store.isAttachmentMenuPresented = false
             previewOrder = nil
         }
+        .onChange(of: notificationRouter.pendingRoute) { _, route in
+            guard let route else { return }
+            handleNotificationRoute(route)
+            notificationRouter.pendingRoute = nil
+        }
+        .onAppear {
+            if let route = notificationRouter.pendingRoute {
+                handleNotificationRoute(route)
+                notificationRouter.pendingRoute = nil
+            }
+        }
         .sheet(isPresented: $isPhotoLibraryPresented) {
             PhotoLibraryAttachmentPicker(
                 onPick: { attachment in
@@ -357,6 +369,7 @@ struct HomeView: View {
             ChatMessagesView(
                 messages: filteredMessages,
                 currentUserID: user.userID,
+                mentionNames: store.participants.map(\.displayName),
                 scrollToBottomRequest: scrollToBottomRequest,
                 scrollToMessageRequest: scrollToMessageRequest,
                 scrollToMessageID: scrollToMessageID,
@@ -425,31 +438,46 @@ struct HomeView: View {
             dismissKeyboard()
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            ChatInputPanel(
-                text: $store.messageDraft,
-                isTextFieldFocused: $isMessageFieldFocused,
-                inputContext: inputContext,
-                isSending: store.isSendingMessage,
-                onAttach: {
-                    dismissKeyboard()
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                        store.isAttachmentMenuPresented.toggle()
+            VStack(spacing: 8) {
+                if !mentionSuggestions.isEmpty {
+                    MentionSuggestionsView(participants: mentionSuggestions) { participant in
+                        store.messageDraft = MentionEngine.insertMention(participant, into: store.messageDraft)
+                        isMessageFieldFocused = true
                     }
-                },
-                onCancelInputContext: {
-                    clearInputContext()
-                },
-                onSend: {
-                    Task {
-                        await submitChatInput()
-                    }
+                    .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
                 }
-            )
-            .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
-            .padding(.top, 10)
-            .padding(.bottom, max(AppTheme.PageLayout.bottomPadding - 8, 8) + 15)
-            .background(AppTheme.background.opacity(0.96))
+
+                ChatInputPanel(
+                    text: $store.messageDraft,
+                    isTextFieldFocused: $isMessageFieldFocused,
+                    inputContext: inputContext,
+                    isSending: store.isSendingMessage,
+                    onAttach: {
+                        dismissKeyboard()
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                            store.isAttachmentMenuPresented.toggle()
+                        }
+                    },
+                    onCancelInputContext: {
+                        clearInputContext()
+                    },
+                    onSend: {
+                        Task {
+                            await submitChatInput()
+                        }
+                    }
+                )
+                .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+                .padding(.top, 10)
+                .padding(.bottom, max(AppTheme.PageLayout.bottomPadding - 8, 8) + 15)
+                .background(AppTheme.background.opacity(0.96))
+            }
         }
+    }
+
+    private var mentionSuggestions: [ChatParticipant] {
+        guard isMessageFieldFocused, let query = MentionEngine.activeQuery(in: store.messageDraft) else { return [] }
+        return MentionEngine.suggestions(from: store.participants, query: query, excludingUserID: user.userID)
     }
 
     private var crmContent: some View {
@@ -884,8 +912,9 @@ struct HomeView: View {
 
         guard let accessToken = session.currentAccessToken else { return }
         let composedText = composedReplyText(from: trimmedText)
+        let mentionedUserIDs = MentionEngine.mentionedUserIDs(in: composedText, participants: store.participants)
         replyTarget = nil
-        await store.sendMessage(accessToken: accessToken, currentUser: user, text: composedText, clearDraft: true)
+        await store.sendMessage(accessToken: accessToken, currentUser: user, text: composedText, clearDraft: true, mentionedUserIDs: mentionedUserIDs)
         isMessageFieldFocused = true
         scrollToBottomRequest += 1
     }
@@ -893,6 +922,23 @@ struct HomeView: View {
     private func retryFailedMessage(_ message: HomeMessage) async {
         await store.retryFailedMessage(accessToken: session.currentAccessToken, currentUser: user, message: message)
         scrollToBottomRequest += 1
+    }
+
+    private func handleNotificationRoute(_ route: NotificationRoute) {
+        switch route {
+        case let .chatMessage(id):
+            session.closeChatFilterPanel()
+            session.closeDocument()
+            previewOrder = nil
+            if session.chatFilterState.displayMode != .chat {
+                session.setHomeDisplayMode(.chat)
+            }
+            scrollToMessageID = id
+            scrollToMessageRequest += 1
+        case let .order(id):
+            previewOrder = nil
+            session.openDocument(kind: "order", id: id)
+        }
     }
 
     private func deleteMessage(_ message: HomeMessage) async {
@@ -950,6 +996,7 @@ struct HomeView: View {
                         orderEstablishmentID: previewOrder.orderEstablishmentID,
                         orderMethodID: previewOrder.orderMethodID,
                         orderSubMethod: previewOrder.orderSubMethod,
+                        orderContactMethod: previewOrder.orderContactMethod,
                         orderCustomer: previewOrder.orderCustomer,
                         orderInfo: previewOrder.orderInfo,
                         orderStatusID: previewOrder.orderStatusID,
@@ -1025,6 +1072,7 @@ struct HomeView: View {
                         orderEstablishmentID: order.orderEstablishmentID,
                         orderMethodID: order.orderMethodID,
                         orderSubMethod: order.orderSubMethod,
+                        orderContactMethod: order.orderContactMethod,
                         orderCustomer: order.orderCustomer,
                         orderInfo: order.orderInfo,
                         orderStatusID: nextOrderStatusID,
@@ -1081,6 +1129,7 @@ struct HomeView: View {
                         orderEstablishmentID: order.orderEstablishmentID,
                         orderMethodID: order.orderMethodID,
                         orderSubMethod: order.orderSubMethod,
+                        orderContactMethod: order.orderContactMethod,
                         orderCustomer: order.orderCustomer,
                         orderInfo: order.orderInfo,
                         orderStatusID: completedOrderStatusID,
@@ -1151,6 +1200,7 @@ struct HomeView: View {
                         orderEstablishmentID: order.orderEstablishmentID,
                         orderMethodID: order.orderMethodID,
                         orderSubMethod: order.orderSubMethod,
+                        orderContactMethod: order.orderContactMethod,
                         orderCustomer: order.orderCustomer,
                         orderInfo: order.orderInfo,
                         orderStatusID: order.orderStatusID,

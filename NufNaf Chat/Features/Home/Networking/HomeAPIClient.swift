@@ -35,11 +35,21 @@ struct HomeAPIClient {
         return response.items
     }
 
-    func sendMessage(accessToken: String, text: String) async throws -> HomeMessage {
+    func fetchParticipants(accessToken: String) async throws -> [ChatParticipant] {
+        let response: ChatParticipantsResponse = try await send(
+            path: "users/participants",
+            method: "GET",
+            body: Optional<String>.none,
+            accessToken: accessToken
+        )
+        return response.items
+    }
+
+    func sendMessage(accessToken: String, text: String, mentionedUserIDs: [Int] = []) async throws -> HomeMessage {
         let response: HomeItemEnvelope<HomeMessage> = try await send(
             path: "messages",
             method: "POST",
-            body: HomeMessageCreateRequest(messageType: "message", messageText: text, attachments: []),
+            body: HomeMessageCreateRequest(messageType: "message", messageText: text, attachments: [], mentionedUserIDs: mentionedUserIDs),
             accessToken: accessToken
         )
         return response.item
@@ -227,11 +237,11 @@ struct HomeAPIClient {
         return response.items
     }
 
-    func addOrderComment(accessToken: String, orderID: Int, text: String?, attachments: [HomeMessageAttachmentCreateRequest] = []) async throws -> HomeOrderComment {
+    func addOrderComment(accessToken: String, orderID: Int, text: String?, attachments: [HomeMessageAttachmentCreateRequest] = [], mentionedUserIDs: [Int] = []) async throws -> HomeOrderComment {
         let response: HomeItemEnvelope<HomeOrderComment> = try await send(
             path: "orders/\(orderID)/comments",
             method: "POST",
-            body: HomeOrderCommentCreateRequest(orderCommentText: text, attachments: attachments),
+            body: HomeOrderCommentCreateRequest(orderCommentText: text, attachments: attachments, mentionedUserIDs: mentionedUserIDs),
             accessToken: accessToken
         )
         return response.item

@@ -203,6 +203,7 @@ struct OrderDetailView: View {
                         OrderCommentsSection(
                             comments: comments,
                             currentUserID: session.currentUser?.userID,
+                            mentionNames: store.participants.map(\.displayName),
                             isComposerActive: isCommentFieldFocused || isCommentAttachmentMenuPresented,
                             onOpenAttachment: openAttachment,
                             onRetryComment: retryFailedComment,
@@ -236,6 +237,13 @@ struct OrderDetailView: View {
                 .padding(.leading, 8)
             }
 
+            if !commentMentionSuggestions.isEmpty {
+                MentionSuggestionsView(participants: commentMentionSuggestions) { participant in
+                    commentDraft = MentionEngine.insertMention(participant, into: commentDraft)
+                    isCommentFieldFocused = true
+                }
+            }
+
             OrderCommentInputPanel(
                 text: $commentDraft,
                 isTextFieldFocused: $isCommentFieldFocused,
@@ -257,6 +265,11 @@ struct OrderDetailView: View {
         .padding(.top, 10)
         .padding(.bottom, 10)
         .background(Color(UIColor.systemBackground).shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: -4))
+    }
+
+    private var commentMentionSuggestions: [ChatParticipant] {
+        guard isCommentFieldFocused, let query = MentionEngine.activeQuery(in: commentDraft) else { return [] }
+        return MentionEngine.suggestions(from: store.participants, query: query, excludingUserID: session.currentUser?.userID)
     }
 
     private var orderStatuses: [HomeStatus] {
@@ -412,6 +425,7 @@ struct OrderDetailView: View {
                         orderEstablishmentID: order.orderEstablishmentID,
                         orderMethodID: order.orderMethodID,
                         orderSubMethod: order.orderSubMethod,
+                        orderContactMethod: order.orderContactMethod,
                         orderCustomer: order.orderCustomer,
                         orderInfo: order.orderInfo,
                         orderStatusID: order.orderStatusID,
@@ -590,7 +604,8 @@ struct OrderDetailView: View {
             let createdComment: HomeOrderComment
             switch payload {
             case let .text(text):
-                createdComment = try await store.addOrderComment(accessToken: session.currentAccessToken, orderID: orderID, text: text)
+                let mentionedUserIDs = MentionEngine.mentionedUserIDs(in: text, participants: store.participants)
+                createdComment = try await store.addOrderComment(accessToken: session.currentAccessToken, orderID: orderID, text: text, mentionedUserIDs: mentionedUserIDs)
             case let .attachment(attachment, _):
                 let uploadedAttachment = try await store.uploadOrderCommentAttachment(
                     accessToken: session.currentAccessToken,
@@ -688,13 +703,17 @@ struct OrderDetailView: View {
     }
 
     private func infoRows(for order: HomeOrder) -> [BusinessDocumentInfoRowModel] {
-        [
+        var rows = [
             BusinessDocumentInfoRowModel(title: "Точка", value: order.orderEstablishmentName ?? establishmentTitle(for: order.orderEstablishmentID)),
             BusinessDocumentInfoRowModel(title: "Клиент", value: order.orderCustomer),
             BusinessDocumentInfoRowModel(title: "Комментарий", value: normalizedValue(order.orderInfo)),
-            BusinessDocumentInfoRowModel(title: "Метод", value: methodTitle(for: order)),
-            BusinessDocumentInfoRowModel(title: "Создана", value: formattedDate(order.orderCreatedAt))
+            BusinessDocumentInfoRowModel(title: "Метод", value: methodTitle(for: order))
         ]
+        if let contactMethod = order.orderContactMethod, !contactMethod.isEmpty {
+            rows.append(BusinessDocumentInfoRowModel(title: "Способ связи", value: contactMethod))
+        }
+        rows.append(BusinessDocumentInfoRowModel(title: "Создана", value: formattedDate(order.orderCreatedAt)))
+        return rows
     }
 
     private func methodTitle(for order: HomeOrder) -> String {
@@ -829,6 +848,7 @@ private struct OrderCompactMetricView: View {
 private struct OrderCommentsSection: View {
     let comments: [HomeOrderComment]
     let currentUserID: Int?
+    var mentionNames: [String] = []
     let isComposerActive: Bool
     let onOpenAttachment: (HomeOrderCommentAttachment) -> Void
     let onRetryComment: (HomeOrderComment) -> Void
@@ -856,6 +876,7 @@ private struct OrderCommentsSection: View {
                                     OrderCommentRow(
                                         comment: comment,
                                         isOwn: comment.ownerUserID == currentUserID,
+                                        mentionNames: mentionNames,
                                         onOpenAttachment: onOpenAttachment,
                                         onRetryComment: onRetryComment,
                                         onDeleteComment: onDeleteComment
@@ -893,6 +914,7 @@ private struct OrderCommentsSection: View {
 private struct OrderCommentRow: View {
     let comment: HomeOrderComment
     let isOwn: Bool
+    var mentionNames: [String] = []
     let onOpenAttachment: (HomeOrderCommentAttachment) -> Void
     let onRetryComment: (HomeOrderComment) -> Void
     let onDeleteComment: (HomeOrderComment) -> Void
@@ -906,7 +928,7 @@ private struct OrderCommentRow: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 if !comment.visibleText.isEmpty {
-                    Text(comment.visibleText)
+                    Text(MentionEngine.attributedText(for: comment.visibleText, mentionNames: mentionNames, color: MentionEngine.mentionHighlightColor))
                         .font(.system(size: 14, weight: .medium, design: .rounded))
                         .foregroundStyle(isOwn ? Color.white : Color.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)

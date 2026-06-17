@@ -17,6 +17,7 @@ struct ComposerSheetView: View {
     @State private var selectedEstablishmentID: Int?
     @State private var selectedOrderMethodID: Int?
     @State private var selectedOrderSubMethod: String?
+    @State private var selectedOrderContactMethod: String?
     @State private var counterpartyName = ""
     @State private var info = ""
     @State private var counterpartyResults: [HomeContact] = []
@@ -42,6 +43,8 @@ struct ComposerSheetView: View {
     @State private var activeSection: ComposerSection?
     @State private var pendingSection: ComposerSection?
     @FocusState private var focusedField: FocusField?
+
+    private let orderContactMethods = ["WA", "TG", "AV", "IG", "SMS", "MX"]
 
     let kind: HomeComposerKind
     let editingOrder: HomeOrder?
@@ -69,6 +72,7 @@ struct ComposerSheetView: View {
         _selectedEstablishmentID = State(initialValue: editingOrder?.orderEstablishmentID)
         _selectedOrderMethodID = State(initialValue: editingOrder?.orderMethodID)
         _selectedOrderSubMethod = State(initialValue: editingOrder?.orderSubMethod)
+        _selectedOrderContactMethod = State(initialValue: editingOrder?.orderContactMethod)
         _counterpartyName = State(initialValue: editingOrder?.orderCustomer ?? "")
         _info = State(initialValue: editingOrder?.orderInfo ?? "")
         _selectedItems = State(initialValue: editingOrder?.items.map(HomeComposerItemDraft.init) ?? [])
@@ -204,6 +208,17 @@ struct ComposerSheetView: View {
                 layout: .equalWidthRow,
                 value: { $0.establishmentName },
                 onSelect: { selectedEstablishmentID = $0.id }
+            )
+        }
+
+        if kind == .order {
+            composerDivider
+
+            composerSubMethodGroup(
+                title: nil,
+                options: orderContactMethods,
+                selectedValue: selectedOrderContactMethod,
+                onSelect: { selectedOrderContactMethod = ($0 == selectedOrderContactMethod) ? nil : $0 }
             )
         }
 
@@ -1318,11 +1333,13 @@ struct ComposerSheetView: View {
             .padding(.vertical, 2)
     }
 
-    private func composerSubMethodGroup(title: String, options: [String], selectedValue: String?, onSelect: @escaping (String) -> Void) -> some View {
+    private func composerSubMethodGroup(title: String?, options: [String], selectedValue: String?, onSelect: @escaping (String) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
+            if let title {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
 
             HStack(spacing: 6) {
                 ForEach(options, id: \.self) { option in
@@ -1421,6 +1438,7 @@ struct ComposerSheetView: View {
                         orderEstablishmentID: selectedEstablishmentID,
                         orderMethodID: selectedOrderMethodID ?? editingOrder.orderMethodID,
                         orderSubMethod: selectedOrderSubMethod,
+                        orderContactMethod: selectedOrderContactMethod,
                         orderCustomer: normalized(counterpartyName) ?? "",
                         orderInfo: normalized(info) ?? "",
                         orderStatusID: editingOrder.orderStatusID,
@@ -1459,6 +1477,7 @@ struct ComposerSheetView: View {
             establishmentID: selectedEstablishmentID,
             orderMethodID: selectedOrderMethodID,
             orderSubMethod: selectedOrderSubMethod,
+            orderContactMethod: selectedOrderContactMethod,
             counterpartyName: counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines),
             info: info.trimmingCharacters(in: .whitespacesAndNewlines),
             saveContact: shouldSaveContact,

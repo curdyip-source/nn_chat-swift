@@ -20,6 +20,7 @@ struct ChatInputContext: Equatable {
 struct ChatMessagesView: View {
     let messages: [HomeMessage]
     let currentUserID: Int
+    var mentionNames: [String] = []
     let scrollToBottomRequest: Int
     let scrollToMessageRequest: Int
     let scrollToMessageID: Int?
@@ -57,6 +58,7 @@ struct ChatMessagesView: View {
                                 ChatMessageRow(
                                     message: message,
                                     isOwnMessage: message.messageOwnerUserID == currentUserID,
+                                    mentionNames: mentionNames,
                                     isHighlighted: message.id == highlightedMessageID,
                                     highlightRequest: highlightMessageRequest,
                                     showsSenderName: shouldShowSenderName(for: index),
@@ -213,6 +215,7 @@ private struct ChatDateSeparator: View {
 private struct ChatMessageRow: View {
     let message: HomeMessage
     let isOwnMessage: Bool
+    var mentionNames: [String] = []
     let isHighlighted: Bool
     let highlightRequest: Int
     let showsSenderName: Bool
@@ -368,7 +371,7 @@ private struct ChatMessageRow: View {
                     .buttonStyle(.plain)
 
                     if !message.visibleMessageText.isEmpty {
-                        Text(message.visibleMessageText)
+                        Text(MentionEngine.attributedText(for: message.visibleMessageText, mentionNames: mentionNames, color: MentionEngine.mentionHighlightColor))
                             .font(.system(size: 16, weight: .medium, design: .rounded))
                             .foregroundColor(isOwnMessage ? .black : .white)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -387,7 +390,7 @@ private struct ChatMessageRow: View {
                     }
                 }
             } else {
-                Text(message.visibleMessageText)
+                Text(MentionEngine.attributedText(for: message.visibleMessageText, mentionNames: mentionNames, color: MentionEngine.mentionHighlightColor))
                     .font(.system(size: 16, weight: .medium, design: .rounded))
                     .foregroundColor(isOwnMessage ? .black : .white)
                     .padding(.leading, 14)
@@ -435,7 +438,9 @@ private struct ChatMessageRow: View {
     }
 
     private func documentCard(kind: String, id: Int) -> some View {
-        let orderUnreadCount = kind == "order" ? message.order.map(unreadOrderCommentsCount) ?? 0 : 0
+        let order = kind == "order" ? message.order : nil
+        let orderCommentCount = order?.comments.count ?? 0
+        let orderUnreadCount = order.map(unreadOrderCommentsCount) ?? 0
 
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
@@ -485,13 +490,13 @@ private struct ChatMessageRow: View {
                 )
         )
         .overlay(alignment: isOwnMessage ? .topLeading : .topTrailing) {
-            if orderUnreadCount > 0 {
-                Text(orderUnreadCount > 99 ? "99+" : "\(orderUnreadCount)")
+            if orderCommentCount > 0 {
+                Text(orderCommentCount > 99 ? "99+" : "\(orderCommentCount)")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundColor(.white)
                     .padding(.horizontal, 8)
                     .frame(height: 24)
-                    .background(Color(red: 0.86, green: 0.18, blue: 0.18))
+                    .background(orderUnreadCount > 0 ? Color(red: 0.86, green: 0.18, blue: 0.18) : Color(red: 0.45, green: 0.47, blue: 0.52))
                     .clipShape(Capsule())
                     .offset(x: isOwnMessage ? -6 : 6, y: -6)
             }

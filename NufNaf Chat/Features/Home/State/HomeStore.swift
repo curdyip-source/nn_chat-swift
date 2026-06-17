@@ -20,6 +20,7 @@ final class HomeStore: ObservableObject {
     @Published var isMediaAlertPresented = false
     @Published var mediaAlertTitle = ""
     @Published var referenceData = HomeReferenceDataResponse(establishments: [], orderMethods: [], statuses: [], currencies: [])
+    @Published var participants: [ChatParticipant] = []
     @Published private(set) var orderCommentReadRevision = 0
 
     private let client: HomeAPIClient
@@ -230,6 +231,16 @@ final class HomeStore: ObservableObject {
             referenceData = try await client.getReferenceData(accessToken: accessToken)
         } catch {
         }
+
+        await loadParticipants(accessToken: accessToken)
+    }
+
+    func loadParticipants(accessToken: String?) async {
+        guard let accessToken else { return }
+        do {
+            participants = try await client.fetchParticipants(accessToken: accessToken)
+        } catch {
+        }
     }
 
     func reloadMessages(accessToken: String?) async {
@@ -247,7 +258,7 @@ final class HomeStore: ObservableObject {
         _ = accessToken
     }
 
-    func sendMessage(accessToken: String?, currentUser: AuthUser, text: String, clearDraft: Bool) async {
+    func sendMessage(accessToken: String?, currentUser: AuthUser, text: String, clearDraft: Bool, mentionedUserIDs: [Int] = []) async {
         guard let accessToken else { return }
         let normalizedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedText.isEmpty else { return }
@@ -266,7 +277,7 @@ final class HomeStore: ObservableObject {
         mergeMessage(localMessage)
 
         do {
-            let createdMessage = try await client.sendMessage(accessToken: accessToken, text: normalizedText)
+            let createdMessage = try await client.sendMessage(accessToken: accessToken, text: normalizedText, mentionedUserIDs: mentionedUserIDs)
             replaceMessage(localID: localMessageID, with: createdMessage)
             reloadMessagesInBackground(accessToken: accessToken)
         } catch {
@@ -496,20 +507,20 @@ final class HomeStore: ObservableObject {
         return try await client.getOrderComments(accessToken: accessToken, orderID: orderID)
     }
 
-    func addOrderComment(accessToken: String?, orderID: Int, text: String) async throws -> HomeOrderComment {
+    func addOrderComment(accessToken: String?, orderID: Int, text: String, mentionedUserIDs: [Int] = []) async throws -> HomeOrderComment {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")
         }
-        let comment = try await client.addOrderComment(accessToken: accessToken, orderID: orderID, text: text)
+        let comment = try await client.addOrderComment(accessToken: accessToken, orderID: orderID, text: text, mentionedUserIDs: mentionedUserIDs)
         reloadMessagesInBackground(accessToken: accessToken)
         return comment
     }
 
-    func addOrderComment(accessToken: String?, orderID: Int, text: String?, attachments: [HomeMessageAttachmentCreateRequest]) async throws -> HomeOrderComment {
+    func addOrderComment(accessToken: String?, orderID: Int, text: String?, attachments: [HomeMessageAttachmentCreateRequest], mentionedUserIDs: [Int] = []) async throws -> HomeOrderComment {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")
         }
-        let comment = try await client.addOrderComment(accessToken: accessToken, orderID: orderID, text: text, attachments: attachments)
+        let comment = try await client.addOrderComment(accessToken: accessToken, orderID: orderID, text: text, attachments: attachments, mentionedUserIDs: mentionedUserIDs)
         reloadMessagesInBackground(accessToken: accessToken)
         return comment
     }
@@ -583,6 +594,7 @@ final class HomeStore: ObservableObject {
                 orderEstablishmentID: order.orderEstablishmentID,
                 orderMethodID: order.orderMethodID,
                 orderSubMethod: order.orderSubMethod,
+                orderContactMethod: order.orderContactMethod,
                 orderCustomer: order.orderCustomer,
                 orderInfo: order.orderInfo,
                 orderStatusID: statusID,
@@ -660,7 +672,7 @@ final class HomeStore: ObservableObject {
         return try await client.uploadProfilePhoto(accessToken: accessToken, jpegData: jpegData)
     }
 
-    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, counterpartyName: String, info: String, saveContact: Bool, orderStatusID: Int? = nil, defaultOrderItemStatusID: Int? = nil, items: [HomeComposerItemDraft]) async {
+    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, orderContactMethod: String?, counterpartyName: String, info: String, saveContact: Bool, orderStatusID: Int? = nil, defaultOrderItemStatusID: Int? = nil, items: [HomeComposerItemDraft]) async {
         guard let accessToken else { return }
         let normalizedItems = items.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.price.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !normalizedItems.isEmpty else { return }
@@ -673,6 +685,7 @@ final class HomeStore: ObservableObject {
                 orderEstablishmentID: establishmentID,
                 orderMethodID: orderMethodID ?? referenceData.orderMethods.first?.id ?? 1,
                 orderSubMethod: orderSubMethod,
+                orderContactMethod: orderContactMethod,
                 orderCustomer: counterpartyName,
                 orderInfo: info,
                 orderStatusID: orderStatusID,
