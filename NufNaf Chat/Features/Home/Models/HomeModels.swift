@@ -559,12 +559,41 @@ struct HomeMessageCreateRequest: Encodable {
     let messageType: String
     let messageText: String?
     let attachments: [HomeMessageAttachmentCreateRequest]
+    var mentionedUserIDs: [Int] = []
 
     enum CodingKeys: String, CodingKey {
         case messageType = "message_type"
         case messageText = "message_text"
         case attachments
+        case mentionedUserIDs = "mentioned_user_ids"
     }
+}
+
+struct ChatParticipant: Decodable, Identifiable, Hashable {
+    let id: Int
+    let userLogin: String
+    let userFirstName: String
+    let userSecondName: String
+    let userProfilePhoto: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "user_id"
+        case userLogin = "user_login"
+        case userFirstName = "user_first_name"
+        case userSecondName = "user_second_name"
+        case userProfilePhoto = "user_profile_photo"
+    }
+
+    var displayName: String {
+        let fullName = [userSecondName, userFirstName]
+            .compactMap { $0.isEmpty ? nil : $0 }
+            .joined(separator: " ")
+        return fullName.isEmpty ? userLogin : fullName
+    }
+}
+
+struct ChatParticipantsResponse: Decodable {
+    let items: [ChatParticipant]
 }
 
 struct HomeMessageUpdateRequest: Encodable {
@@ -579,6 +608,7 @@ struct HomeOrderCreateRequest: Encodable {
     let orderEstablishmentID: Int
     let orderMethodID: Int
     let orderSubMethod: String?
+    let orderContactMethod: String?
     let orderCustomer: String
     let orderInfo: String
     let orderStatusID: Int?
@@ -589,6 +619,7 @@ struct HomeOrderCreateRequest: Encodable {
         case orderEstablishmentID = "order_establishment_id"
         case orderMethodID = "order_method_id"
         case orderSubMethod = "order_sub_method"
+        case orderContactMethod = "order_contact_method"
         case orderCustomer = "order_customer"
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
@@ -604,6 +635,7 @@ struct HomeOrder: Decodable, Identifiable, Hashable {
     let orderMethodID: Int
     let orderMethodName: String?
     let orderSubMethod: String?
+    let orderContactMethod: String?
     let orderCustomer: String
     let orderInfo: String
     let orderStatusID: Int
@@ -620,6 +652,7 @@ struct HomeOrder: Decodable, Identifiable, Hashable {
         case orderMethodID = "order_method_id"
         case orderMethodName = "order_method_name"
         case orderSubMethod = "order_sub_method"
+        case orderContactMethod = "order_contact_method"
         case orderCustomer = "order_customer"
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
@@ -692,10 +725,12 @@ struct HomeOrderComment: Decodable, Identifiable, Hashable {
 struct HomeOrderCommentCreateRequest: Encodable {
     let orderCommentText: String?
     let attachments: [HomeMessageAttachmentCreateRequest]
+    var mentionedUserIDs: [Int] = []
 
     enum CodingKeys: String, CodingKey {
         case orderCommentText = "order_comment_text"
         case attachments
+        case mentionedUserIDs = "mentioned_user_ids"
     }
 }
 
@@ -914,6 +949,7 @@ struct HomeOrderUpdateRequest: Encodable {
     let orderEstablishmentID: Int
     let orderMethodID: Int
     let orderSubMethod: String?
+    let orderContactMethod: String?
     let orderCustomer: String
     let orderInfo: String
     let orderStatusID: Int
@@ -923,6 +959,7 @@ struct HomeOrderUpdateRequest: Encodable {
         case orderEstablishmentID = "order_establishment_id"
         case orderMethodID = "order_method_id"
         case orderSubMethod = "order_sub_method"
+        case orderContactMethod = "order_contact_method"
         case orderCustomer = "order_customer"
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"

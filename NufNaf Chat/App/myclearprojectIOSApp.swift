@@ -13,11 +13,13 @@ import UserNotifications
 struct myclearprojectIOSApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var session = AppSession()
+    @StateObject private var notificationRouter = NotificationRouter.shared
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(session)
+                .environmentObject(notificationRouter)
                 .task {
                     await session.restoreSession()
                 }
@@ -42,6 +44,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         [.banner, .list, .sound]
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        await NotificationRouter.shared.handle(userInfo: response.notification.request.content.userInfo)
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
