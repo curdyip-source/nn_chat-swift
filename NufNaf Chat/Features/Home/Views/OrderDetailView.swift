@@ -89,10 +89,8 @@ struct OrderDetailView: View {
                 dismissCommentKeyboard()
             }
         }
-        .onChange(of: isCommentFieldFocused) { _, isFocused in
-            guard isFocused else { return }
-            commentScrollRequest += 1
-        }
+        // Скролл к чату на фокус не дёргаем — его делает единый обработчик появления
+        // клавиатуры (в скаффолде), иначе две анимации компаундятся и подъём «тянет».
         .onChange(of: isCommentAttachmentMenuPresented) { _, isPresented in
             guard isPresented || isCommentFieldFocused else { return }
             commentScrollRequest += 1
@@ -155,6 +153,10 @@ struct OrderDetailView: View {
             isSaving: isSaving,
             errorMessage: errorMessage,
             onClose: onClose,
+            onInteractiveDismissStart: {
+                dismissCommentKeyboard()
+                closeCommentAttachmentMenu()
+            },
             headerActionSystemImage: order == nil ? nil : "pencil",
             onHeaderAction: order == nil ? nil : { isEditSheetPresented = true },
             prefersDarkHeader: true,

@@ -234,6 +234,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
     let isSaving: Bool
     let errorMessage: String?
     let onClose: () -> Void
+    let onInteractiveDismissStart: () -> Void
     let headerActionSystemImage: String?
     let onHeaderAction: (() -> Void)?
     let prefersDarkHeader: Bool
@@ -250,6 +251,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         isSaving: Bool,
         errorMessage: String?,
         onClose: @escaping () -> Void,
+        onInteractiveDismissStart: @escaping () -> Void = {},
         headerActionSystemImage: String? = nil,
         onHeaderAction: (() -> Void)? = nil,
         prefersDarkHeader: Bool = false,
@@ -265,6 +267,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         self.isSaving = isSaving
         self.errorMessage = errorMessage
         self.onClose = onClose
+        self.onInteractiveDismissStart = onInteractiveDismissStart
         self.headerActionSystemImage = headerActionSystemImage
         self.onHeaderAction = onHeaderAction
         self.prefersDarkHeader = prefersDarkHeader
@@ -375,8 +378,26 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                             .scrollDismissesKeyboard(.interactively)
                             .onChange(of: scrollRequest) { _, _ in
                                 guard let scrollTargetID else { return }
-                                withAnimation(.easeOut(duration: 0.22)) {
+                                withAnimation(.easeOut(duration: 0.16)) {
                                     proxy.scrollTo(scrollTargetID, anchor: .bottom)
+                                }
+                            }
+                            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+                                // Скроллим блок над клавиатурой при её появлении — быстро,
+                                // блок встаёт на место раньше, чем клавиатура доедет.
+                                guard let scrollTargetID,
+                                      let endFrame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue,
+                                      endFrame.minY < UIScreen.main.bounds.height - 1 else { return }
+                                withAnimation(.easeOut(duration: 0.16)) {
+                                    proxy.scrollTo(scrollTargetID, anchor: .bottom)
+                                }
+                                // Повтор на следующем ранлупе: с самого верха страницы первый
+                                // scrollTo перебивается лейаут-проходом клавиатуры и не доезжает.
+                                // Если первый сработал — это no-op, скорость не меняется.
+                                DispatchQueue.main.async {
+                                    withAnimation(.easeOut(duration: 0.16)) {
+                                        proxy.scrollTo(scrollTargetID, anchor: .bottom)
+                                    }
                                 }
                             }
                         }
@@ -394,6 +415,11 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         DragGesture(minimumDistance: 18, coordinateSpace: .global)
             .onChanged { value in
                 guard shouldTrackBackSwipe(value) else { return }
+                if !isInteractiveDismissInProgress {
+                    // Сразу при распознавании свайпа-выхода прячем клавиатуру,
+                    // чтобы она уезжала до/во время перехода, а не после.
+                    onInteractiveDismissStart()
+                }
                 isInteractiveDismissInProgress = true
                 dragOffsetX = interactiveOffset(for: value.translation.width, containerWidth: containerWidth)
             }
