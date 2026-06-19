@@ -107,6 +107,10 @@ struct StoredSession: Codable {
     let accessToken: String
     let refreshToken: String
     let user: AuthUser
+    // Срок жизни токенов (для проактивного рефреша). Optional — старые сохранённые
+    // сессии без этих полей декодируются с nil.
+    var accessExpiresAt: Date?
+    var refreshExpiresAt: Date?
 }
 
 enum SessionScreenState: Equatable {

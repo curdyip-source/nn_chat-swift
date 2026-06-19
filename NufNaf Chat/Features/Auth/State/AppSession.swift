@@ -52,26 +52,44 @@ final class AppSession: ObservableObject {
             saveStoredSession(StoredSession(
                 accessToken: storedSession.accessToken,
                 refreshToken: storedSession.refreshToken,
-                user: meResponse.user
+                user: meResponse.user,
+                accessExpiresAt: storedSession.accessExpiresAt,
+                refreshExpiresAt: storedSession.refreshExpiresAt
             ))
-            screenState = .authenticated(meResponse.user)
-            loadChatFilterState(for: meResponse.user.userID)
+            setAuthenticated(meResponse.user)
         } catch let error as AuthServiceError {
             switch error {
-            case let .backend(statusCode, _) where statusCode == 401:
-                await refreshSession(using: storedSession.refreshToken, fallbackUser: storedSession.user)
-            case let .backend(_, message) where message.localizedCaseInsensitiveContains("деактивирован"):
-                clearStoredSession()
-                screenState = .awaitingApproval(storedSession.user)
-            default:
-                clearStoredSession()
-                authErrorMessage = error.errorDescription
-                screenState = .login
+            case let .backend(statusCode, message):
+                if statusCode == 401 {
+                    // Access-токен протух — обновляем по refresh-токену.
+                    switch await refreshTokens() {
+                    case let .success(user):
+                        setAuthenticated(user)
+                    case .invalidSession:
+                        handleInvalidSession(message: "Сессия истекла, войдите снова")
+                    case .transient:
+                        // Сеть/временный сбой — не выкидываем на логин, работаем по
+                        // сохранённой сессии; планировщик повторит рефреш.
+                        setAuthenticated(storedSession.user)
+                    }
+                } else if message.localizedCaseInsensitiveContains("деактивирован") {
+                    clearStoredSession()
+                    screenState = .awaitingApproval(storedSession.user)
+                } else if statusCode >= 500 {
+                    // Серверный сбой — не разлогиниваем.
+                    setAuthenticated(storedSession.user)
+                } else {
+                    clearStoredSession()
+                    authErrorMessage = error.errorDescription
+                    screenState = .login
+                }
+            case .transport, .invalidResponse:
+                // Временная (сетевая) ошибка — оставляем пользователя в системе.
+                setAuthenticated(storedSession.user)
             }
         } catch {
-            clearStoredSession()
-            authErrorMessage = "Не удалось восстановить сессию"
-            screenState = .login
+            // Неизвестная (вероятно сетевая) ошибка — не разлогиниваем.
+            setAuthenticated(storedSession.user)
         }
     }
 
@@ -123,15 +141,9 @@ final class AppSession: ObservableObject {
 
         do {
             let response = try await client.login(userLogin: userLogin, password: password)
-            let storedSession = StoredSession(
-                accessToken: response.accessToken,
-                refreshToken: response.refreshToken,
-                user: response.user
-            )
-            saveStoredSession(storedSession)
+            saveStoredSession(storedSession(from: response))
             try? credentialStore.save(StoredAuthCredentials(userLogin: userLogin, password: password))
-            screenState = .authenticated(response.user)
-            loadChatFilterState(for: response.user.userID)
+            setAuthenticated(response.user)
             return true
         } catch let error as AuthServiceError {
             handleLoginError(error, attemptedLogin: userLogin)
@@ -167,6 +179,7 @@ final class AppSession: ObservableObject {
     }
 
     func logout() async {
+        stopTokenRefreshScheduler()
         let accessToken = loadStoredSession()?.accessToken
         clearStoredSession()
         screenState = .login
@@ -183,6 +196,7 @@ final class AppSession: ObservableObject {
     }
 
     func showLogin() {
+        stopTokenRefreshScheduler()
         authErrorMessage = nil
         screenState = .login
         isProfileOpen = false
@@ -219,7 +233,9 @@ final class AppSession: ObservableObject {
         storedSession = StoredSession(
             accessToken: storedSession.accessToken,
             refreshToken: storedSession.refreshToken,
-            user: user
+            user: user,
+            accessExpiresAt: storedSession.accessExpiresAt,
+            refreshExpiresAt: storedSession.refreshExpiresAt
         )
         saveStoredSession(storedSession)
         screenState = .authenticated(user)
@@ -323,31 +339,128 @@ final class AppSession: ObservableObject {
         updateChatFilterState(.default())
     }
 
-    private func refreshSession(using refreshToken: String, fallbackUser: AuthUser) async {
+    // MARK: - Управление токенами (проактивный рефреш)
+
+    private enum RefreshOutcome {
+        case success(AuthUser)
+        case invalidSession   // refresh-токен реально невалиден → разлогин
+        case transient        // сеть/временный сбой → не разлогиниваем, повторим позже
+    }
+
+    private var inFlightRefresh: Task<RefreshOutcome, Never>?
+    private var tokenRefreshTask: Task<Void, Never>?
+    private let refreshLeadTime: TimeInterval = 90          // обновляем за 90с до истечения
+    private let refreshRetryDelay: TimeInterval = 20        // пауза перед повтором при сбое
+    private let refreshFallbackInterval: TimeInterval = 1200 // если срок неизвестен
+
+    /// Помечает пользователя авторизованным и запускает планировщик рефреша.
+    private func setAuthenticated(_ user: AuthUser) {
+        screenState = .authenticated(user)
+        loadChatFilterState(for: user.userID)
+        startTokenRefreshScheduler()
+    }
+
+    private func storedSession(from response: AuthResponse) -> StoredSession {
+        StoredSession(
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            user: response.user,
+            accessExpiresAt: HomeMessageDateParser.parse(response.accessExpiresAt),
+            refreshExpiresAt: HomeMessageDateParser.parse(response.refreshExpiresAt)
+        )
+    }
+
+    /// Обновляет токены, коалесируя одновременные вызовы в один сетевой запрос —
+    /// иначе при ротации refresh-токена второй параллельный рефреш получил бы 401.
+    @discardableResult
+    private func refreshTokens() async -> RefreshOutcome {
+        if let existing = inFlightRefresh {
+            return await existing.value
+        }
+        let task = Task { await self.performRefreshOnce() }
+        inFlightRefresh = task
+        let outcome = await task.value
+        inFlightRefresh = nil
+        return outcome
+    }
+
+    private func performRefreshOnce() async -> RefreshOutcome {
+        guard let stored = loadStoredSession() else { return .invalidSession }
         do {
-            let response = try await client.refresh(refreshToken: refreshToken)
-            let storedSession = StoredSession(
-                accessToken: response.accessToken,
-                refreshToken: response.refreshToken,
-                user: response.user
-            )
-            saveStoredSession(storedSession)
-            screenState = .authenticated(response.user)
+            let response = try await client.refresh(refreshToken: stored.refreshToken)
+            saveStoredSession(storedSession(from: response))
+            // Обновим пользователя, не сбрасывая остальное состояние.
+            if case .authenticated = screenState {
+                screenState = .authenticated(response.user)
+            }
+            return .success(response.user)
         } catch let error as AuthServiceError {
-            if case let .backend(_, message) = error,
-               message.localizedCaseInsensitiveContains("деактивирован") {
-                clearStoredSession()
-                screenState = .awaitingApproval(fallbackUser)
-                return
+            switch error {
+            case let .backend(statusCode, message):
+                if statusCode == 401 || statusCode == 403 || message.localizedCaseInsensitiveContains("деактивирован") {
+                    return .invalidSession
+                }
+                return .transient
+            case .transport, .invalidResponse:
+                return .transient
+            }
+        } catch {
+            return .transient
+        }
+    }
+
+    private func handleInvalidSession(message: String) {
+        stopTokenRefreshScheduler()
+        clearStoredSession()
+        authErrorMessage = message
+        screenState = .login
+        isProfileOpen = false
+        isChecklistOpen = false
+        activeDocument = nil
+        isChatFilterPresented = false
+        chatFilterState = HomeChatFilterState.default()
+    }
+
+    private func startTokenRefreshScheduler() {
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = Task { [weak self] in
+            await self?.runTokenRefreshLoop()
+        }
+    }
+
+    private func stopTokenRefreshScheduler() {
+        tokenRefreshTask?.cancel()
+        tokenRefreshTask = nil
+    }
+
+    private func runTokenRefreshLoop() async {
+        while !Task.isCancelled {
+            guard case .authenticated = screenState, let stored = loadStoredSession() else { return }
+
+            // Когда обновлять: за refreshLeadTime до истечения access-токена.
+            let secondsUntilRefresh = stored.accessExpiresAt
+                .map { max($0.timeIntervalSinceNow - refreshLeadTime, 0) }
+                ?? 0   // срок неизвестен — обновим сразу, чтобы его получить
+
+            if secondsUntilRefresh > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(min(secondsUntilRefresh, 6 * 3600) * 1_000_000_000))
+                if Task.isCancelled { return }
             }
 
-            clearStoredSession()
-            authErrorMessage = error.errorDescription
-            screenState = .login
-        } catch {
-            clearStoredSession()
-            authErrorMessage = "Сессия истекла, войдите снова"
-            screenState = .login
+            guard case .authenticated = screenState else { return }
+
+            switch await refreshTokens() {
+            case .success:
+                // Если бэкенд/парсер не дал срок — не крутимся вхолостую.
+                if loadStoredSession()?.accessExpiresAt == nil {
+                    try? await Task.sleep(nanoseconds: UInt64(refreshFallbackInterval * 1_000_000_000))
+                }
+            case .invalidSession:
+                handleInvalidSession(message: "Сессия истекла, войдите снова")
+                return
+            case .transient:
+                try? await Task.sleep(nanoseconds: UInt64(refreshRetryDelay * 1_000_000_000))
+            }
         }
     }
 
