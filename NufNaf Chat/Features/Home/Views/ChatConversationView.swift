@@ -311,8 +311,18 @@ struct ChatConversationView: UIViewControllerRepresentable {
         controller.onPinnedToBottomChange = onPinnedToBottomChange
         controller.onBackgroundTap = onBackgroundTap
 
-        // 2. Композер.
-        controller.updateComposer {
+        // 2. Композер (пересобираем только при изменении его входов — иначе во время
+        //    свайпа пейджера зря дёргается re-render SwiftUI-дерева композера).
+        var composerHasher = Hasher()
+        composerHasher.combine(draft)
+        composerHasher.combine(isInputFocused)
+        composerHasher.combine(isSending)
+        composerHasher.combine(currentUserID)
+        composerHasher.combine(participants.count)
+        composerHasher.combine(inputContext?.title)
+        composerHasher.combine(inputContext?.subtitle)
+        composerHasher.combine(inputContext == nil ? 0 : (inputContext?.kind == .edit ? 1 : 2))
+        controller.updateComposer(signature: composerHasher.finalize()) {
             ChatComposerBar(
                 draft: $draft,
                 isFocused: $isInputFocused,
@@ -372,14 +382,11 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<ChatSection, ChatRowID>!
     private var composerHost: UIHostingController<AnyView>!
-    /// Низ композера: 0 когда клавиатура скрыта (над home-indicator), отрицательный —
-    /// поднят на высоту клавиатуры. Анимируем вручную по нотификациям клавиатуры,
-    /// чтобы открытие и закрытие шли с ОДНОЙ длительностью и кривой (симметрично).
-    private var composerBottomConstraint: NSLayoutConstraint!
 
     private var rowsByID: [ChatRowID: ChatRow] = [:]
     private var orderedRowIDs: [ChatRowID] = []
     private var lastAggregateHash: Int?
+    private var lastComposerSignature: Int?
 
     private var hasPerformedInitialScroll = false
     private var lastReportedPinned: Bool?
@@ -397,11 +404,6 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
         setupConstraints()
         setupDataSource()
         setupGestures()
-        registerKeyboardObservers()
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
     }
 
     override func viewDidLayoutSubviews() {
@@ -453,7 +455,6 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
     }
 
     private func setupConstraints() {
-        composerBottomConstraint = composerHost.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -462,61 +463,10 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
 
             composerHost.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             composerHost.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            composerBottomConstraint
+            // Привязка к системному гайду клавиатуры — идеальная синхронизация
+            // композера с клавиатурой при открытии и закрытии (родная длительность/кривая).
+            composerHost.view.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
         ])
-    }
-
-    // MARK: Клавиатура (симметричная анимация открытия/закрытия)
-
-    private func registerKeyboardObservers() {
-        let center = NotificationCenter.default
-        center.addObserver(
-            self,
-            selector: #selector(keyboardWillChangeFrame(_:)),
-            name: UIResponder.keyboardWillChangeFrameNotification,
-            object: nil
-        )
-        center.addObserver(
-            self,
-            selector: #selector(keyboardWillHide(_:)),
-            name: UIResponder.keyboardWillHideNotification,
-            object: nil
-        )
-    }
-
-    @objc private func keyboardWillChangeFrame(_ note: Notification) {
-        guard let userInfo = note.userInfo,
-              let endFrame = (userInfo[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else {
-            return
-        }
-        let endFrameInView = view.convert(endFrame, from: nil)
-        let overlap = max(0, view.bounds.maxY - endFrameInView.minY)
-        let target = -max(0, overlap - view.safeAreaInsets.bottom)
-        animateComposerBottom(to: target, userInfo: userInfo)
-    }
-
-    @objc private func keyboardWillHide(_ note: Notification) {
-        animateComposerBottom(to: 0, userInfo: note.userInfo)
-    }
-
-    private func animateComposerBottom(to constant: CGFloat, userInfo: [AnyHashable: Any]?) {
-        guard composerBottomConstraint.constant != constant else { return }
-
-        // Системные длительность и кривая клавиатуры — одинаковые для показа и скрытия,
-        // поэтому открытие и закрытие получаются симметричными.
-        let duration = (userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-        let curveRaw = (userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int)
-            ?? Int(UIView.AnimationCurve.easeInOut.rawValue)
-        let options = UIView.AnimationOptions(rawValue: UInt(curveRaw) << 16)
-
-        let wasAtAnchor = isAtAnchor
-        composerBottomConstraint.constant = constant
-        UIView.animate(withDuration: duration, delay: 0, options: [options, .beginFromCurrentState]) {
-            self.view.layoutIfNeeded()
-            if wasAtAnchor {
-                self.scrollToAnchor(animated: false)
-            }
-        }
     }
 
     private func setupDataSource() {
@@ -558,7 +508,9 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
 
     // MARK: Композер
 
-    func updateComposer<Content: View>(@ViewBuilder _ content: () -> Content) {
+    func updateComposer<Content: View>(signature: Int, @ViewBuilder _ content: () -> Content) {
+        guard signature != lastComposerSignature else { return }
+        lastComposerSignature = signature
         composerHost.rootView = AnyView(content())
     }
 

@@ -185,6 +185,12 @@ struct HomeView: View {
             previewOrder = nil
             dismissKeyboard()
         }
+        .onChange(of: session.activeDocument) { _, document in
+            // Проваливание в просмотр заказа/документа из чата — прячем клавиатуру.
+            if document != nil {
+                dismissKeyboard()
+            }
+        }
         .onChange(of: session.isChecklistOpen) { _, isPresented in
             guard isPresented else { return }
             store.isAttachmentMenuPresented = false
@@ -1479,24 +1485,34 @@ private struct HomePagingContainer<ChatPage: View, CRMPage: View>: View {
 /// Находит ближайший вышестоящий UIScrollView (горизонтальный пейджер) и отключает у него
 /// bounce. Scoped: затрагивает только пейджер, в котором размещён, не глобально.
 private struct PagerBounceDisabler: UIViewRepresentable {
+    final class Coordinator {
+        var applied = false
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
-        DispatchQueue.main.async { Self.disableBounce(from: view) }
+        DispatchQueue.main.async { Self.disableBounce(from: view, coordinator: context.coordinator) }
         return view
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        DispatchQueue.main.async { Self.disableBounce(from: uiView) }
+        // Применяем один раз — без повторного обхода иерархии на каждом обновлении.
+        guard !context.coordinator.applied else { return }
+        DispatchQueue.main.async { Self.disableBounce(from: uiView, coordinator: context.coordinator) }
     }
 
-    private static func disableBounce(from view: UIView) {
+    private static func disableBounce(from view: UIView, coordinator: Coordinator) {
+        guard !coordinator.applied else { return }
         var candidate = view.superview
         while let current = candidate {
             if let scrollView = current as? UIScrollView {
                 scrollView.bounces = false
                 scrollView.alwaysBounceHorizontal = false
+                coordinator.applied = true
                 return
             }
             candidate = current.superview
