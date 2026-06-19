@@ -12,7 +12,7 @@ struct HomeView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var notificationRouter: NotificationRouter
     @StateObject private var store = HomeStore()
-    @FocusState private var isMessageFieldFocused: Bool
+    @State private var isMessageFieldFocused = false
     @State private var scrollToBottomRequest = 0
     @State private var scrollToMessageRequest = 0
     @State private var scrollToMessageID: Int?
@@ -185,11 +185,6 @@ struct HomeView: View {
             previewOrder = nil
             dismissKeyboard()
         }
-        .onChange(of: isMessageFieldFocused) { _, isFocused in
-            if isFocused && isChatPinnedToBottom {
-                scrollToBottomRequest += 1
-            }
-        }
         .onChange(of: session.isChecklistOpen) { _, isPresented in
             guard isPresented else { return }
             store.isAttachmentMenuPresented = false
@@ -330,6 +325,9 @@ struct HomeView: View {
                 guard page != currentDisplayMode else { return }
                 session.setHomeDisplayMode(page)
             },
+            onInteractionBegan: {
+                dismissKeyboard()
+            },
             chatPage: {
                 contentView(for: .chat)
             },
@@ -351,25 +349,28 @@ struct HomeView: View {
     }
 
     private var chatContent: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 0) {
             if let loadErrorMessage = store.loadErrorMessage {
                 Text("Ошибка загрузки чата: \(loadErrorMessage)")
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundColor(.red.opacity(0.9))
                     .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+                    .padding(.top, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else if store.isLoading && store.messages.isEmpty {
                 Text("Загружаем историю сообщений...")
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundColor(AppTheme.mutedText)
                     .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+                    .padding(.top, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            ChatMessagesView(
+            ChatConversationView(
                 messages: filteredMessages,
                 currentUserID: user.userID,
                 mentionNames: store.participants.map(\.displayName),
+                participants: store.participants,
                 scrollToBottomRequest: scrollToBottomRequest,
                 scrollToMessageRequest: scrollToMessageRequest,
                 scrollToMessageID: scrollToMessageID,
@@ -427,57 +428,30 @@ struct HomeView: View {
                 },
                 onPinnedToBottomChange: { value in
                     isChatPinnedToBottom = value
+                },
+                draft: $store.messageDraft,
+                isInputFocused: $isMessageFieldFocused,
+                inputContext: inputContext,
+                isSending: store.isSendingMessage,
+                onAttach: {
+                    dismissKeyboard()
+                    withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                        store.isAttachmentMenuPresented.toggle()
+                    }
+                },
+                onCancelInputContext: {
+                    clearInputContext()
+                },
+                onSend: {
+                    Task {
+                        await submitChatInput()
+                    }
                 }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea(.keyboard, edges: .bottom)
         }
-        .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            dismissKeyboard()
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(spacing: 8) {
-                if !mentionSuggestions.isEmpty {
-                    MentionSuggestionsView(participants: mentionSuggestions) { participant in
-                        store.messageDraft = MentionEngine.insertMention(participant, into: store.messageDraft)
-                        isMessageFieldFocused = true
-                    }
-                    .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
-                }
-
-                ChatInputPanel(
-                    text: $store.messageDraft,
-                    isTextFieldFocused: $isMessageFieldFocused,
-                    inputContext: inputContext,
-                    isSending: store.isSendingMessage,
-                    onAttach: {
-                        dismissKeyboard()
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                            store.isAttachmentMenuPresented.toggle()
-                        }
-                    },
-                    onCancelInputContext: {
-                        clearInputContext()
-                    },
-                    onSend: {
-                        Task {
-                            await submitChatInput()
-                        }
-                    }
-                )
-                .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
-                .padding(.top, 10)
-                .padding(.bottom, max(AppTheme.PageLayout.bottomPadding - 8, 8) + 15)
-                .background(AppTheme.background.opacity(0.96))
-            }
-        }
-    }
-
-    private var mentionSuggestions: [ChatParticipant] {
-        guard isMessageFieldFocused, let query = MentionEngine.activeQuery(in: store.messageDraft) else { return [] }
-        return MentionEngine.suggestions(from: store.participants, query: query, excludingUserID: user.userID)
     }
 
     private var crmContent: some View {
@@ -1439,6 +1413,7 @@ struct HomeView: View {
 private struct HomePagingContainer<ChatPage: View, CRMPage: View>: View {
     let currentPage: HomeDisplayMode
     let onSettledPage: (HomeDisplayMode) -> Void
+    var onInteractionBegan: () -> Void = {}
     @ViewBuilder let chatPage: () -> ChatPage
     @ViewBuilder let crmPage: () -> CRMPage
 
@@ -1460,11 +1435,21 @@ private struct HomePagingContainer<ChatPage: View, CRMPage: View>: View {
                         .id(HomeDisplayMode.crm)
                 }
                 .scrollTargetLayout()
+                // Гасим rubber-band оверскролл ТОЛЬКО у этого (горизонтального) пейджера,
+                // чтобы по краям не появлялся пустой горизонтальный «паддинг».
+                // Не используем глобальный UIScrollView.appearance().bounces — он бы убил
+                // вертикальный bounce у списка чата и всех остальных скроллов.
+                .background(PagerBounceDisabler())
             }
             .scrollIndicators(.hidden)
             .scrollTargetBehavior(.paging)
             .scrollPosition(id: $activePage)
             .onScrollPhaseChange { _, newPhase in
+                // Как только распознано боковое движение пальца — закрываем клавиатуру,
+                // чтобы она уезжала вместе с началом свайпа, а не после перелистывания.
+                if newPhase == .interacting {
+                    onInteractionBegan()
+                }
                 guard newPhase == .idle,
                       let pendingPage,
                       pendingPage != currentPage else {
@@ -1487,6 +1472,34 @@ private struct HomePagingContainer<ChatPage: View, CRMPage: View>: View {
                 activePage = currentPage
                 pendingPage = currentPage
             }
+        }
+    }
+}
+
+/// Находит ближайший вышестоящий UIScrollView (горизонтальный пейджер) и отключает у него
+/// bounce. Scoped: затрагивает только пейджер, в котором размещён, не глобально.
+private struct PagerBounceDisabler: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        DispatchQueue.main.async { Self.disableBounce(from: view) }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async { Self.disableBounce(from: uiView) }
+    }
+
+    private static func disableBounce(from view: UIView) {
+        var candidate = view.superview
+        while let current = candidate {
+            if let scrollView = current as? UIScrollView {
+                scrollView.bounces = false
+                scrollView.alwaysBounceHorizontal = false
+                return
+            }
+            candidate = current.superview
         }
     }
 }

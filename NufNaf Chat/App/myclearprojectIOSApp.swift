@@ -18,6 +18,7 @@ struct myclearprojectIOSApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(.dark)
                 .environmentObject(session)
                 .environmentObject(notificationRouter)
                 .task {
