@@ -1426,6 +1426,8 @@ struct HomeView: View {
                 .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: -4)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
+                // Светлый экран создания (фон + тёмный читаемый текст) в тёмном приложении.
+                .environment(\.colorScheme, .light)
             }
         }
     }

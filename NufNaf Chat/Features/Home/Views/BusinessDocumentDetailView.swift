@@ -409,6 +409,8 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
             .contentShape(Rectangle())
             .simultaneousGesture(backSwipeGesture(containerWidth: geometry.size.width))
         }
+        // Светлый экран документа/заказа (фон + читаемый тёмный текст) в тёмном приложении.
+        .environment(\.colorScheme, .light)
     }
 
     private func backSwipeGesture(containerWidth: CGFloat) -> some Gesture {

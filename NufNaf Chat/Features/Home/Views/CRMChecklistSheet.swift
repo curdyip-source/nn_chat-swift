@@ -448,6 +448,8 @@ struct CRMChecklistSheet: View {
         }
         .padding(14)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        // Светлые карточки товаров (как было), при тёмной подложке листа и белых заголовках.
+        .environment(\.colorScheme, .light)
     }
 
     private func checklistMarkButton(isActive: Bool, isDisabled: Bool, action: @escaping () -> Void) -> some View {

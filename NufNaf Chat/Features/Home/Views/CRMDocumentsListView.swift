@@ -74,6 +74,7 @@ struct CRMDocumentsListView: View {
                                             onUpdateOrderItemNote(entry.order, entry.item.id, note)
                                         }
                                     )
+                                    .environment(\.colorScheme, .light)
                                 }
                             } else {
                                 ForEach(displayedOrders) { order in
@@ -101,6 +102,7 @@ struct CRMDocumentsListView: View {
                                             shipmentCompletionConfirmation = CRMShipmentOrderCompletionConfirmation(order: order)
                                         }
                                     )
+                                    .environment(\.colorScheme, .light)
                                 }
                             }
                         }

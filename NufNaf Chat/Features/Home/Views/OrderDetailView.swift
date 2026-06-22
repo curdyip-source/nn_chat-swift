@@ -81,6 +81,7 @@ struct OrderDetailView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if order != nil {
                 commentComposerDock
+                    .environment(\.colorScheme, .light)
             }
         }
         .onChange(of: isEditSheetPresented) { _, isPresented in
