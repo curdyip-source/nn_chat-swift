@@ -107,8 +107,12 @@ struct CRMDocumentsListView: View {
                     }
                     .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
                     .padding(.top, 8)
-                    .padding(.bottom, AppTheme.PageLayout.bottomPadding)
+                    // Резерв снизу под закреплённое меню разделов (оно — оверлей, не в потоке).
+                    .padding(.bottom, 96)
                 }
+                // Небольшой запас снизу, чтобы поле «Заметка» поднималось чуть выше
+                // клавиатуры, а не упиралось в неё.
+                .contentMargins(.bottom, 16, for: .scrollContent)
             }
 
             if let movementSelection {
@@ -204,13 +208,20 @@ struct CRMDocumentsListView: View {
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            CRMSectionBar(selection: $selectedSection)
-                .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
-                .padding(.top, 10)
-                .padding(.bottom, max(AppTheme.PageLayout.bottomPadding - 8, 8) + 15)
-                .background(AppTheme.background.opacity(0.96))
+
+            // Меню закреплено внизу. Клавиатура сдвигает весь CRM-блок вверх; компенсируем
+            // сдвиг меню ровно на текущую вставку клавиатуры (geo.safeAreaInsets.bottom).
+            // Это та же системная величина, что двигает блок, в той же анимации —
+            // поэтому без рассинхрона и без «всплывания».
+            GeometryReader { geo in
+                CRMSectionBar(selection: $selectedSection)
+                    .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+                    .padding(.top, 10)
+                    .padding(.bottom, max(AppTheme.PageLayout.bottomPadding - 8, 8) + 15)
+                    .background(AppTheme.background.opacity(0.96))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .offset(y: geo.safeAreaInsets.bottom)
+            }
         }
         .alert(item: $shipmentCompletionConfirmation) { confirmation in
             Alert(
@@ -327,7 +338,7 @@ struct CRMDocumentsListView: View {
     }
 
     private var visibleProductStatuses: Set<String> {
-        ["не обработан", "перемещение", "заказ поставщику"]
+        ["не обработан", "перемещение", "заказ поставщику", "заказано"]
     }
 
     private func isShipmentOrder(_ order: HomeOrder) -> Bool {
@@ -355,10 +366,12 @@ struct CRMDocumentsListView: View {
             return 0
         case "заказ поставщику":
             return 1
-        case "перемещение":
+        case "заказано":
             return 2
-        default:
+        case "перемещение":
             return 3
+        default:
+            return 4
         }
     }
 
@@ -1160,7 +1173,7 @@ private struct CRMStatusMenu: View {
     }
 }
 
-private struct CRMSupplierSelectionSheet: View {
+struct CRMSupplierSelectionSheet: View {
     @Binding var query: String
     let results: [HomeContact]
     let isSearching: Bool

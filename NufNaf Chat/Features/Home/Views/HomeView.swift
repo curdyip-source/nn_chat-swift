@@ -505,6 +505,21 @@ struct HomeView: View {
                             checkpointStarted: false,
                             checkpointCompleted: false
                         )
+                    },
+                    itemStatuses: orderItemStatuses,
+                    onSelectStatus: { order, item, statusID, supplierName in
+                        let isOrdered = orderItemStatuses.first(where: { $0.id == statusID })?.statusStatus == "Заказано"
+                        updateCRMOrderItem(
+                            order: order,
+                            itemID: item.id,
+                            statusID: statusID,
+                            supplierName: supplierName,
+                            checkpointStarted: isOrdered,
+                            checkpointCompleted: false
+                        )
+                    },
+                    onSearchSupplierContacts: { query in
+                        await store.searchContacts(accessToken: session.currentAccessToken, contactType: "supplier", query: query)
                     }
                 )
             } else {

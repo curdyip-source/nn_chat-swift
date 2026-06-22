@@ -44,8 +44,16 @@ struct CRMChecklistSheet: View {
     let onToggleStarted: (HomeOrder, HomeOrderItem, Bool) -> Void
     let onComplete: (HomeOrder, HomeOrderItem) -> Void
     let onMoveToMovement: (HomeOrder, HomeOrderItem, Int, Int) -> Void
+    let itemStatuses: [HomeStatus]
+    let onSelectStatus: (HomeOrder, HomeOrderItem, Int, String?) -> Void
+    let onSearchSupplierContacts: (String) async -> [HomeContact]
 
     @State private var selectedCategory: Category = .order
+    @State private var statusSelection: Entry?
+    @State private var supplierSelection: ChecklistSupplierSelection?
+    @State private var supplierQuery = ""
+    @State private var supplierResults: [HomeContact] = []
+    @State private var isSearchingSuppliers = false
     @State private var activeAlert: ChecklistAlertContent?
     @State private var isPreparingCopy = false
     @State private var completionSelection: Entry?
@@ -192,6 +200,65 @@ struct CRMChecklistSheet: View {
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
+
+            if let statusSelection {
+                Color.black.opacity(0.28)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        self.statusSelection = nil
+                    }
+
+                ChecklistStatusPickerSheet(
+                    itemName: statusSelection.item.orderItemName,
+                    statuses: itemStatuses,
+                    onSelect: { statusID in
+                        selectChecklistStatus(statusID, for: statusSelection)
+                    },
+                    onCancel: {
+                        self.statusSelection = nil
+                    }
+                )
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+
+            if supplierSelection != nil {
+                Color.black.opacity(0.28)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissSupplierSelection()
+                    }
+
+                CRMSupplierSelectionSheet(
+                    query: $supplierQuery,
+                    results: supplierResults,
+                    isSearching: isSearchingSuppliers,
+                    onQueryChange: handleSupplierQueryChange,
+                    onClose: { dismissSupplierSelection() },
+                    onClear: { clearSupplierQuery() },
+                    onSelectContact: { contact in
+                        let name = contact.contactName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        supplierQuery = name
+                        applyChecklistSupplier(name.isEmpty ? nil : name)
+                    },
+                    onCreateContact: {
+                        let name = supplierQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !name.isEmpty else { return }
+                        applyChecklistSupplier(name)
+                    },
+                    onConfirm: {
+                        let name = supplierQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                        applyChecklistSupplier(name.isEmpty ? nil : name)
+                    },
+                    onSkip: {
+                        applyChecklistSupplier(nil)
+                    }
+                )
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
         }
         .onAppear(perform: reconcileCheckpointOverrides)
         .onChange(of: checklistCheckpointSignature) { _, _ in
@@ -229,11 +296,16 @@ struct CRMChecklistSheet: View {
     private var orderEntries: [Entry] {
         orders.flatMap { order in
             order.items.compactMap { item in
-                guard item.orderItemStatus == "Заказ поставщику" else { return nil }
+                guard item.orderItemStatus == "Заказ поставщику" || item.orderItemStatus == "Заказано" else { return nil }
                 return Entry(order: order, item: item)
             }
         }
         .sorted(by: orderEntryComparator)
+    }
+
+    /// id статуса «Заказано» (order_products), если он есть в справочнике.
+    private var orderedStatusID: Int? {
+        itemStatuses.first(where: { $0.statusStatus == "Заказано" })?.id
     }
 
     private var movementEntries: [Entry] {
@@ -327,7 +399,7 @@ struct CRMChecklistSheet: View {
 
     private func checklistRow(entry: Entry, category: Category) -> some View {
         let isSaving = updatingDocumentKey == "order:\(entry.order.id)"
-        let isStarted = currentStartedState(for: entry)
+        let isStarted = currentStartedState(for: entry) || (category == .order && entry.item.orderItemStatus == "Заказано")
         let isCompleted = currentCompletedState(for: entry)
 
         return HStack(alignment: .center, spacing: 10) {
@@ -337,7 +409,7 @@ struct CRMChecklistSheet: View {
                     .foregroundStyle(.primary)
                 Text("Заказ №\(entry.order.id) * \(entry.order.orderCustomer)")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(Color.black.opacity(0.82))
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -345,12 +417,22 @@ struct CRMChecklistSheet: View {
                 isActive: isStarted,
                 isDisabled: isSaving,
                 action: {
-                    let nextStarted = !isStarted
-                    startedOverrides[entry.id] = nextStarted
-                    if !nextStarted {
-                        completedOverrides[entry.id] = false
+                    if category == .order {
+                        if isStarted {
+                            // Уже «Заказано» — выбрать любой статус (в т.ч. форс-мажор).
+                            statusSelection = entry
+                        } else if let orderedStatusID {
+                            startedOverrides[entry.id] = true
+                            onSelectStatus(entry.order, entry.item, orderedStatusID, nil)
+                        }
+                    } else {
+                        let nextStarted = !isStarted
+                        startedOverrides[entry.id] = nextStarted
+                        if !nextStarted {
+                            completedOverrides[entry.id] = false
+                        }
+                        onToggleStarted(entry.order, entry.item, nextStarted)
                     }
-                    onToggleStarted(entry.order, entry.item, nextStarted)
                 }
             )
             .frame(width: 82)
@@ -482,6 +564,73 @@ struct CRMChecklistSheet: View {
         startedOverrides[selection.entry.id] = false
         completedOverrides[selection.entry.id] = false
         onMoveToMovement(selection.entry.order, selection.entry.item, sourceID, destinationID)
+    }
+
+    private func selectChecklistStatus(_ statusID: Int, for entry: Entry) {
+        statusSelection = nil
+        let statusName = itemStatuses.first(where: { $0.id == statusID })?.statusStatus
+
+        // «Перемещение» = товар есть на другом складе, нужен маршрут (откуда → куда) —
+        // уводим в отдельный флоу выбора маршрута, а не просто ставим статус.
+        if statusName == "Перемещение" {
+            beginMovementFlow(for: entry)
+            return
+        }
+
+        // «Заказ поставщику» — нужно выбрать поставщика.
+        if statusName == "Заказ поставщику" {
+            beginSupplierFlow(for: entry, statusID: statusID)
+            return
+        }
+
+        let isOrdered = statusName == "Заказано"
+        startedOverrides[entry.id] = isOrdered
+        if !isOrdered {
+            completedOverrides[entry.id] = false
+        }
+        onSelectStatus(entry.order, entry.item, statusID, nil)
+    }
+
+    private func beginSupplierFlow(for entry: Entry, statusID: Int) {
+        supplierSelection = ChecklistSupplierSelection(entry: entry, statusID: statusID)
+        supplierQuery = entry.item.orderItemSupplier ?? ""
+        supplierResults = []
+        isSearchingSuppliers = true
+        handleSupplierQueryChange(supplierQuery)
+    }
+
+    private func handleSupplierQueryChange(_ query: String) {
+        guard supplierSelection != nil else { return }
+        isSearchingSuppliers = true
+        let expectedQuery = query
+        Task {
+            let results = await onSearchSupplierContacts(expectedQuery)
+            guard supplierSelection != nil, supplierQuery == expectedQuery else { return }
+            supplierResults = results
+            isSearchingSuppliers = false
+        }
+    }
+
+    private func dismissSupplierSelection() {
+        supplierSelection = nil
+        supplierResults = []
+        isSearchingSuppliers = false
+    }
+
+    private func clearSupplierQuery() {
+        supplierQuery = ""
+        handleSupplierQueryChange("")
+    }
+
+    private func applyChecklistSupplier(_ supplierName: String?) {
+        guard let supplierSelection else { return }
+        let entry = supplierSelection.entry
+        let statusID = supplierSelection.statusID
+        // Статус «Заказ поставщику» — позиция больше не «Заказано».
+        startedOverrides[entry.id] = false
+        completedOverrides[entry.id] = false
+        onSelectStatus(entry.order, entry.item, statusID, supplierName)
+        dismissSupplierSelection()
     }
 
     private func finalizeCopyOrderChecklist() {
@@ -654,6 +803,77 @@ private struct ChecklistMovementSelection: Identifiable {
     let destinationEstablishmentID: Int?
 
     var id: String { entry.id }
+}
+
+private struct ChecklistSupplierSelection: Identifiable {
+    let entry: CRMChecklistSheet.Entry
+    let statusID: Int
+
+    var id: String { "supplier-\(entry.id)-\(statusID)" }
+}
+
+private struct ChecklistStatusPickerSheet: View {
+    let itemName: String
+    let statuses: [HomeStatus]
+    let onSelect: (Int) -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Сменить статус")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+                Text(itemName)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(statuses, id: \.id) { status in
+                        Button {
+                            onSelect(status.id)
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(BusinessDocumentColors.statusColor(status.statusColor))
+                                    .frame(width: 10, height: 10)
+                                Text(status.statusStatus)
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.primary)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 46)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: 360)
+
+            Button(action: onCancel) {
+                Text("Отмена")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(18)
+        .background(Color(uiColor: .systemBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color(uiColor: .separator).opacity(0.3), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.18), radius: 20, x: 0, y: 8)
+    }
 }
 
 private struct ChecklistCompletionActionSheet: View {
