@@ -117,6 +117,46 @@ final class AppNotificationManager {
             return
         }
 
-        try? await client.registerUserDevice(accessToken: accessToken, token: deviceToken)
+        try? await client.registerUserDevice(
+            accessToken: accessToken,
+            token: deviceToken,
+            environment: APNsEnvironment.current.rawValue
+        )
     }
+}
+
+/// APNs delivery environment the current build's device token belongs to.
+///
+/// A token minted by a `development` (sandbox) build can only be delivered through
+/// the sandbox gateway, and a `production` token only through the production gateway.
+/// The token string itself carries no hint of its environment, so the backend needs
+/// us to tell it which gateway to use — otherwise local dev builds (sandbox) silently
+/// fail while TestFlight/App Store builds (production) keep working.
+enum APNsEnvironment: String {
+    case sandbox
+    case production
+
+    /// Resolved from the embedded provisioning profile's `aps-environment` entitlement.
+    /// `development` → sandbox; everything else (including App Store builds, which ship
+    /// without an embedded profile) → production.
+    static let current: APNsEnvironment = {
+        guard let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
+              let data = try? Data(contentsOf: url),
+              // The profile is a CMS-signed blob; the embedded plist is plain text in it.
+              let content = String(data: data, encoding: .isoLatin1),
+              let start = content.range(of: "<?xml"),
+              let end = content.range(of: "</plist>") else {
+            return .production
+        }
+
+        let plistString = String(content[start.lowerBound ..< end.upperBound])
+        guard let plistData = plistString.data(using: .isoLatin1),
+              let plist = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any],
+              let entitlements = plist["Entitlements"] as? [String: Any],
+              let apsEnvironment = entitlements["aps-environment"] as? String else {
+            return .production
+        }
+
+        return apsEnvironment == "development" ? .sandbox : .production
+    }()
 }

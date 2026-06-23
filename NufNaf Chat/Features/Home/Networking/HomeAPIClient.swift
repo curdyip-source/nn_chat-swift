@@ -204,11 +204,11 @@ struct HomeAPIClient {
         return (data, httpResponse)
     }
 
-    func registerUserDevice(accessToken: String, token: String) async throws {
+    func registerUserDevice(accessToken: String, token: String, environment: String) async throws {
         let _: HomeItemEnvelope<UserDeviceRegistrationStub> = try await send(
             path: "user-devices",
             method: "POST",
-            body: UserDeviceRegisterRequest(userDeviceToken: token, userDevicePlatform: "ios"),
+            body: UserDeviceRegisterRequest(userDeviceToken: token, userDevicePlatform: "ios", userDeviceEnvironment: environment),
             accessToken: accessToken
         )
     }
@@ -474,9 +474,11 @@ private struct EmptyAPIResponse: Decodable {}
 private struct UserDeviceRegisterRequest: Encodable {
     let userDeviceToken: String
     let userDevicePlatform: String
+    let userDeviceEnvironment: String
 
     enum CodingKeys: String, CodingKey {
         case userDeviceToken = "user_device_token"
         case userDevicePlatform = "user_device_platform"
+        case userDeviceEnvironment = "user_device_environment"
     }
 }
