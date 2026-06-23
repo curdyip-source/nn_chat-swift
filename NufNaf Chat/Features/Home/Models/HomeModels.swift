@@ -198,6 +198,19 @@ struct HomeMessage: Decodable, Identifiable, Hashable {
         messageOrderID ?? messageInventoryID ?? messageProductRegistrationID
     }
 
+    /// Stable, unique reference title for a document message (order/inventory/registration).
+    /// Used as the reply snippet so tapping a reply quote resolves to the exact document
+    /// instead of matching on non-unique text and falling back to the latest one.
+    var documentReferenceTitle: String? {
+        guard let kind = documentKind, let id = documentID else { return nil }
+        switch kind {
+        case "order": return "Заказ №\(id)"
+        case "inventory": return "Инвентаризация №\(id)"
+        case "product_registration": return "Приемка №\(id)"
+        default: return nil
+        }
+    }
+
     var displayName: String {
         let fullName = [messageOwnerSecondName, messageOwnerFirstName]
             .compactMap { value in
@@ -1266,6 +1279,8 @@ extension HomeMessage {
         let sourceText: String
         if let replyFragment {
             sourceText = replyFragment.body ?? replyFragment.message
+        } else if let documentReferenceTitle {
+            sourceText = documentReferenceTitle
         } else if let attachment = attachments.first {
             if attachment.isPhoto {
                 sourceText = attachments.count > 1 ? "Фото (\(attachments.count))" : "Фото"

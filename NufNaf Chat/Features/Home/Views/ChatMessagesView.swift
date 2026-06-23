@@ -52,6 +52,7 @@ struct ChatMessageRow: View {
     let onOpenAttachment: (HomeMessageAttachment) -> Void
 
     @State private var bubbleBackgroundOpacity = 1.0
+    @State private var highlightFlashOpacity = 0.0
     @State private var highlightAnimationRequest = 0
 
     var body: some View {
@@ -85,7 +86,7 @@ struct ChatMessageRow: View {
             if newValue {
                 triggerHighlightAnimation()
             } else {
-                bubbleBackgroundOpacity = 1
+                highlightFlashOpacity = 0
             }
         }
         .onChange(of: highlightRequest) { _, _ in
@@ -99,16 +100,30 @@ struct ChatMessageRow: View {
         highlightAnimationRequest += 1
         let currentRequest = highlightAnimationRequest
 
-        withAnimation(.easeInOut(duration: 0.08)) {
-            bubbleBackgroundOpacity = 0.7
+        withAnimation(.easeOut(duration: 0.18)) {
+            highlightFlashOpacity = 0.32
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             guard highlightAnimationRequest == currentRequest else { return }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                bubbleBackgroundOpacity = 1
+            withAnimation(.easeInOut(duration: 0.45)) {
+                highlightFlashOpacity = 0
             }
         }
+    }
+
+    /// Accent tint that briefly pulses on top of the bubble when it becomes the
+    /// jump target. Reads clearly on light (own), dark (others) and document bubbles,
+    /// unlike the previous background-dim which only showed up on light bubbles.
+    private var highlightFlashColor: Color {
+        Color(red: 0.16, green: 0.50, blue: 0.96)
+    }
+
+    @ViewBuilder
+    private func highlightFlashOverlay(cornerRadius: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(highlightFlashColor.opacity(highlightFlashOpacity))
+            .allowsHitTesting(false)
     }
 
     private var avatar: some View {
@@ -230,6 +245,7 @@ struct ChatMessageRow: View {
         }
         .background(textBubbleBackgroundColor.opacity(bubbleBackgroundOpacity))
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(highlightFlashOverlay(cornerRadius: 20))
         .onLongPressGesture(minimumDuration: 0.35) {
             onShowMessageActions(message)
         }
@@ -310,6 +326,7 @@ struct ChatMessageRow: View {
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
                 )
         )
+        .overlay(highlightFlashOverlay(cornerRadius: 22))
         .overlay(alignment: isOwnMessage ? .topLeading : .topTrailing) {
             if orderCommentCount > 0 {
                 Text(orderCommentCount > 99 ? "99+" : "\(orderCommentCount)")
@@ -373,6 +390,7 @@ struct ChatMessageRow: View {
                                 .stroke(attachmentBubbleBorderColor, lineWidth: 1)
                         )
                 )
+                .overlay(highlightFlashOverlay(cornerRadius: 22))
                 .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .onTapGesture {
                     onOpenAttachment(attachment)
