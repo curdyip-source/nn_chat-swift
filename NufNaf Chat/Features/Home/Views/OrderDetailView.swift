@@ -67,13 +67,7 @@ struct OrderDetailView: View {
                 .zIndex(21)
             }
 
-            if let order, isEditSheetPresented {
-                orderEditOverlay(order: order)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(30)
-            }
         }
-        .animation(.easeInOut(duration: 0.22), value: isEditSheetPresented)
         .animation(.easeInOut(duration: 0.18), value: isCommentAttachmentMenuPresented)
         .task(id: orderID) {
             await loadOrder()
@@ -84,6 +78,15 @@ struct OrderDetailView: View {
                     .environment(\.colorScheme, .light)
             }
         }
+        // Оверлей редактирования — поверх всего экрана (включая док комментариев),
+        // чтобы выезжал от нижнего края, как при создании заказа.
+        .overlay {
+            if let order, isEditSheetPresented {
+                orderEditOverlay(order: order)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: isEditSheetPresented)
         .onChange(of: isEditSheetPresented) { _, isPresented in
             if isPresented {
                 closeCommentAttachmentMenu()
@@ -324,6 +327,8 @@ struct OrderDetailView: View {
                 .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: -4)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
+                // Светлый экран редактирования (как при создании заказа) в тёмном приложении.
+                .environment(\.colorScheme, .light)
             }
         }
     }
