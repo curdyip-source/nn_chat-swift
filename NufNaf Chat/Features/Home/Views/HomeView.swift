@@ -314,16 +314,6 @@ struct HomeView: View {
     }
 
     @ViewBuilder
-    private var mainContent: some View {
-        switch session.chatFilterState.displayMode {
-        case .chat:
-            chatContent
-        case .crm:
-            crmContent
-        }
-    }
-
-    @ViewBuilder
     private func swipeableMainContent(containerWidth: CGFloat) -> some View {
         HomePagingContainer(
             currentPage: currentDisplayMode,
@@ -1025,10 +1015,6 @@ struct HomeView: View {
                 crmErrorMessage = error.localizedDescription
             }
         }
-    }
-
-    private func updateCRMOrderItemStatus(order: HomeOrder, itemID: Int, statusID: Int) {
-        updateCRMOrderItem(order: order, itemID: itemID, statusID: statusID)
     }
 
     private func updateCRMShipmentItemCollected(order: HomeOrder, itemID: Int) {

@@ -7,10 +7,6 @@
 
 import Foundation
 
-struct HomeListResponse<Item: Decodable>: Decodable {
-    let items: [Item]
-}
-
 struct HomeItemEnvelope<Item: Decodable>: Decodable {
     let item: Item
 }
@@ -677,10 +673,6 @@ struct HomeOrder: Decodable, Identifiable, Hashable {
     }
 }
 
-struct HomeOrderCommentListResponse: Decodable {
-    let items: [HomeOrderComment]
-}
-
 struct HomeOrderComment: Decodable, Identifiable, Hashable {
     let id: Int
     let orderID: Int
@@ -977,39 +969,6 @@ struct HomeOrderUpdateRequest: Encodable {
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
         case items
-    }
-}
-
-struct HomeOrderItemDraft: Identifiable, Hashable {
-    let id: UUID
-    var productID: Int?
-    var article: String
-    var name: String
-    var quantity: Int
-    var price: String
-    var statusID: Int?
-    var currencyID: Int?
-
-    init(id: UUID = UUID(), productID: Int? = nil, article: String = "", name: String = "", quantity: Int = 1, price: String = "0.00", statusID: Int? = nil, currencyID: Int? = nil) {
-        self.id = id
-        self.productID = productID
-        self.article = article
-        self.name = name
-        self.quantity = quantity
-        self.price = price
-        self.statusID = statusID
-        self.currencyID = currencyID
-    }
-
-    init(item: HomeOrderItem) {
-        self.id = UUID()
-        self.productID = item.orderItemProductID
-        self.article = item.orderItemArticle ?? ""
-        self.name = item.orderItemName
-        self.quantity = item.orderItemQuantity
-        self.price = item.orderItemPrice
-        self.statusID = item.orderItemStatusID
-        self.currencyID = item.orderItemCurrencyID
     }
 }
 

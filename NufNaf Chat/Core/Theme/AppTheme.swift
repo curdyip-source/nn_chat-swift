@@ -11,8 +11,6 @@ enum AppTheme {
     static let background = Color.black
     static let titleBackground = Color.black
     static let titleText = Color.white
-    static let panelBackground = Color.white.opacity(0.08)
-    static let panelStroke = Color.white.opacity(0.10)
     static let mutedText = Color.white.opacity(0.72)
     static let dangerText = Color.red.opacity(0.9)
     static let primaryButtonBackground = Color.white
@@ -42,7 +40,6 @@ enum AppTheme {
         static let inputPlaceholder = Color.black.opacity(0.58)
         static let largeCornerRadius: CGFloat = 26
         static let mediumCornerRadius: CGFloat = 18
-        static let smallCornerRadius: CGFloat = 14
     }
     
     // MARK: - Field (Login Form)

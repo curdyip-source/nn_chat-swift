@@ -227,16 +227,6 @@ struct HomeAPIClient {
         return response.item
     }
 
-    func getOrderComments(accessToken: String, orderID: Int) async throws -> [HomeOrderComment] {
-        let response: HomeOrderCommentListResponse = try await send(
-            path: "orders/\(orderID)/comments",
-            method: "GET",
-            body: Optional<String>.none,
-            accessToken: accessToken
-        )
-        return response.items
-    }
-
     func addOrderComment(accessToken: String, orderID: Int, text: String?, attachments: [HomeMessageAttachmentCreateRequest] = [], mentionedUserIDs: [Int] = []) async throws -> HomeOrderComment {
         let response: HomeItemEnvelope<HomeOrderComment> = try await send(
             path: "orders/\(orderID)/comments",
@@ -294,35 +284,6 @@ struct HomeAPIClient {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.httpBody = encodedBody
             return request
-        }
-
-        guard (200 ..< 300).contains(httpResponse.statusCode) else {
-            let message = (try? JSONDecoder().decode(APIErrorEnvelope.self, from: data).error.message) ?? HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
-            throw AuthServiceError.backend(statusCode: httpResponse.statusCode, message: message)
-        }
-
-        if data.isEmpty, ResponseBody.self == EmptyAPIResponse.self {
-            return EmptyAPIResponse() as! ResponseBody
-        }
-
-        do {
-            return try JSONDecoder().decode(ResponseBody.self, from: data)
-        } catch {
-            throw AuthServiceError.invalidResponse
-        }
-    }
-
-    private func perform<ResponseBody: Decodable>(request: URLRequest) async throws -> ResponseBody {
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw AuthServiceError.transport("Не удалось связаться с сервером")
-        }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AuthServiceError.invalidResponse
         }
 
         guard (200 ..< 300).contains(httpResponse.statusCode) else {

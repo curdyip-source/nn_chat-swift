@@ -500,13 +500,6 @@ final class HomeStore: ObservableObject {
         return order
     }
 
-    func fetchOrderComments(accessToken: String?, orderID: Int) async throws -> [HomeOrderComment] {
-        guard let accessToken else {
-            throw AuthServiceError.transport("Сессия не найдена")
-        }
-        return try await client.getOrderComments(accessToken: accessToken, orderID: orderID)
-    }
-
     func addOrderComment(accessToken: String?, orderID: Int, text: String, mentionedUserIDs: [Int] = []) async throws -> HomeOrderComment {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")

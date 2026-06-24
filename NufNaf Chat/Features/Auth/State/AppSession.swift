@@ -335,10 +335,6 @@ final class AppSession: ObservableObject {
         ))
     }
 
-    func resetChatFilterState() {
-        updateChatFilterState(.default())
-    }
-
     // MARK: - Управление токенами (проактивный рефреш)
 
     private enum RefreshOutcome {

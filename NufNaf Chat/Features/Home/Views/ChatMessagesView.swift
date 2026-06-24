@@ -451,18 +451,6 @@ struct ChatMessageRow: View {
         return "doc"
     }
 
-    private var canReply: Bool {
-        message.documentKind == nil && (message.messageType == "message" || !message.attachments.isEmpty)
-    }
-
-    private var canEditDelete: Bool {
-        message.documentKind == nil && message.attachments.isEmpty && message.messageType == "message" && isOwnMessage
-    }
-
-    private var canDelete: Bool {
-        message.documentKind == nil && isOwnMessage
-    }
-
     private var replyAccentColor: Color {
         isOwnMessage ? Color.black.opacity(0.7) : Color.white.opacity(0.9)
     }

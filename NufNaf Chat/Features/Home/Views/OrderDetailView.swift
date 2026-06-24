@@ -283,21 +283,6 @@ struct OrderDetailView: View {
         store.referenceData.statuses.filter { $0.statusType == "order_products" }
     }
 
-    private var sortedOrderComments: [HomeOrderComment] {
-        comments.sorted {
-            switch ($0.parsedCreatedAt, $1.parsedCreatedAt) {
-            case let (left?, right?) where left != right:
-                return left < right
-            case (_?, nil):
-                return true
-            case (nil, _?):
-                return false
-            default:
-                return $0.id < $1.id
-            }
-        }
-    }
-
     private func editingItemStatusIDs(for order: HomeOrder) -> [Int: Int?] {
         Dictionary(uniqueKeysWithValues: order.items.map { ($0.id, $0.orderItemStatusID) })
     }

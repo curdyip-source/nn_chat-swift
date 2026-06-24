@@ -952,23 +952,6 @@ struct ComposerSheetView: View {
         .buttonStyle(StaticPressButtonStyle())
     }
 
-    private func composerButtonLabel(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-            HStack {
-                Text(value)
-                    .foregroundStyle(.primary)
-                Spacer()
-                Image(systemName: "chevron.down")
-            }
-            .padding(14)
-            .background(Color.black.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-    }
-
     private func presentSearchOverlay() {
         isSearchOverlayPresented = true
         if normalizedSearchQuery.count >= 2 {
