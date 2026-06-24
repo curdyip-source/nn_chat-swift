@@ -172,7 +172,7 @@ struct MentionSuggestionsView: View {
                 }
             }
         }
-        .frame(maxHeight: 156)
+        .frame(maxHeight: 240)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(red: 0.12, green: 0.13, blue: 0.16))
