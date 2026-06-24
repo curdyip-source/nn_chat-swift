@@ -204,30 +204,32 @@ private struct ChatComposerBar: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        ChatInputPanel(
+            text: $draft,
+            isTextFieldFocused: $fieldFocused,
+            inputContext: inputContext,
+            isSending: isSending,
+            onAttach: onAttach,
+            onCancelInputContext: onCancelInputContext,
+            onSend: onSend
+        )
+        .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+        .padding(.top, 10)
+        .padding(.bottom, 10)
+        .frame(maxWidth: .infinity)
+        .background(AppTheme.background.opacity(0.96))
+        // Подсказки @-упоминаний плавают поверх поля ввода (zIndex), не двигая его.
+        .overlay(alignment: .top) {
             if !mentionSuggestions.isEmpty {
                 MentionSuggestionsView(participants: mentionSuggestions) { participant in
                     draft = MentionEngine.insertMention(participant, into: draft)
                     fieldFocused = true
                 }
                 .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+                .padding(.bottom, 8)
+                .alignmentGuide(.top) { dimensions in dimensions.height }
             }
-
-            ChatInputPanel(
-                text: $draft,
-                isTextFieldFocused: $fieldFocused,
-                inputContext: inputContext,
-                isSending: isSending,
-                onAttach: onAttach,
-                onCancelInputContext: onCancelInputContext,
-                onSend: onSend
-            )
-            .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
-            .padding(.top, 10)
-            .padding(.bottom, 10)
         }
-        .frame(maxWidth: .infinity)
-        .background(AppTheme.background.opacity(0.96))
         .onChange(of: isFocused) { _, newValue in
             if fieldFocused != newValue { fieldFocused = newValue }
         }
