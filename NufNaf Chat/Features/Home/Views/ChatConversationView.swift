@@ -197,6 +197,7 @@ private struct ChatComposerBar: View {
     let onSend: () -> Void
 
     @FocusState private var fieldFocused: Bool
+    @State private var inputHeight: CGFloat = 0
 
     private var mentionSuggestions: [ChatParticipant] {
         guard fieldFocused, let query = MentionEngine.activeQuery(in: draft) else { return [] }
@@ -218,16 +219,16 @@ private struct ChatComposerBar: View {
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity)
         .background(AppTheme.background.opacity(0.96))
-        // Подсказки @-упоминаний плавают поверх поля ввода (zIndex), не двигая его.
-        .overlay(alignment: .top) {
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { inputHeight = $0 }
+        // Подсказки @-упоминаний плавают над полем ввода (zIndex), не двигая его.
+        .overlay(alignment: .bottom) {
             if !mentionSuggestions.isEmpty {
                 MentionSuggestionsView(participants: mentionSuggestions) { participant in
                     draft = MentionEngine.insertMention(participant, into: draft)
                     fieldFocused = true
                 }
                 .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
-                .padding(.bottom, 8)
-                .alignmentGuide(.top) { dimensions in dimensions.height }
+                .offset(y: -(inputHeight + 6))
             }
         }
         .onChange(of: isFocused) { _, newValue in
