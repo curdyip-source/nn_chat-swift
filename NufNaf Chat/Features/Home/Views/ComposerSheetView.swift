@@ -511,7 +511,7 @@ struct ComposerSheetView: View {
 
     private var sheetTitle: String {
         if let editingOrder {
-            return "Редактирование заказа №\(editingOrder.id)"
+            return "Ред. заказа №\(editingOrder.id)"
         }
         return kind.title
     }
