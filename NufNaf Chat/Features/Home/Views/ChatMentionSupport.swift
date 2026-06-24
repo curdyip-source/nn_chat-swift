@@ -30,9 +30,15 @@ enum MentionEngine {
         return String(afterTrigger)
     }
 
+    /// Системные учётки, которые не показываем в подсказках @-упоминаний
+    /// (админ и аккаунт для проверки Apple).
+    static let hiddenMentionLogins: Set<String> = ["admin", "test_user"]
+
     static func suggestions(from participants: [ChatParticipant], query: String, excludingUserID: Int?, limit: Int = 50) -> [ChatParticipant] {
         let normalizedQuery = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let pool = participants.filter { $0.id != excludingUserID }
+        let pool = participants.filter {
+            $0.id != excludingUserID && !hiddenMentionLogins.contains($0.userLogin.lowercased())
+        }
 
         let matched: [ChatParticipant]
         if normalizedQuery.isEmpty {
