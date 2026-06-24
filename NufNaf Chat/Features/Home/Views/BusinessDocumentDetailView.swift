@@ -385,9 +385,12 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
                                 // Скроллим блок над клавиатурой при её появлении — быстро,
                                 // блок встаёт на место раньше, чем клавиатура доедет.
+                                let screenHeight = UIApplication.shared.connectedScenes
+                                    .compactMap { $0 as? UIWindowScene }
+                                    .first?.screen.bounds.height ?? 0
                                 guard let scrollTargetID,
                                       let endFrame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue,
-                                      endFrame.minY < UIScreen.main.bounds.height - 1 else { return }
+                                      endFrame.minY < screenHeight - 1 else { return }
                                 withAnimation(.easeOut(duration: 0.16)) {
                                     proxy.scrollTo(scrollTargetID, anchor: .bottom)
                                 }
