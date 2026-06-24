@@ -318,12 +318,6 @@ struct OrderDetailView: View {
                 .frame(maxHeight: proxy.size.height * 0.9)
                 .background(Color(UIColor.systemBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-                .overlay(alignment: .top) {
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(Color.black.opacity(0.10))
-                        .frame(width: 42, height: 5)
-                        .padding(.top, 10)
-                }
                 .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: -4)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
