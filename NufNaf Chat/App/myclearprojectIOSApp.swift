@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        await NotificationRouter.shared.handle(userInfo: response.notification.request.content.userInfo)
+        NotificationRouter.shared.handle(userInfo: response.notification.request.content.userInfo)
     }
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
