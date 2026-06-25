@@ -1056,22 +1056,7 @@ private struct OrderCommentPhotoViewer: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        PhotoAttachmentViewer(attachment: attachment.asMessageAttachment, onDismiss: onDismiss)
-    }
-}
-
-private extension HomeOrderCommentAttachment {
-    var asMessageAttachment: HomeMessageAttachment {
-        HomeMessageAttachment(
-            attachmentID: attachmentID,
-            attachmentKind: attachmentKind,
-            attachmentOriginalFilename: attachmentOriginalFilename,
-            attachmentMimeType: attachmentMimeType,
-            attachmentStorageKey: attachmentStorageKey,
-            attachmentSizeBytes: attachmentSizeBytes,
-            attachmentCreatedAt: attachmentCreatedAt,
-            attachmentLocalFilePath: attachmentLocalFilePath
-        )
+        PhotoAttachmentViewer(mediaURL: attachment.mediaURL, onDismiss: onDismiss)
     }
 }
 

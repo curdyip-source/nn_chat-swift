@@ -273,7 +273,7 @@ struct HomeView: View {
             LocalFileQuickLookPreview(fileURL: preview.url)
         }
         .fullScreenCover(item: $activePhotoAttachment) { attachment in
-            PhotoAttachmentViewer(attachment: attachment) {
+            PhotoAttachmentViewer(mediaURL: attachment.mediaURL) {
                 activePhotoAttachment = nil
             }
         }

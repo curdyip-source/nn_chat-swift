@@ -232,7 +232,7 @@ struct LocalFileQuickLookPreview: UIViewControllerRepresentable {
 }
 
 struct PhotoAttachmentViewer: View {
-    let attachment: HomeMessageAttachment
+    let mediaURL: URL?
     let onDismiss: () -> Void
 
     @State private var contentScale: CGFloat = 1
@@ -248,7 +248,7 @@ struct PhotoAttachmentViewer: View {
                 Color.black.opacity(1 - dismissProgress * 0.55)
                     .ignoresSafeArea()
 
-                if let url = attachment.mediaURL {
+                if let url = mediaURL {
                     AsyncImage(url: url) { phase in
                         switch phase {
                         case let .success(image):
