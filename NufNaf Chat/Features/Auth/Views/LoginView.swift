@@ -192,7 +192,7 @@ struct LoginView: View {
                                     .padding(.vertical, 12)
                                     .background(AppTheme.secondaryButtonBackground)
                                     .clipShape(Capsule())
-                                    .padding(.bottom, 28)
+                                    .padding(.bottom, 6)
                             }
                             .buttonStyle(.plain)
                             .disabled(session.isBusy)
@@ -201,6 +201,16 @@ struct LoginView: View {
                         .frame(minHeight: geometry.size.height)
                     }
                     .scrollDismissesKeyboard(.interactively)
+
+                    // Версия прижата к самому низу экрана (поверх контента, не трогая форму и кнопки).
+                    VStack {
+                        Spacer()
+                        Text(appVersionText)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(AppTheme.mutedText.opacity(0.7))
+                            .padding(.bottom, 6)
+                    }
+                    .allowsHitTesting(false)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -223,6 +233,14 @@ struct LoginView: View {
                 }
             }
         }
+    }
+
+    /// Версия и номер сборки берутся из Info.plist текущего бандла автоматически.
+    private var appVersionText: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return "ver \(version) build \(build)"
     }
 
     private var trimmedLogin: String {
