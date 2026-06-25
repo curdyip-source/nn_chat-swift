@@ -22,17 +22,51 @@ struct HomeAPIClient {
     }
 
     func getMessages(accessToken: String) async throws -> [HomeMessage] {
-        let response: HomeMessageResponse = try await send(
-            path: "messages",
-            queryItems: [
+        // The backend caps `page_size` at 100, so a single request only returns the
+        // latest ~100 records. The home feed must show the whole current year, so we
+        // page backwards with the `before_message_id` cursor until we've covered it.
+        let calendar = Calendar.current
+        let currentYear = calendar.component(.year, from: Date())
+        let pageSize = 100
+        let safetyPageLimit = 100 // hard stop at 10k messages to avoid runaway loops
+
+        var allItems: [HomeMessage] = []
+        var beforeMessageID: Int?
+
+        for _ in 0..<safetyPageLimit {
+            var queryItems = [
                 URLQueryItem(name: "page", value: "1"),
-                URLQueryItem(name: "page_size", value: "100"),
-            ],
-            method: "GET",
-            body: Optional<String>.none,
-            accessToken: accessToken
-        )
-        return response.items
+                URLQueryItem(name: "page_size", value: String(pageSize)),
+            ]
+            if let beforeMessageID {
+                queryItems.append(URLQueryItem(name: "before_message_id", value: String(beforeMessageID)))
+            }
+
+            let response: HomeMessageResponse = try await send(
+                path: "messages",
+                queryItems: queryItems,
+                method: "GET",
+                body: Optional<String>.none,
+                accessToken: accessToken
+            )
+            let items = response.items
+            allItems.append(contentsOf: items)
+
+            // Reached the end of the feed.
+            if items.count < pageSize { break }
+
+            // We've paged back past the current year — everything we need is loaded.
+            if let oldest = items.last,
+               let date = oldest.parsedCreatedAt,
+               calendar.component(.year, from: date) < currentYear {
+                break
+            }
+
+            guard let minID = items.map({ $0.id }).min() else { break }
+            beforeMessageID = minID
+        }
+
+        return allItems
     }
 
     func fetchParticipants(accessToken: String) async throws -> [ChatParticipant] {

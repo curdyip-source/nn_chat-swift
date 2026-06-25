@@ -323,7 +323,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                                         .frame(width: 38, height: 38)
                                         .background((prefersDarkHeader ? Color.white.opacity(0.14) : Color.black.opacity(0.05)), in: Circle())
                                 }
-                                .buttonStyle(.plain)
+                            .buttonStyle(.plain)
                             }
                         }
 
