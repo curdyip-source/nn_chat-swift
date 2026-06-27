@@ -8,6 +8,15 @@ struct OrderDetailView: View {
     let orderID: Int
     let onClose: () -> Void
 
+    init(store: HomeStore, orderID: Int, onClose: @escaping () -> Void) {
+        _store = ObservedObject(wrappedValue: store)
+        self.orderID = orderID
+        self.onClose = onClose
+        // Seed from the feed cache so the full card (items, prices) is on screen during the open
+        // animation; loadOrder() then refreshes it (and pulls comments).
+        _order = State(initialValue: store.cachedOrder(orderID: orderID))
+    }
+
     @State private var order: HomeOrder?
     @State private var isLoading = false
     @State private var isSaving = false
@@ -328,9 +337,12 @@ struct OrderDetailView: View {
     }
 
     private func loadOrder() async {
-        isLoading = true
+        // If the order is already on screen (seeded from cache), refresh silently so the content
+        // doesn't blink to a loading spinner — only show the spinner on a true cold open.
+        let showSpinner = order == nil
+        if showSpinner { isLoading = true }
         errorMessage = nil
-        defer { isLoading = false }
+        defer { if showSpinner { isLoading = false } }
 
         do {
             let loadedOrder = try await store.fetchOrder(accessToken: session.currentAccessToken, orderID: orderID)

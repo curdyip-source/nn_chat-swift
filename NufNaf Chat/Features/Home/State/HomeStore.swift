@@ -597,6 +597,13 @@ final class HomeStore: ObservableObject {
         return try await client.getOrder(accessToken: accessToken, orderID: orderID)
     }
 
+    /// The order already embedded in the chat feed cache, if any — used to render a detail view
+    /// instantly while the fresh copy loads, so content animates in with the open transition
+    /// instead of popping in after the network fetch.
+    func cachedOrder(orderID: Int) -> HomeOrder? {
+        messages.first(where: { $0.order?.id == orderID })?.order
+    }
+
     func updateOrder(accessToken: String?, orderID: Int, request: HomeOrderUpdateRequest) async throws -> HomeOrder {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")

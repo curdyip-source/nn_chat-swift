@@ -296,7 +296,9 @@ final class AppSession: ObservableObject {
     }
 
     func closeDocument() {
-        activeDocument = nil
+        withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.88, blendDuration: 0.12)) {
+            activeDocument = nil
+        }
     }
 
     func toggleChatFilterPanel() {

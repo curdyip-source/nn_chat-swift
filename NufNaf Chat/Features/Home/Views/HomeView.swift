@@ -723,21 +723,21 @@ struct HomeView: View {
                     session.closeDocument()
                 }
                 .environmentObject(session)
-                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .identity))
+                .transition(.move(edge: .trailing).combined(with: .opacity))
                 .zIndex(10)
             } else if document.kind == "inventory" {
                 InventoryDetailView(store: store, inventoryID: document.id) {
                     session.closeDocument()
                 }
                 .environmentObject(session)
-                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .identity))
+                .transition(.move(edge: .trailing).combined(with: .opacity))
                 .zIndex(10)
             } else if document.kind == "product_registration" {
                 ProductRegistrationDetailView(store: store, productRegistrationID: document.id) {
                     session.closeDocument()
                 }
                 .environmentObject(session)
-                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .identity))
+                .transition(.move(edge: .trailing).combined(with: .opacity))
                 .zIndex(10)
             }
         }
