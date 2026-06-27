@@ -380,6 +380,20 @@ struct HomeAPIClient {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            // A stale keep-alive socket (device slept, network switched) makes the FIRST request
+            // fail with a transient transport error even though the server is reachable. Retry
+            // once — a fresh connection almost always succeeds — before surfacing the error.
+            if Self.isRetriableTransportError(error) {
+                do {
+                    (data, response) = try await session.data(for: request)
+                } catch {
+                    throw AuthServiceError.transport("Не удалось связаться с сервером")
+                }
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    throw AuthServiceError.invalidResponse
+                }
+                return (data, httpResponse)
+            }
             throw AuthServiceError.transport("Не удалось связаться с сервером")
         }
 
@@ -388,6 +402,18 @@ struct HomeAPIClient {
         }
 
         return (data, httpResponse)
+    }
+
+    /// Transport failures that typically clear on an immediate retry (dropped pooled connection,
+    /// transient timeout) rather than a real outage like being offline.
+    private static func isRetriableTransportError(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .networkConnectionLost, .timedOut, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+            return true
+        default:
+            return false
+        }
     }
 
     private func refreshAccessTokenIfNeeded(expiredAccessToken: String) async throws -> String? {

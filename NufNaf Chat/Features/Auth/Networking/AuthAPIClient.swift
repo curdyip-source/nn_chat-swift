@@ -98,7 +98,17 @@ struct AuthAPIClient {
         do {
             (data, response) = try await session.data(for: request)
         } catch {
-            throw AuthServiceError.transport("Не удалось связаться с сервером")
+            // Retry once on a transient transport failure (stale pooled connection / brief
+            // timeout) — common right after the app wakes from background — before giving up.
+            if Self.isRetriableTransportError(error) {
+                do {
+                    (data, response) = try await session.data(for: request)
+                } catch {
+                    throw AuthServiceError.transport("Не удалось связаться с сервером")
+                }
+            } else {
+                throw AuthServiceError.transport("Не удалось связаться с сервером")
+            }
         }
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -118,6 +128,18 @@ struct AuthAPIClient {
             return try JSONDecoder().decode(ResponseBody.self, from: data)
         } catch {
             throw AuthServiceError.invalidResponse
+        }
+    }
+
+    /// Transport failures that typically clear on an immediate retry (dropped pooled connection,
+    /// transient timeout) rather than a real outage like being offline.
+    private static func isRetriableTransportError(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .networkConnectionLost, .timedOut, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+            return true
+        default:
+            return false
         }
     }
 
