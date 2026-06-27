@@ -1261,12 +1261,29 @@ extension HomeMessage {
 }
 
 enum HomeMessageDateParser {
+    // Parsing a timestamp tries up to four formatters and is expensive; the same strings are
+    // parsed thousands of times per body pass (filtering, sorting, row rendering) over the full
+    // cached history. Memoize: each unique timestamp is parsed once, then served O(1). The lock
+    // also serializes the non-thread-safe formatters. Timestamps are immutable, so never stale.
+    private static let cacheLock = NSLock()
+    private static var cache: [String: Date] = [:]
+
     static func parse(_ timestamp: String?) -> Date? {
         guard let timestamp, !timestamp.isEmpty else { return nil }
-        return timestampFormatterWithFractionalZone.date(from: timestamp)
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let cached = cache[timestamp] { return cached }
+
+        let parsed = timestampFormatterWithFractionalZone.date(from: timestamp)
             ?? timestampFormatterZone.date(from: timestamp)
             ?? timestampFormatterWithMicroseconds.date(from: timestamp)
             ?? timestampFormatterWithoutMicroseconds.date(from: timestamp)
+
+        if let parsed {
+            if cache.count > 20_000 { cache.removeAll(keepingCapacity: true) }
+            cache[timestamp] = parsed
+        }
+        return parsed
     }
 
     private static let timestampFormatterWithFractionalZone: ISO8601DateFormatter = {
