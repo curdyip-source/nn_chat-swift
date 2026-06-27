@@ -19,9 +19,11 @@ struct MessageStreamClient {
         self.baseURL = baseURL
     }
 
-    /// A stream of decoded events. Finishes when the connection closes; throws on a network or
-    /// non-2xx error so the caller can back off and reconnect.
-    func events(accessToken: String) -> AsyncThrowingStream<MessageStreamEvent, Error> {
+    /// A stream of raw SSE event payloads (the JSON after `data:`). Decoding is left to the
+    /// caller (which runs on the main actor) — the model's Decodable conformance is main-actor
+    /// isolated and can't be used from this background delegate under Swift 6. Finishes when the
+    /// connection closes; throws on a network or non-2xx error so the caller can reconnect.
+    func events(accessToken: String) -> AsyncThrowingStream<Data, Error> {
         AsyncThrowingStream { continuation in
             var request = URLRequest(url: baseURL.appendingPathComponent("messages/stream"))
             request.timeoutInterval = 86_400
@@ -50,12 +52,12 @@ struct MessageStreamClient {
     }
 }
 
-/// Parses an SSE byte stream incrementally as chunks arrive and yields decoded events.
+/// Parses an SSE byte stream incrementally as chunks arrive and yields raw event payloads.
 private final class SSEDelegate: NSObject, URLSessionDataDelegate {
-    private let continuation: AsyncThrowingStream<MessageStreamEvent, Error>.Continuation
+    private let continuation: AsyncThrowingStream<Data, Error>.Continuation
     private var buffer = Data()
 
-    init(continuation: AsyncThrowingStream<MessageStreamEvent, Error>.Continuation) {
+    init(continuation: AsyncThrowingStream<Data, Error>.Continuation) {
         self.continuation = continuation
     }
 
@@ -100,10 +102,9 @@ private final class SSEDelegate: NSObject, URLSessionDataDelegate {
             .filter { $0.hasPrefix("data:") }
             .map { $0.dropFirst("data:".count).trimmingCharacters(in: .whitespaces) }
             .joined()
-        guard !payload.isEmpty, let data = payload.data(using: .utf8),
-              let event = try? JSONDecoder().decode(MessageStreamEvent.self, from: data) else {
-            return // heartbeat/comment or undecodable
+        guard !payload.isEmpty, let data = payload.data(using: .utf8) else {
+            return // heartbeat/comment
         }
-        continuation.yield(event)
+        continuation.yield(data)
     }
 }

@@ -332,9 +332,12 @@ final class HomeStore: ObservableObject {
         while !Task.isCancelled {
             await syncDelta(accessToken: accessToken)
             do {
-                for try await event in stream.events(accessToken: accessToken) {
+                for try await payload in stream.events(accessToken: accessToken) {
                     if Task.isCancelled { return }
-                    applyStreamEvent(event)
+                    // Decode here (main actor) — the model's Decodable conformance is main-actor isolated.
+                    if let event = try? JSONDecoder().decode(MessageStreamEvent.self, from: payload) {
+                        applyStreamEvent(event)
+                    }
                 }
             } catch {
                 // Connection dropped — fall through to back off and reconnect.
