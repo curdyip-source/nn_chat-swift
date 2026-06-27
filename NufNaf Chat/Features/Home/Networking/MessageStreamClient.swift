@@ -6,62 +6,104 @@
 //  events so the chat feed (and the order/inventory/registration cards it embeds) update
 //  live without polling. The caller reconnects on stream end and delta-syncs to catch up.
 //
+//  Uses a URLSessionDataDelegate (not URLSession.bytes) so each chunk is delivered the instant
+//  it arrives — URLSession.bytes was buffering the stream on device, defeating realtime.
+//
 
 import Foundation
 
 struct MessageStreamClient {
     private let baseURL: URL
-    private let session: URLSession
 
-    init(baseURL: URL = AppConfig.apiBaseURL, session: URLSession = .shared) {
+    init(baseURL: URL = AppConfig.apiBaseURL) {
         self.baseURL = baseURL
-        self.session = session
     }
 
     /// A stream of decoded events. Finishes when the connection closes; throws on a network or
     /// non-2xx error so the caller can back off and reconnect.
     func events(accessToken: String) -> AsyncThrowingStream<MessageStreamEvent, Error> {
         AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    var request = URLRequest(url: baseURL.appendingPathComponent("messages/stream"))
-                    request.timeoutInterval = 86_400
-                    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-                    // Avoid SSE buffering: force HTTP/2 (HTTP/3 can hold the stream), refuse
-                    // compression (a gzip buffer would delay events), and bypass caches.
-                    request.assumesHTTP3Capable = false
-                    request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-                    request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            var request = URLRequest(url: baseURL.appendingPathComponent("messages/stream"))
+            request.timeoutInterval = 86_400
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+            request.assumesHTTP3Capable = false
 
-                    let (bytes, response) = try await session.bytes(for: request)
-                    guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
-                        let code = (response as? HTTPURLResponse)?.statusCode ?? -1
-                        throw AuthServiceError.backend(statusCode: code, message: "Не удалось открыть поток")
-                    }
+            let configuration = URLSessionConfiguration.default
+            configuration.timeoutIntervalForRequest = 86_400
+            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+            configuration.waitsForConnectivity = true
 
-                    var dataBuffer = ""
-                    for try await line in bytes.lines {
-                        if Task.isCancelled { break }
-                        if line.isEmpty {
-                            // Blank line terminates an SSE event.
-                            if !dataBuffer.isEmpty,
-                               let payload = dataBuffer.data(using: .utf8),
-                               let event = try? JSONDecoder().decode(MessageStreamEvent.self, from: payload) {
-                                continuation.yield(event)
-                            }
-                            dataBuffer = ""
-                        } else if line.hasPrefix("data:") {
-                            dataBuffer += line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
-                        }
-                        // Lines starting with ":" are heartbeats/comments and are ignored.
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
+            let delegate = SSEDelegate(continuation: continuation)
+            let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
+            let task = session.dataTask(with: request)
+
+            continuation.onTermination = { _ in
+                task.cancel()
+                session.invalidateAndCancel()
             }
-            continuation.onTermination = { _ in task.cancel() }
+
+            task.resume()
         }
+    }
+}
+
+/// Parses an SSE byte stream incrementally as chunks arrive and yields decoded events.
+private final class SSEDelegate: NSObject, URLSessionDataDelegate {
+    private let continuation: AsyncThrowingStream<MessageStreamEvent, Error>.Continuation
+    private var buffer = Data()
+
+    init(continuation: AsyncThrowingStream<MessageStreamEvent, Error>.Continuation) {
+        self.continuation = continuation
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            continuation.finish(throwing: AuthServiceError.backend(statusCode: code, message: "Не удалось открыть поток"))
+            completionHandler(.cancel)
+            return
+        }
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        buffer.append(data)
+        // SSE events are separated by a blank line ("\n\n").
+        let separator = Data([0x0A, 0x0A])
+        while let range = buffer.range(of: separator) {
+            let rawEvent = buffer.subdata(in: buffer.startIndex ..< range.lowerBound)
+            buffer.removeSubrange(buffer.startIndex ..< range.upperBound)
+            emit(rawEvent)
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error, (error as NSError).code != NSURLErrorCancelled {
+            continuation.finish(throwing: error)
+        } else {
+            continuation.finish()
+        }
+    }
+
+    private func emit(_ rawEvent: Data) {
+        guard let text = String(data: rawEvent, encoding: .utf8) else { return }
+        let payload = text
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .filter { $0.hasPrefix("data:") }
+            .map { $0.dropFirst("data:".count).trimmingCharacters(in: .whitespaces) }
+            .joined()
+        guard !payload.isEmpty, let data = payload.data(using: .utf8),
+              let event = try? JSONDecoder().decode(MessageStreamEvent.self, from: data) else {
+            return // heartbeat/comment or undecodable
+        }
+        continuation.yield(event)
     }
 }
