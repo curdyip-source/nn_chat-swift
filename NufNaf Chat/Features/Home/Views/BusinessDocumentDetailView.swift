@@ -490,7 +490,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         onInteractiveDismissStart() // clears @FocusState so SwiftUI doesn't re-assert focus
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
 
-        let screenWidth = max(containerWidth ?? measuredWidth, UIScreen.main.bounds.width, 1)
+        let screenWidth = max(containerWidth ?? measuredWidth, 1)
         // Next runloop: keyboard dismissal already owns this frame, so the slide won't animate it.
         DispatchQueue.main.async {
             withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.9)) {
