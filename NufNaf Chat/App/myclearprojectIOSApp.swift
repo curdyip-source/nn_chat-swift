@@ -44,7 +44,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        // Push arrived while the app is open — pull the new content now instead of waiting
+        // for the next 4s poll, which is what made the message lag behind the banner.
+        await NotificationRouter.shared.noteForegroundPush()
+        return [.banner, .list, .sound]
     }
 
     func userNotificationCenter(

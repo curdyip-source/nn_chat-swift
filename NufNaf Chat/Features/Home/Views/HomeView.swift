@@ -311,6 +311,10 @@ struct HomeView: View {
                 await store.reloadMessages(accessToken: session.currentAccessToken)
             }
         }
+        .onChange(of: notificationRouter.foregroundPushTick) { _, _ in
+            // A push landed while we're open — refresh now so the message appears with the banner.
+            Task { await store.reloadMessages(accessToken: session.currentAccessToken) }
+        }
     }
 
     @ViewBuilder

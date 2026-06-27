@@ -18,8 +18,15 @@ final class NotificationRouter: ObservableObject {
     static let shared = NotificationRouter()
 
     @Published var pendingRoute: NotificationRoute?
+    /// Bumped whenever a push arrives while the app is in the foreground, so open screens can
+    /// refresh immediately instead of waiting for the next poll tick (push beats the 4s poll).
+    @Published private(set) var foregroundPushTick: Int = 0
 
     private init() {}
+
+    func noteForegroundPush() {
+        foregroundPushTick &+= 1
+    }
 
     func handle(userInfo: [AnyHashable: Any]) {
         guard let eventType = userInfo["event_type"] as? String,
