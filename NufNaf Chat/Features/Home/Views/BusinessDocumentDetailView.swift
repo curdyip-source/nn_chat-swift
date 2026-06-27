@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct InventoryDetailView: View {
     @EnvironmentObject private var session: AppSession
@@ -477,7 +478,10 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
     private func closeWithSlide(containerWidth: CGFloat? = nil) {
         guard !isClosing else { return }
         isClosing = true
-        onInteractiveDismissStart() // dismiss keyboard / attachment menu so they leave with the card
+        // Force any keyboard down NOW (incl. the edit-sheet fields, not just the comment field),
+        // so it animates away with the card instead of lagging ~1s behind the removal.
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        onInteractiveDismissStart() // also clear focus state / attachment menu
         let screenWidth = max(containerWidth ?? measuredWidth, UIScreen.main.bounds.width, 1)
         withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.9)) {
             dragOffsetX = screenWidth
@@ -516,42 +520,61 @@ struct BusinessDocumentStatusButtons: View {
         self.onSelect = onSelect
     }
 
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-            ForEach(statuses) { status in
-                let isSelected = status.id == selectedStatusID
+    // Rows of 3, rendered non-lazily — a LazyVGrid materialises its cells on its own pass, so
+    // during the open slide the status buttons popped in "in place" instead of moving with the card.
+    private var statusRows: [[HomeStatus]] {
+        stride(from: 0, to: statuses.count, by: 3).map { Array(statuses[$0 ..< min($0 + 3, statuses.count)]) }
+    }
 
-                Button {
-                    guard !isSaving else { return }
-                    onSelect(status.id)
-                } label: {
-                    Text(status.statusStatus)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(isSelected ? Color.white : (prefersDarkAppearance ? Color.white.opacity(0.94) : Color(uiColor: .label)))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.76)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 40)
-                        .background(
-                            isSelected
-                                ? BusinessDocumentColors.statusColor(status.statusColor)
-                                : (prefersDarkAppearance ? Color.white.opacity(0.12) : Color(uiColor: .secondarySystemFill))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(
-                                    isSelected
-                                        ? Color.clear
-                                        : (prefersDarkAppearance ? Color.white.opacity(0.28) : Color.black.opacity(0.06)),
-                                    lineWidth: 1
-                                )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    var body: some View {
+        VStack(spacing: 8) {
+            ForEach(Array(statusRows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 8) {
+                    ForEach(row) { status in
+                        statusButton(status)
+                    }
+                    if row.count < 3 {
+                        ForEach(0 ..< (3 - row.count), id: \.self) { _ in
+                            Color.clear.frame(maxWidth: .infinity).frame(height: 40)
+                        }
+                    }
                 }
-                .buttonStyle(BusinessDocumentStaticPressButtonStyle())
-                .disabled(isSaving)
             }
         }
+    }
+
+    @ViewBuilder
+    private func statusButton(_ status: HomeStatus) -> some View {
+        let isSelected = status.id == selectedStatusID
+        Button {
+            guard !isSaving else { return }
+            onSelect(status.id)
+        } label: {
+            Text(status.statusStatus)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(isSelected ? Color.white : (prefersDarkAppearance ? Color.white.opacity(0.94) : Color(uiColor: .label)))
+                .lineLimit(1)
+                .minimumScaleFactor(0.76)
+                .frame(maxWidth: .infinity)
+                .frame(height: 40)
+                .background(
+                    isSelected
+                        ? BusinessDocumentColors.statusColor(status.statusColor)
+                        : (prefersDarkAppearance ? Color.white.opacity(0.12) : Color(uiColor: .secondarySystemFill))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(
+                            isSelected
+                                ? Color.clear
+                                : (prefersDarkAppearance ? Color.white.opacity(0.28) : Color.black.opacity(0.06)),
+                            lineWidth: 1
+                        )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(BusinessDocumentStaticPressButtonStyle())
+        .disabled(isSaving)
     }
 }
 
