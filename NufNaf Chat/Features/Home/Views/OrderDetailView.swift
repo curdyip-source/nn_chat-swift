@@ -165,7 +165,7 @@ struct OrderDetailView: View {
             isLoading: isLoading,
             isSaving: isSaving,
             errorMessage: errorMessage,
-            onClose: requestClose,
+            onClose: onClose,
             onInteractiveDismissStart: {
                 dismissCommentKeyboard()
                 closeCommentAttachmentMenu()
@@ -495,15 +495,6 @@ struct OrderDetailView: View {
         withAnimation(.easeOut(duration: 0.16)) {
             isCommentAttachmentMenuPresented = false
         }
-    }
-
-    /// Dismiss the keyboard (and attachment menu) before closing so the keyboard animates down
-    /// together with the card instead of lagging — and so a lingering focus doesn't leave the
-    /// next open's slide-in transition stuck (only the keyboard moved).
-    private func requestClose() {
-        dismissCommentKeyboard()
-        closeCommentAttachmentMenu()
-        onClose()
     }
 
     private func dismissCommentKeyboard() {

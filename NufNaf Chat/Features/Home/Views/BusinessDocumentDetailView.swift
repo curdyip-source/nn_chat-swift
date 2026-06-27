@@ -228,6 +228,8 @@ struct ProductRegistrationDetailView: View {
 struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View {
     @State private var dragOffsetX: CGFloat = 0
     @State private var isInteractiveDismissInProgress = false
+    @State private var measuredWidth: CGFloat = 0
+    @State private var isClosing = false
 
     let title: String
     let isLoading: Bool
@@ -288,7 +290,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                 VStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            Button(action: onClose) {
+                            Button(action: { closeWithSlide() }) {
                                 Image(systemName: "chevron.left")
                                     .font(.system(size: 17, weight: .semibold))
                                     .foregroundStyle(prefersDarkHeader ? Color.white : Color.primary)
@@ -411,6 +413,8 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
             .shadow(color: .black.opacity(interactiveShadowOpacity(containerWidth: geometry.size.width)), radius: 18, x: -6, y: 0)
             .contentShape(Rectangle())
             .simultaneousGesture(backSwipeGesture(containerWidth: geometry.size.width))
+            .onAppear { measuredWidth = geometry.size.width }
+            .onChange(of: geometry.size.width) { _, width in measuredWidth = width }
         }
         // Светлый экран документа/заказа (фон + читаемый тёмный текст) в тёмном приложении.
         .environment(\.colorScheme, .light)
@@ -439,7 +443,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                     return
                 }
 
-                finishInteractiveDismiss(containerWidth: containerWidth)
+                closeWithSlide(containerWidth: containerWidth)
             }
     }
 
@@ -467,13 +471,18 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         return shouldTrackBackSwipe(value) && (translationWidth >= 96 || predictedWidth >= 180)
     }
 
-    private func finishInteractiveDismiss(containerWidth: CGFloat) {
-        let screenWidth = max(containerWidth, 1)
-        withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.9)) {
+    /// Single close path for both the back button and the edge swipe: dismiss the keyboard,
+    /// slide the card off to the right, then remove it. The removal transition is `.identity`,
+    /// so this manual slide is the only close animation (no double-animation / stuck transition).
+    private func closeWithSlide(containerWidth: CGFloat? = nil) {
+        guard !isClosing else { return }
+        isClosing = true
+        onInteractiveDismissStart() // dismiss keyboard / attachment menu so they leave with the card
+        let screenWidth = max(containerWidth ?? measuredWidth, UIScreen.main.bounds.width, 1)
+        withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.9)) {
             dragOffsetX = screenWidth
         }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
             onClose()
         }
     }

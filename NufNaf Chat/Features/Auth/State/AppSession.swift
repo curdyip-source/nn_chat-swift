@@ -296,9 +296,9 @@ final class AppSession: ObservableObject {
     }
 
     func closeDocument() {
-        withAnimation(.interactiveSpring(response: 0.34, dampingFraction: 0.88, blendDuration: 0.12)) {
-            activeDocument = nil
-        }
+        // The detail container plays its own slide-out (dragOffsetX) before calling this, so the
+        // actual removal is instant (.identity transition) — no second animation to fight it.
+        activeDocument = nil
     }
 
     func toggleChatFilterPanel() {
