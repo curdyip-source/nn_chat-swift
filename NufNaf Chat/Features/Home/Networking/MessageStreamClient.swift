@@ -28,6 +28,11 @@ struct MessageStreamClient {
                     request.timeoutInterval = 86_400
                     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
                     request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    // Avoid SSE buffering: force HTTP/2 (HTTP/3 can hold the stream), refuse
+                    // compression (a gzip buffer would delay events), and bypass caches.
+                    request.assumesHTTP3Capable = false
+                    request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+                    request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
 
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {

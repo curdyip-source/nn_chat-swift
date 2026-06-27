@@ -302,10 +302,11 @@ struct HomeView: View {
             await store.runRealtime(accessToken: session.currentAccessToken)
         }
         .task(id: "chat-refresh-\(user.userID)-\(session.currentAccessToken ?? "no-token")-\(scenePhase == .active)") {
-            // Fallback poll (cheap delta sync) in case the SSE stream is unavailable.
+            // Fallback poll (cheap delta sync) in case the SSE stream is unavailable. Kept tight
+            // so the app stays near-realtime even if SSE can't connect on a given network.
             guard scenePhase == .active else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
                 guard !Task.isCancelled else { break }
                 await store.reloadMessages(accessToken: session.currentAccessToken)
             }
