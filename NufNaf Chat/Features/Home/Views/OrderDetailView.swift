@@ -35,6 +35,9 @@ struct OrderDetailView: View {
     @State private var activePhotoAttachment: HomeOrderCommentAttachment?
     @State private var pendingCommentPayloads: [Int: PendingOrderCommentPayload] = [:]
     @State private var commentScrollRequest = 0
+    // Mirrors the detail container's slide offset so the comment dock (a safeAreaInset, outside the
+    // container) slides out together with the card on close instead of lingering.
+    @State private var dockOffsetX: CGFloat = 0
 
     private enum PendingOrderCommentPayload {
         case text(String)
@@ -85,6 +88,7 @@ struct OrderDetailView: View {
             if order != nil {
                 commentComposerDock
                     .environment(\.colorScheme, .light)
+                    .offset(x: dockOffsetX) // slide out together with the card on close
             }
         }
         // Оверлей редактирования — поверх всего экрана (включая док комментариев),
@@ -165,6 +169,7 @@ struct OrderDetailView: View {
             isLoading: isLoading,
             isSaving: isSaving,
             errorMessage: errorMessage,
+            dockOffset: $dockOffsetX,
             onClose: onClose,
             onInteractiveDismissStart: {
                 dismissCommentKeyboard()

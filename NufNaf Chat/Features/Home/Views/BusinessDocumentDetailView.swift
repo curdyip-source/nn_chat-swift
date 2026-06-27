@@ -248,11 +248,16 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
     @ViewBuilder let headerContent: () -> HeaderContent
     @ViewBuilder let content: () -> Content
 
+    // Optional external view (e.g. the comment dock) that lives outside this container but must
+    // slide together with it — kept in lockstep with dragOffsetX.
+    private let dockOffset: Binding<CGFloat>?
+
     init(
         title: String,
         isLoading: Bool,
         isSaving: Bool,
         errorMessage: String?,
+        dockOffset: Binding<CGFloat>? = nil,
         onClose: @escaping () -> Void,
         onInteractiveDismissStart: @escaping () -> Void = {},
         headerActionSystemImage: String? = nil,
@@ -269,6 +274,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         self.isLoading = isLoading
         self.isSaving = isSaving
         self.errorMessage = errorMessage
+        self.dockOffset = dockOffset
         self.onClose = onClose
         self.onInteractiveDismissStart = onInteractiveDismissStart
         self.headerActionSystemImage = headerActionSystemImage
@@ -431,7 +437,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                     onInteractiveDismissStart()
                 }
                 isInteractiveDismissInProgress = true
-                dragOffsetX = interactiveOffset(for: value.translation.width, containerWidth: containerWidth)
+                applyDragOffset(interactiveOffset(for: value.translation.width, containerWidth: containerWidth))
             }
             .onEnded { value in
                 guard shouldTrackBackSwipe(value) else {
@@ -488,7 +494,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         // Next runloop: keyboard dismissal already owns this frame, so the slide won't animate it.
         DispatchQueue.main.async {
             withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.9)) {
-                dragOffsetX = screenWidth
+                applyDragOffset(screenWidth)
             }
         }
         // Remove only after the keyboard has had time to animate fully down, so the focused field
@@ -500,9 +506,16 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
 
     private func resetInteractiveDismiss() {
         withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.86)) {
-            dragOffsetX = 0
+            applyDragOffset(0)
         }
         isInteractiveDismissInProgress = false
+    }
+
+    /// Move the card and any attached external dock together, so the comment field slides with the
+    /// rest of the screen instead of lingering behind.
+    private func applyDragOffset(_ value: CGFloat) {
+        dragOffsetX = value
+        dockOffset?.wrappedValue = value
     }
 }
 
