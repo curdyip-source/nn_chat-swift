@@ -478,15 +478,22 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
     private func closeWithSlide(containerWidth: CGFloat? = nil) {
         guard !isClosing else { return }
         isClosing = true
-        // Force any keyboard down NOW (incl. the edit-sheet fields, not just the comment field),
-        // so it animates away with the card instead of lagging ~1s behind the removal.
+        // Dismiss any keyboard NOW (incl. edit-sheet fields) in its OWN frame, so it slides
+        // straight down on its own curve — not captured by the card's horizontal spring (which
+        // flung it sideways) and not cut off by teardown (which made it snap away after a beat).
+        onInteractiveDismissStart() // clears @FocusState so SwiftUI doesn't re-assert focus
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        onInteractiveDismissStart() // also clear focus state / attachment menu
+
         let screenWidth = max(containerWidth ?? measuredWidth, UIScreen.main.bounds.width, 1)
-        withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.9)) {
-            dragOffsetX = screenWidth
+        // Next runloop: keyboard dismissal already owns this frame, so the slide won't animate it.
+        DispatchQueue.main.async {
+            withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.9)) {
+                dragOffsetX = screenWidth
+            }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+        // Remove only after the keyboard has had time to animate fully down, so the focused field
+        // isn't torn down mid-dismiss (which is what made the keyboard snap instead of slide).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
             onClose()
         }
     }
