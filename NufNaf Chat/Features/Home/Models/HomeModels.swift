@@ -25,7 +25,7 @@ struct HomeReferenceDataResponse: Decodable {
     }
 }
 
-struct HomeEstablishment: Decodable, Identifiable, Hashable {
+struct HomeEstablishment: Codable, Identifiable, Hashable {
     let id: Int
     let establishmentName: String
 
@@ -35,7 +35,7 @@ struct HomeEstablishment: Decodable, Identifiable, Hashable {
     }
 }
 
-struct HomeOrderMethod: Decodable, Identifiable, Hashable {
+struct HomeOrderMethod: Codable, Identifiable, Hashable {
     let id: Int
     let orderMethodName: String
     let orderMethodSubMethods: [String]
@@ -47,7 +47,7 @@ struct HomeOrderMethod: Decodable, Identifiable, Hashable {
     }
 }
 
-struct HomeStatus: Decodable, Identifiable, Hashable {
+struct HomeStatus: Codable, Identifiable, Hashable {
     let id: Int
     let statusType: String
     let statusStatus: String
@@ -61,7 +61,7 @@ struct HomeStatus: Decodable, Identifiable, Hashable {
     }
 }
 
-struct HomeCurrency: Decodable, Identifiable, Hashable {
+struct HomeCurrency: Codable, Identifiable, Hashable {
     let id: Int
     let currencyName: String
     let currencySign: String?
@@ -81,7 +81,7 @@ struct HomeContactResponse: Decodable {
     let items: [HomeContact]
 }
 
-struct HomeContact: Decodable, Identifiable, Hashable {
+struct HomeContact: Codable, Identifiable, Hashable {
     let id: Int
     let contactType: String
     let contactName: String
@@ -105,7 +105,7 @@ struct HomeContact: Decodable, Identifiable, Hashable {
     }
 }
 
-struct HomeProduct: Decodable, Identifiable, Hashable {
+struct HomeProduct: Codable, Identifiable, Hashable {
     let id: Int
     let productArticle: String
     let productName: String
@@ -141,7 +141,7 @@ enum HomeMessageDeliveryState: Hashable {
     case failed
 }
 
-struct HomeMessage: Decodable, Identifiable, Hashable {
+struct HomeMessage: Codable, Identifiable, Hashable {
     let id: Int
     let messageType: String
     let messageText: String?
@@ -289,7 +289,7 @@ extension ISO8601DateFormatter {
     }()
 }
 
-struct HomeMessageAttachment: Decodable, Hashable, Identifiable {
+struct HomeMessageAttachment: Codable, Hashable, Identifiable {
     let attachmentID: Int
     let attachmentKind: String
     let attachmentOriginalFilename: String
@@ -578,7 +578,7 @@ struct HomeMessageCreateRequest: Encodable {
     }
 }
 
-struct ChatParticipant: Decodable, Identifiable, Hashable {
+struct ChatParticipant: Codable, Identifiable, Hashable {
     let id: Int
     let userLogin: String
     let userFirstName: String
@@ -637,7 +637,7 @@ struct HomeOrderCreateRequest: Encodable {
     }
 }
 
-struct HomeOrder: Decodable, Identifiable, Hashable {
+struct HomeOrder: Codable, Identifiable, Hashable {
     let id: Int
     let orderEstablishmentID: Int
     let orderEstablishmentName: String?
@@ -673,7 +673,7 @@ struct HomeOrder: Decodable, Identifiable, Hashable {
     }
 }
 
-struct HomeOrderComment: Decodable, Identifiable, Hashable {
+struct HomeOrderComment: Codable, Identifiable, Hashable {
     let id: Int
     let orderID: Int
     let text: String?
@@ -773,7 +773,7 @@ extension HomeOrderComment {
     }
 }
 
-struct HomeOrderCommentAttachment: Decodable, Hashable, Identifiable {
+struct HomeOrderCommentAttachment: Codable, Hashable, Identifiable {
     let attachmentID: Int
     let attachmentKind: String
     let attachmentOriginalFilename: String
@@ -824,7 +824,7 @@ extension HomeOrderCommentAttachment {
     }
 }
 
-struct HomeOrderItem: Decodable, Identifiable, Hashable {
+struct HomeOrderItem: Codable, Identifiable, Hashable {
     let id: Int
     let orderItemProductID: Int?
     let orderItemName: String
@@ -986,7 +986,7 @@ struct HomeInventoryCreateRequest: Encodable {
     }
 }
 
-struct HomeInventory: Decodable, Identifiable, Hashable {
+struct HomeInventory: Codable, Identifiable, Hashable {
     let id: Int
     let inventoryEstablishmentID: Int
     let inventoryEstablishmentName: String?
@@ -1010,7 +1010,7 @@ struct HomeInventory: Decodable, Identifiable, Hashable {
     }
 }
 
-struct HomeInventoryItem: Decodable, Identifiable, Hashable {
+struct HomeInventoryItem: Codable, Identifiable, Hashable {
     let id: Int
     let inventoryItemProductID: Int?
     let inventoryItemName: String
@@ -1070,7 +1070,7 @@ struct HomeProductRegistrationCreateRequest: Encodable {
     }
 }
 
-struct HomeProductRegistration: Decodable, Identifiable, Hashable {
+struct HomeProductRegistration: Codable, Identifiable, Hashable {
     let id: Int
     let productRegistrationEstablishmentID: Int
     let productRegistrationEstablishmentName: String?
@@ -1094,7 +1094,7 @@ struct HomeProductRegistration: Decodable, Identifiable, Hashable {
     }
 }
 
-struct HomeProductRegistrationItem: Decodable, Identifiable, Hashable {
+struct HomeProductRegistrationItem: Codable, Identifiable, Hashable {
     let id: Int
     let productRegistrationItemProductID: Int?
     let productRegistrationItemName: String

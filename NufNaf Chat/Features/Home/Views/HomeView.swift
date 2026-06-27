@@ -294,12 +294,18 @@ struct HomeView: View {
             Text(messageActionErrorMessage ?? "Неизвестная ошибка")
         }
         .task(id: "\(user.userID)-\(session.currentAccessToken ?? "no-token")") {
-            await store.load(accessToken: session.currentAccessToken)
+            await store.load(accessToken: session.currentAccessToken, userID: user.userID)
+        }
+        .task(id: "chat-stream-\(user.userID)-\(session.currentAccessToken ?? "no-token")-\(scenePhase == .active)") {
+            // Realtime: SSE pushes live changes; the loop also delta-syncs on (re)connect.
+            guard scenePhase == .active else { return }
+            await store.runRealtime(accessToken: session.currentAccessToken)
         }
         .task(id: "chat-refresh-\(user.userID)-\(session.currentAccessToken ?? "no-token")-\(scenePhase == .active)") {
+            // Fallback poll (cheap delta sync) in case the SSE stream is unavailable.
             guard scenePhase == .active else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
                 guard !Task.isCancelled else { break }
                 await store.reloadMessages(accessToken: session.currentAccessToken)
             }

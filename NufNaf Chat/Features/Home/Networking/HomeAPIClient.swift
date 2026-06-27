@@ -21,6 +21,21 @@ struct HomeAPIClient {
         self.authClient = authClient ?? AuthAPIClient(baseURL: baseURL, session: session)
     }
 
+    /// One page of incremental changes since `cursor` (nil/empty = initial full sync).
+    func syncMessages(accessToken: String, cursor: String?, limit: Int = 200) async throws -> HomeMessageSyncResponse {
+        var queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        if let cursor, !cursor.isEmpty {
+            queryItems.append(URLQueryItem(name: "cursor", value: cursor))
+        }
+        return try await send(
+            path: "messages/sync",
+            queryItems: queryItems,
+            method: "GET",
+            body: Optional<String>.none,
+            accessToken: accessToken
+        )
+    }
+
     func getMessages(accessToken: String) async throws -> [HomeMessage] {
         // The backend caps `page_size` at 100, so a single request only returns the
         // latest ~100 records. The home feed must show the whole current year, so we

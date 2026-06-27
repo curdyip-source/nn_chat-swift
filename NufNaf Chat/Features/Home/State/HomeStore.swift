@@ -24,9 +24,16 @@ final class HomeStore: ObservableObject {
     @Published private(set) var orderCommentReadRevision = 0
 
     private let client: HomeAPIClient
+    private let stream = MessageStreamClient()
     private let defaults = UserDefaults.standard
     private var localAttachmentPayloads: [Int: PendingAttachmentUpload] = [:]
     private var pendingBusinessDocumentCreations: [Int: PendingBusinessDocumentCreation] = [:]
+
+    // Incremental sync state: local cache keyed per user + the server delta cursor.
+    private var cache: MessageCache?
+    private var syncCursor: String?
+    private var isSyncing = false
+    private var persistTask: Task<Void, Never>?
 
     private struct PendingAttachmentUpload {
         let data: Data
@@ -209,9 +216,10 @@ final class HomeStore: ObservableObject {
         }
     }
 
-    func load(accessToken: String?) async {
+    func load(accessToken: String?, userID: Int) async {
+        configureCache(for: userID)
+
         guard let accessToken else {
-            messages = []
             loadErrorMessage = "Сессия не найдена"
             return
         }
@@ -219,13 +227,8 @@ final class HomeStore: ObservableObject {
         isLoading = true
         defer { isLoading = false }
 
-        do {
-            let loadedMessages = try await client.getMessages(accessToken: accessToken)
-            messages = reconcileMessages(with: loadedMessages)
-            loadErrorMessage = nil
-        } catch {
-            loadErrorMessage = error.localizedDescription
-        }
+        // Cache is already on screen (configureCache); pull only the delta since last sync.
+        await syncDelta(accessToken: accessToken)
 
         do {
             referenceData = try await client.getReferenceData(accessToken: accessToken)
@@ -233,6 +236,112 @@ final class HomeStore: ObservableObject {
         }
 
         await loadParticipants(accessToken: accessToken)
+    }
+
+    /// Point the store at this user's cache and show it immediately. No-op if already configured.
+    private func configureCache(for userID: Int) {
+        if cache?.userID == userID { return }
+        let cache = MessageCache(userID: userID)
+        self.cache = cache
+        if let cached = cache.load() {
+            syncCursor = cached.cursor
+            messages = reconcileMessages(with: cached.messages)
+        } else {
+            syncCursor = nil
+            messages = []
+        }
+    }
+
+    /// Pull and apply all changes since the stored cursor, draining pagination.
+    private func syncDelta(accessToken: String) async {
+        guard cache != nil, !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+
+        do {
+            var cursor = syncCursor
+            while true {
+                let response = try await client.syncMessages(accessToken: accessToken, cursor: cursor)
+                applySyncItems(response.items)
+                cursor = response.cursor
+                syncCursor = response.cursor
+                if !response.hasMore { break }
+            }
+            loadErrorMessage = nil
+            persistCache()
+        } catch {
+            // Keep the cached feed on screen; report the transport error like before.
+            loadErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func applySyncItems(_ items: [HomeMessageSyncItem]) {
+        guard !items.isEmpty else { return }
+        var working = messages
+        for item in items {
+            switch item {
+            case let .message(message):
+                // Drop the optimistic local twin, if any, then upsert the server message.
+                working.removeAll { $0.isLocalOnly && matchesServerMessage(message, for: $0) }
+                if let index = working.firstIndex(where: { $0.id == message.id }) {
+                    working[index] = message
+                } else {
+                    working.append(message)
+                }
+            case let .tombstone(id):
+                working.removeAll { $0.id == id }
+            }
+        }
+        messages = sortedMessages(working)
+    }
+
+    private func applyStreamEvent(_ event: MessageStreamEvent) {
+        switch event.type {
+        case "created", "updated":
+            guard let message = event.message else { return }
+            applySyncItems([.message(message)])
+            schedulePersist()
+        case "deleted":
+            guard let id = event.messageID else { return }
+            applySyncItems([.tombstone(id: id)])
+            schedulePersist()
+        default:
+            break
+        }
+    }
+
+    private func persistCache() {
+        guard let cache else { return }
+        cache.save(CachedChatFeed(messages: messages.filter { !$0.isLocalOnly }, cursor: syncCursor))
+    }
+
+    /// Coalesce frequent SSE-driven writes: persist at most once per short window.
+    private func schedulePersist() {
+        persistTask?.cancel()
+        persistTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.persistCache()
+        }
+    }
+
+    /// Long-lived realtime loop: catch up via delta sync, then consume SSE until the connection
+    /// drops, then back off and reconnect. Cancelled by the owning SwiftUI `.task`.
+    func runRealtime(accessToken: String?) async {
+        guard let accessToken else { return }
+        while !Task.isCancelled {
+            await syncDelta(accessToken: accessToken)
+            do {
+                for try await event in stream.events(accessToken: accessToken) {
+                    if Task.isCancelled { return }
+                    applyStreamEvent(event)
+                }
+            } catch {
+                // Connection dropped — fall through to back off and reconnect.
+            }
+            if Task.isCancelled { return }
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+        }
     }
 
     func loadParticipants(accessToken: String?) async {
@@ -245,13 +354,7 @@ final class HomeStore: ObservableObject {
 
     func reloadMessages(accessToken: String?) async {
         guard let accessToken else { return }
-        do {
-            let loadedMessages = try await client.getMessages(accessToken: accessToken)
-            messages = reconcileMessages(with: loadedMessages)
-            loadErrorMessage = nil
-        } catch {
-            loadErrorMessage = error.localizedDescription
-        }
+        await syncDelta(accessToken: accessToken)
     }
 
     func sendMessage(accessToken: String?) async {
