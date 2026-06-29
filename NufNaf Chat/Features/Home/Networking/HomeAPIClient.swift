@@ -94,22 +94,24 @@ struct HomeAPIClient {
         return response.items
     }
 
-    func sendMessage(accessToken: String, text: String, mentionedUserIDs: [Int] = []) async throws -> HomeMessage {
+    func sendMessage(accessToken: String, text: String, mentionedUserIDs: [Int] = [], idempotencyKey: String? = nil) async throws -> HomeMessage {
         let response: HomeItemEnvelope<HomeMessage> = try await send(
             path: "messages",
             method: "POST",
             body: HomeMessageCreateRequest(messageType: "message", messageText: text, attachments: [], mentionedUserIDs: mentionedUserIDs),
-            accessToken: accessToken
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey
         )
         return response.item
     }
 
-    func sendAttachmentMessage(accessToken: String, attachments: [HomeMessageAttachmentCreateRequest]) async throws -> HomeMessage {
+    func sendAttachmentMessage(accessToken: String, attachments: [HomeMessageAttachmentCreateRequest], idempotencyKey: String? = nil) async throws -> HomeMessage {
         let response: HomeItemEnvelope<HomeMessage> = try await send(
             path: "messages",
             method: "POST",
             body: HomeMessageCreateRequest(messageType: "file", messageText: nil, attachments: attachments),
-            accessToken: accessToken
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey
         )
         return response.item
     }
@@ -262,8 +264,8 @@ struct HomeAPIClient {
         )
     }
 
-    func createOrder(accessToken: String, request: HomeOrderCreateRequest) async throws {
-        let _: HomeItemEnvelope<OrderCreateStub> = try await send(path: "orders", method: "POST", body: request, accessToken: accessToken)
+    func createOrder(accessToken: String, request: HomeOrderCreateRequest, idempotencyKey: String? = nil) async throws {
+        let _: HomeItemEnvelope<OrderCreateStub> = try await send(path: "orders", method: "POST", body: request, accessToken: accessToken, idempotencyKey: idempotencyKey)
     }
 
     func getOrder(accessToken: String, orderID: Int) async throws -> HomeOrder {
@@ -276,18 +278,19 @@ struct HomeAPIClient {
         return response.item
     }
 
-    func addOrderComment(accessToken: String, orderID: Int, text: String?, attachments: [HomeMessageAttachmentCreateRequest] = [], mentionedUserIDs: [Int] = []) async throws -> HomeOrderComment {
+    func addOrderComment(accessToken: String, orderID: Int, text: String?, attachments: [HomeMessageAttachmentCreateRequest] = [], mentionedUserIDs: [Int] = [], idempotencyKey: String? = nil) async throws -> HomeOrderComment {
         let response: HomeItemEnvelope<HomeOrderComment> = try await send(
             path: "orders/\(orderID)/comments",
             method: "POST",
             body: HomeOrderCommentCreateRequest(orderCommentText: text, attachments: attachments, mentionedUserIDs: mentionedUserIDs),
-            accessToken: accessToken
+            accessToken: accessToken,
+            idempotencyKey: idempotencyKey
         )
         return response.item
     }
 
-    func createInventory(accessToken: String, request: HomeInventoryCreateRequest) async throws {
-        let _: HomeItemEnvelope<InventoryCreateStub> = try await send(path: "inventories", method: "POST", body: request, accessToken: accessToken)
+    func createInventory(accessToken: String, request: HomeInventoryCreateRequest, idempotencyKey: String? = nil) async throws {
+        let _: HomeItemEnvelope<InventoryCreateStub> = try await send(path: "inventories", method: "POST", body: request, accessToken: accessToken, idempotencyKey: idempotencyKey)
     }
 
     func getInventory(accessToken: String, inventoryID: Int) async throws -> HomeInventory {
@@ -300,8 +303,8 @@ struct HomeAPIClient {
         return response.item
     }
 
-    func createProductRegistration(accessToken: String, request: HomeProductRegistrationCreateRequest) async throws {
-        let _: HomeItemEnvelope<ProductRegistrationCreateStub> = try await send(path: "product-registrations", method: "POST", body: request, accessToken: accessToken)
+    func createProductRegistration(accessToken: String, request: HomeProductRegistrationCreateRequest, idempotencyKey: String? = nil) async throws {
+        let _: HomeItemEnvelope<ProductRegistrationCreateStub> = try await send(path: "product-registrations", method: "POST", body: request, accessToken: accessToken, idempotencyKey: idempotencyKey)
     }
 
     func getProductRegistration(accessToken: String, productRegistrationID: Int) async throws -> HomeProductRegistration {
@@ -319,7 +322,8 @@ struct HomeAPIClient {
         queryItems: [URLQueryItem] = [],
         method: String,
         body: RequestBody?,
-        accessToken: String
+        accessToken: String,
+        idempotencyKey: String? = nil
     ) async throws -> ResponseBody {
         guard let endpoint = buildURL(path: path, queryItems: queryItems) else {
             throw AuthServiceError.invalidResponse
@@ -331,6 +335,11 @@ struct HomeAPIClient {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.setValue("application/json", forHTTPHeaderField: "Accept")
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            // A stable per-create key lets the server discard a duplicate POST whose first response
+            // was lost (network/VPN drop) and that the client re-sent — see execute()/isSafeToRetry.
+            if let idempotencyKey {
+                request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+            }
             request.httpBody = encodedBody
             return request
         }
@@ -398,7 +407,15 @@ struct HomeAPIClient {
             // A stale keep-alive socket (device slept, network switched) makes the FIRST request
             // fail with a transient transport error even though the server is reachable. Retry
             // once — a fresh connection almost always succeeds — before surfacing the error.
-            if Self.isRetriableTransportError(error) {
+            //
+            // IMPORTANT: only retry requests that are safe to re-send. A transient error does NOT
+            // mean the request never reached the server: a POST whose body was processed server-side
+            // but whose response was lost would be re-sent and silently DUPLICATE the write
+            // (duplicate orders / chat messages / attachments). Idempotent methods (GET/HEAD/PUT/
+            // DELETE) are always safe; non-idempotent POSTs are safe ONLY when they carry an
+            // Idempotency-Key the server uses to discard the duplicate. Everything else surfaces as
+            // .failed and is retried explicitly by the user.
+            if Self.isRetriableTransportError(error), Self.isSafeToRetry(request) {
                 do {
                     (data, response) = try await session.data(for: request)
                 } catch {
@@ -417,6 +434,19 @@ struct HomeAPIClient {
         }
 
         return (data, httpResponse)
+    }
+
+    /// Whether a request can be safely re-sent after a transient transport failure. Idempotent
+    /// methods (GET/HEAD/PUT/DELETE) always qualify. A non-idempotent POST qualifies only when it
+    /// carries an Idempotency-Key — the server then discards the duplicate instead of creating a
+    /// second entity if the first request had already succeeded with a lost response.
+    private static func isSafeToRetry(_ request: URLRequest) -> Bool {
+        switch (request.httpMethod ?? "GET").uppercased() {
+        case "GET", "HEAD", "PUT", "DELETE", "OPTIONS":
+            return true
+        default:
+            return request.value(forHTTPHeaderField: "Idempotency-Key") != nil
+        }
     }
 
     /// Transport failures that typically clear on an immediate retry (dropped pooled connection,

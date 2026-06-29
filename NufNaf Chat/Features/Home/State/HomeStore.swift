@@ -28,6 +28,9 @@ final class HomeStore: ObservableObject {
     private let defaults = UserDefaults.standard
     private var localAttachmentPayloads: [Int: PendingAttachmentUpload] = [:]
     private var pendingBusinessDocumentCreations: [Int: PendingBusinessDocumentCreation] = [:]
+    // Stable idempotency key per pending local message (text/attachment). Reused across automatic
+    // and manual retries so the server discards a duplicate POST whose first response was lost.
+    private var localMessageIdempotencyKeys: [Int: String] = [:]
 
     // Incremental sync state: local cache keyed per user + the server delta cursor.
     private var cache: MessageCache?
@@ -44,9 +47,16 @@ final class HomeStore: ObservableObject {
     }
 
     private enum PendingBusinessDocumentCreation {
-        case order(HomeOrderCreateRequest)
-        case inventory(HomeInventoryCreateRequest)
-        case productRegistration(HomeProductRegistrationCreateRequest)
+        case order(HomeOrderCreateRequest, idempotencyKey: String)
+        case inventory(HomeInventoryCreateRequest, idempotencyKey: String)
+        case productRegistration(HomeProductRegistrationCreateRequest, idempotencyKey: String)
+
+        var idempotencyKey: String {
+            switch self {
+            case let .order(_, key), let .inventory(_, key), let .productRegistration(_, key):
+                return key
+            }
+        }
     }
 
     init(client: HomeAPIClient? = nil) {
@@ -208,6 +218,7 @@ final class HomeStore: ObservableObject {
         messages.removeAll { $0.id == message.id }
         localAttachmentPayloads.removeValue(forKey: message.id)
         pendingBusinessDocumentCreations.removeValue(forKey: message.id)
+        localMessageIdempotencyKeys.removeValue(forKey: message.id)
     }
 
     private func reloadMessagesInBackground(accessToken: String) {
@@ -382,13 +393,26 @@ final class HomeStore: ObservableObject {
         }
         mergeMessage(localMessage)
 
+        let idempotencyKey = idempotencyKey(for: localMessageID)
         do {
-            let createdMessage = try await client.sendMessage(accessToken: accessToken, text: normalizedText, mentionedUserIDs: mentionedUserIDs)
+            let createdMessage = try await client.sendMessage(accessToken: accessToken, text: normalizedText, mentionedUserIDs: mentionedUserIDs, idempotencyKey: idempotencyKey)
             replaceMessage(localID: localMessageID, with: createdMessage)
+            localMessageIdempotencyKeys.removeValue(forKey: localMessageID)
             reloadMessagesInBackground(accessToken: accessToken)
         } catch {
             updateLocalMessageState(messageID: localMessageID, deliveryState: .failed)
         }
+    }
+
+    /// Returns the stable idempotency key for a pending local message, creating one on first use.
+    /// Reusing it across retries lets the server collapse a re-sent create into the original.
+    private func idempotencyKey(for localMessageID: Int) -> String {
+        if let existing = localMessageIdempotencyKeys[localMessageID] {
+            return existing
+        }
+        let key = UUID().uuidString
+        localMessageIdempotencyKeys[localMessageID] = key
+        return key
     }
 
     func retryFailedMessage(accessToken: String?, currentUser: AuthUser, message: HomeMessage) async {
@@ -412,8 +436,9 @@ final class HomeStore: ObservableObject {
         updateLocalMessageState(messageID: message.id, deliveryState: .pending)
 
         do {
-            let createdMessage = try await client.sendMessage(accessToken: accessToken, text: messageText)
+            let createdMessage = try await client.sendMessage(accessToken: accessToken, text: messageText, idempotencyKey: idempotencyKey(for: message.id))
             replaceMessage(localID: message.id, with: createdMessage)
+            localMessageIdempotencyKeys.removeValue(forKey: message.id)
             reloadMessagesInBackground(accessToken: accessToken)
         } catch {
             updateLocalMessageState(messageID: message.id, deliveryState: .failed)
@@ -510,9 +535,11 @@ final class HomeStore: ObservableObject {
                         attachmentStorageKey: uploadedAttachment.attachmentStorageKey,
                         attachmentSizeBytes: uploadedAttachment.attachmentSizeBytes
                     )
-                ]
+                ],
+                idempotencyKey: idempotencyKey(for: localMessageID)
             )
             localAttachmentPayloads.removeValue(forKey: localMessageID)
+            localMessageIdempotencyKeys.removeValue(forKey: localMessageID)
             replaceMessage(localID: localMessageID, with: message)
             scheduleConfirmationReloads(accessToken: accessToken, localMessageID: message.id)
         } catch {
@@ -617,7 +644,7 @@ final class HomeStore: ObservableObject {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")
         }
-        let comment = try await client.addOrderComment(accessToken: accessToken, orderID: orderID, text: text, mentionedUserIDs: mentionedUserIDs)
+        let comment = try await client.addOrderComment(accessToken: accessToken, orderID: orderID, text: text, mentionedUserIDs: mentionedUserIDs, idempotencyKey: UUID().uuidString)
         reloadMessagesInBackground(accessToken: accessToken)
         return comment
     }
@@ -626,7 +653,7 @@ final class HomeStore: ObservableObject {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")
         }
-        let comment = try await client.addOrderComment(accessToken: accessToken, orderID: orderID, text: text, attachments: attachments, mentionedUserIDs: mentionedUserIDs)
+        let comment = try await client.addOrderComment(accessToken: accessToken, orderID: orderID, text: text, attachments: attachments, mentionedUserIDs: mentionedUserIDs, idempotencyKey: UUID().uuidString)
         reloadMessagesInBackground(accessToken: accessToken)
         return comment
     }
@@ -784,6 +811,7 @@ final class HomeStore: ObservableObject {
         guard !normalizedItems.isEmpty else { return }
 
         let localMessageID = nextLocalMessageID()
+        let idempotencyKey = UUID().uuidString
 
         switch kind {
         case .order:
@@ -816,10 +844,11 @@ final class HomeStore: ObservableObject {
                 counterpartyName: counterpartyName,
                 info: info
             )
-            pendingBusinessDocumentCreations[localMessageID] = .order(request)
+            let creation: PendingBusinessDocumentCreation = .order(request, idempotencyKey: idempotencyKey)
+            pendingBusinessDocumentCreations[localMessageID] = creation
             mergeMessage(localMessage)
             Task { [weak self] in
-                await self?.finishBusinessDocumentCreation(accessToken: accessToken, localMessageID: localMessageID, creation: .order(request))
+                await self?.finishBusinessDocumentCreation(accessToken: accessToken, localMessageID: localMessageID, creation: creation)
             }
         case .inventory:
             let request = HomeInventoryCreateRequest(
@@ -845,10 +874,11 @@ final class HomeStore: ObservableObject {
                 counterpartyName: counterpartyName,
                 info: info
             )
-            pendingBusinessDocumentCreations[localMessageID] = .inventory(request)
+            let creation: PendingBusinessDocumentCreation = .inventory(request, idempotencyKey: idempotencyKey)
+            pendingBusinessDocumentCreations[localMessageID] = creation
             mergeMessage(localMessage)
             Task { [weak self] in
-                await self?.finishBusinessDocumentCreation(accessToken: accessToken, localMessageID: localMessageID, creation: .inventory(request))
+                await self?.finishBusinessDocumentCreation(accessToken: accessToken, localMessageID: localMessageID, creation: creation)
             }
         case .productRegistration:
             let request = HomeProductRegistrationCreateRequest(
@@ -874,10 +904,11 @@ final class HomeStore: ObservableObject {
                 counterpartyName: counterpartyName,
                 info: info
             )
-            pendingBusinessDocumentCreations[localMessageID] = .productRegistration(request)
+            let creation: PendingBusinessDocumentCreation = .productRegistration(request, idempotencyKey: idempotencyKey)
+            pendingBusinessDocumentCreations[localMessageID] = creation
             mergeMessage(localMessage)
             Task { [weak self] in
-                await self?.finishBusinessDocumentCreation(accessToken: accessToken, localMessageID: localMessageID, creation: .productRegistration(request))
+                await self?.finishBusinessDocumentCreation(accessToken: accessToken, localMessageID: localMessageID, creation: creation)
             }
         }
     }
@@ -885,12 +916,12 @@ final class HomeStore: ObservableObject {
     private func finishBusinessDocumentCreation(accessToken: String, localMessageID: Int, creation: PendingBusinessDocumentCreation) async {
         do {
             switch creation {
-            case let .order(request):
-                try await client.createOrder(accessToken: accessToken, request: request)
-            case let .inventory(request):
-                try await client.createInventory(accessToken: accessToken, request: request)
-            case let .productRegistration(request):
-                try await client.createProductRegistration(accessToken: accessToken, request: request)
+            case let .order(request, idempotencyKey):
+                try await client.createOrder(accessToken: accessToken, request: request, idempotencyKey: idempotencyKey)
+            case let .inventory(request, idempotencyKey):
+                try await client.createInventory(accessToken: accessToken, request: request, idempotencyKey: idempotencyKey)
+            case let .productRegistration(request, idempotencyKey):
+                try await client.createProductRegistration(accessToken: accessToken, request: request, idempotencyKey: idempotencyKey)
             }
             pendingBusinessDocumentCreations.removeValue(forKey: localMessageID)
             updateLocalMessageState(messageID: localMessageID, deliveryState: .sent)

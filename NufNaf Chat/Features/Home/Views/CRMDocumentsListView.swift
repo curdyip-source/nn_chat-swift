@@ -535,7 +535,6 @@ private struct CRMOrderProductRow: View {
 
     @State private var noteText: String
     @State private var syncedNoteText: String
-    @State private var noteSaveTask: Task<Void, Never>?
     @FocusState private var isNoteFocused: Bool
 
     init(
@@ -612,8 +611,12 @@ private struct CRMOrderProductRow: View {
                 .padding(.horizontal, 12)
                 .frame(height: 25)
                 .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .onChange(of: noteText) { _, newValue in
-                    queueNoteSave(for: newValue)
+                // Save only when the user finishes editing (Done) or leaves the field — never on every
+                // keystroke. A per-keystroke save reloads the list, recreates this row and drops focus,
+                // which closes the keyboard mid-word.
+                .onSubmit { saveNoteIfNeeded() }
+                .onChange(of: isNoteFocused) { _, focused in
+                    if !focused { saveNoteIfNeeded() }
                 }
         }
         .padding(16)
@@ -629,7 +632,7 @@ private struct CRMOrderProductRow: View {
             }
         }
         .onDisappear {
-            noteSaveTask?.cancel()
+            saveNoteIfNeeded()
         }
     }
 
@@ -663,19 +666,12 @@ private struct CRMOrderProductRow: View {
         return "\(sourceName) -> \(destinationName)"
     }
 
-    private func queueNoteSave(for value: String) {
-        noteSaveTask?.cancel()
-
-        let normalizedValue = normalizedNote(value)
+    private func saveNoteIfNeeded() {
+        let normalizedValue = normalizedNote(noteText)
         guard normalizedValue != normalizedNote(syncedNoteText) else { return }
 
-        noteSaveTask = Task {
-            try? await Task.sleep(nanoseconds: 450_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                onUpdateNote(normalizedValue.isEmpty ? nil : normalizedValue)
-            }
-        }
+        syncedNoteText = normalizedValue
+        onUpdateNote(normalizedValue.isEmpty ? nil : normalizedValue)
     }
 
     private func normalizedNote(_ value: String) -> String {
