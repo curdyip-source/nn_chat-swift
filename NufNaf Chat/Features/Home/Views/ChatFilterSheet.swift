@@ -50,11 +50,14 @@ struct ChatFilterSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     filterSection("Показ") {
-                        filterToggleCard(
-                            title: "Скрыть выполненные",
-                            subtitle: "Не показывать завершенные документы и этапы"
-                        ) {
+                        filterToggleCard(title: "Скрыть выполненные") {
                             Toggle("", isOn: $filter.hideCompleted)
+                                .labelsHidden()
+                                .tint(Color(red: 0.96, green: 0.44, blue: 0.27))
+                        }
+
+                        filterToggleCard(title: "Скрыть отмененные") {
+                            Toggle("", isOn: $filter.hideCancelled)
                                 .labelsHidden()
                                 .tint(Color(red: 0.96, green: 0.44, blue: 0.27))
                         }
@@ -317,16 +320,18 @@ struct ChatFilterSheet: View {
             .frame(height: 1)
     }
 
-    private func filterToggleCard<Trailing: View>(title: String, subtitle: String, @ViewBuilder trailing: () -> Trailing) -> some View {
+    private func filterToggleCard<Trailing: View>(title: String, subtitle: String? = nil, @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white)
 
-                Text(subtitle)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.62))
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.62))
+                }
             }
 
             Spacer(minLength: 12)

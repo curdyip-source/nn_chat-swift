@@ -17,6 +17,16 @@ nonisolated enum ChatRowID: Hashable {
     case message(Int)
 }
 
+/// Идеальная высота SwiftUI-композера — прокидываем из хоста в UIKit, чтобы вручную
+/// вести height-констрейнт (авто `.intrinsicContentSize` у UIHostingController здесь
+/// залипал на одной строке и поле не росло вверх при многострочном вводе).
+private struct ComposerHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct ChatRow {
     enum Kind {
         case separator(String)
@@ -256,6 +266,10 @@ struct ChatConversationView: UIViewControllerRepresentable {
     let highlightedMessageID: Int?
     let highlightMessageRequest: Int
     let unreadOrderCommentsCount: (HomeOrder) -> Int
+    // Бампается при отметке комментариев заказа прочитанными. Само по себе не меняет
+    // `messages`, поэтому передаём отдельно — контроллер переконфигурирует карточки
+    // заказов, чтобы красный бейдж непрочитанных погас сразу после прочтения.
+    let orderCommentReadRevision: Int
 
     // Колбэки строки
     let onOpenDocument: (String, Int) -> Void
@@ -348,6 +362,11 @@ struct ChatConversationView: UIViewControllerRepresentable {
             highlightRequest: highlightMessageRequest
         )
 
+        // 3b. Прочитанность комментариев заказа (per-user, в UserDefaults) не входит в
+        //     `messages`/contentHash, поэтому обычный diff карточку не трогает. По смене
+        //     ревизии точечно переконфигурируем карточки заказов — без влияния на скролл.
+        controller.reconfigureOrderRowsIfNeeded(revision: orderCommentReadRevision)
+
         // 4. Явные запросы скролла.
         controller.handleScrollRequests(
             scrollToBottomRequest: scrollToBottomRequest,
@@ -395,6 +414,8 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
 
     private var lastScrollToBottomRequest = 0
     private var lastScrollToMessageRequest = 0
+    private var lastOrderCommentReadRevision = 0
+    private var composerHeightConstraint: NSLayoutConstraint!
 
     // MARK: Lifecycle
 
@@ -448,7 +469,8 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
 
     private func setupComposer() {
         composerHost = UIHostingController(rootView: AnyView(EmptyView()))
-        composerHost.sizingOptions = .intrinsicContentSize
+        // Высоту ведём вручную через composerHeightConstraint по измеренной идеальной
+        // высоте контента (см. updateComposer). .intrinsicContentSize здесь не растил.
         composerHost.view.translatesAutoresizingMaskIntoConstraints = false
         composerHost.view.backgroundColor = .clear
         addChild(composerHost)
@@ -457,6 +479,9 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
     }
 
     private func setupConstraints() {
+        // Высота композера ведётся вручную из измеренной высоты SwiftUI-контента.
+        composerHeightConstraint = composerHost.view.heightAnchor.constraint(equalToConstant: 44)
+        composerHeightConstraint.priority = .required
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -467,7 +492,8 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
             composerHost.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             // Привязка к системному гайду клавиатуры — идеальная синхронизация
             // композера с клавиатурой при открытии и закрытии (родная длительность/кривая).
-            composerHost.view.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+            composerHost.view.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            composerHeightConstraint
         ])
     }
 
@@ -513,7 +539,33 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
     func updateComposer<Content: View>(signature: Int, @ViewBuilder _ content: () -> Content) {
         guard signature != lastComposerSignature else { return }
         lastComposerSignature = signature
-        composerHost.rootView = AnyView(content())
+        composerHost.rootView = AnyView(
+            content()
+                // Берём идеальную высоту по вертикали (растём вверх при многострочном
+                // вводе), ширину оставляем гибкой — текст переносится по всей ширине.
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .bottom)
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: ComposerHeightPreferenceKey.self, value: proxy.size.height)
+                    }
+                )
+                .onPreferenceChange(ComposerHeightPreferenceKey.self) { [weak self] height in
+                    self?.updateComposerHeight(height)
+                }
+        )
+    }
+
+    private func updateComposerHeight(_ height: CGFloat) {
+        guard composerHeightConstraint != nil else { return }
+        let clamped = max(height, 44)
+        guard abs(composerHeightConstraint.constant - clamped) > 0.5 else { return }
+        let wasAtAnchor = isAtAnchor
+        composerHeightConstraint.constant = clamped
+        view.layoutIfNeeded()
+        // Держим ленту прижатой к низу, если пользователь был у якоря (иначе рост
+        // композера визуально «съел» бы последнее сообщение).
+        if wasAtAnchor { scrollToAnchor(animated: false) }
     }
 
     // MARK: Применение строк
@@ -603,6 +655,27 @@ final class ChatConversationController: UIViewController, UICollectionViewDelega
                 scrollToAnchor(animated: false)
             }
         }
+    }
+
+    // MARK: Прочитанность комментариев заказа
+
+    /// Переконфигурирует только карточки заказов (не трогая порядок/скролл), чтобы
+    /// пересчитать цвет бейджа непрочитанных после отметки «прочитано». Число
+    /// комментариев уже отслеживается через contentHash; здесь — только read-состояние.
+    func reconfigureOrderRowsIfNeeded(revision: Int) {
+        guard revision != lastOrderCommentReadRevision else { return }
+        lastOrderCommentReadRevision = revision
+        guard dataSource != nil else { return }
+
+        let orderRowIDs = orderedRowIDs.filter { id in
+            guard case let .message(message, _)? = rowsByID[id]?.kind else { return false }
+            return message.order != nil
+        }
+        guard !orderRowIDs.isEmpty else { return }
+
+        var snapshot = dataSource.snapshot()
+        snapshot.reconfigureItems(orderRowIDs)
+        dataSource.apply(snapshot, animatingDifferences: false)
     }
 
     // MARK: Явные запросы скролла

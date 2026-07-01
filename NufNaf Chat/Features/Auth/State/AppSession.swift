@@ -331,6 +331,7 @@ final class AppSession: ObservableObject {
             months: chatFilterState.months,
             kinds: chatFilterState.kinds,
             hideCompleted: chatFilterState.hideCompleted,
+            hideCancelled: chatFilterState.hideCancelled,
             orderMethodIDs: chatFilterState.orderMethodIDs,
             establishmentIDs: chatFilterState.establishmentIDs,
             statusIDs: chatFilterState.statusIDs
@@ -499,7 +500,10 @@ final class AppSession: ObservableObject {
     }
 
     private func chatFilterStorageKey(for userID: Int) -> String {
-        "chat.filter-state.\(userID)"
+        // v2 — сброс старого сохранённого фильтра под новые дефолты («скрыть
+        // выполненные/отмененные» включены по умолчанию). Старое состояние
+        // игнорируется, все стартуют с default().
+        "chat.filter-state.v2.\(userID)"
     }
 
     private func loadChatFilterState(for userID: Int) {

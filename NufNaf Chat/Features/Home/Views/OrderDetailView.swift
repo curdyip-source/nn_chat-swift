@@ -35,6 +35,8 @@ struct OrderDetailView: View {
     @State private var localFilePreview: LocalAttachmentPreview?
     @State private var activePhotoAttachment: HomeOrderCommentAttachment?
     @State private var pendingCommentPayloads: [Int: PendingOrderCommentPayload] = [:]
+    @State private var assemblySplitStatusID: Int?
+    @State private var assemblyAlertMessage: String?
     @State private var commentScrollRequest = 0
     // Mirrors the detail container's slide offset so the comment dock (a safeAreaInset, outside the
     // container) slides out together with the card on close instead of lingering.
@@ -84,6 +86,27 @@ struct OrderDetailView: View {
         .animation(.easeInOut(duration: 0.18), value: isCommentAttachmentMenuPresented)
         .task(id: orderID) {
             await loadOrder()
+        }
+        .confirmationDialog(
+            "В заказе есть товары не в наличии. Разделить заказ?",
+            isPresented: Binding(get: { assemblySplitStatusID != nil }, set: { if !$0 { assemblySplitStatusID = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Разделить и на сборку") {
+                assemblySplitStatusID = nil
+                performAssemblySplit()
+            }
+            Button("Отмена", role: .cancel) { assemblySplitStatusID = nil }
+        } message: {
+            Text("Товары «В наличии» уйдут на сборку, остальные — в новый заказ (дубль).")
+        }
+        .alert(
+            "Нельзя перевести в «На сборку»",
+            isPresented: Binding(get: { assemblyAlertMessage != nil }, set: { if !$0 { assemblyAlertMessage = nil } })
+        ) {
+            Button("Понятно", role: .cancel) { assemblyAlertMessage = nil }
+        } message: {
+            Text(assemblyAlertMessage ?? "")
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if order != nil {
@@ -296,7 +319,13 @@ struct OrderDetailView: View {
     }
 
     private var orderStatuses: [HomeStatus] {
-        store.referenceData.statuses.filter { $0.statusType == "orders" }
+        // «Собран»/«Выполнен» ставятся только флоу отгрузки — убираем из ручного
+        // селекта. Текущий статус заказа оставляем, чтобы он отображался как выбранный.
+        let hidden: Set<String> = ["Собран", "Выполнен"]
+        let currentID = order?.orderStatusID
+        return store.referenceData.statuses.filter {
+            $0.statusType == "orders" && (!hidden.contains($0.statusStatus) || $0.id == currentID)
+        }
     }
 
     private var orderItemStatuses: [HomeStatus] {
@@ -366,18 +395,57 @@ struct OrderDetailView: View {
         guard let order else { return }
         guard order.orderStatusID != statusID else { return }
 
+        let targetName = orderStatuses.first(where: { $0.id == statusID })?.statusStatus
+            ?? store.referenceData.statuses.first(where: { $0.statusType == "orders" && $0.id == statusID })?.statusStatus
+
+        // Смешанный заказ (есть и «В наличии», и ожидаемые) — предлагаем сплит.
+        if targetName == "На сборку", store.orderHasPendingItems(order), store.orderHasInStockItems(order) {
+            assemblySplitStatusID = statusID
+            return
+        }
+
         Task {
             isSaving = true
             errorMessage = nil
             defer { isSaving = false }
 
             do {
-                let updatedOrder = try await store.updateOrderStatus(accessToken: session.currentAccessToken, order: order, statusID: statusID)
+                let updatedOrder: HomeOrder
+                if targetName == "На сборку" {
+                    // Гейт (все товары в наличии/отменены) + конверсия «Не будет»→«Отменен».
+                    updatedOrder = try await store.moveOrderToAssembly(accessToken: session.currentAccessToken, order: order, assemblyStatusID: statusID)
+                } else {
+                    updatedOrder = try await store.updateOrderStatus(accessToken: session.currentAccessToken, order: order, statusID: statusID)
+                }
                 self.order = updatedOrder
                 self.comments = sortComments(updatedOrder.comments)
                 markCommentsRead(updatedOrder.comments)
             } catch {
-                errorMessage = error.localizedDescription
+                // Ошибку гейта «На сборку» показываем оверлейным алертом.
+                if targetName == "На сборку" {
+                    assemblyAlertMessage = error.localizedDescription
+                } else {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func performAssemblySplit() {
+        guard let order else { return }
+        Task {
+            isSaving = true
+            errorMessage = nil
+            defer { isSaving = false }
+
+            do {
+                // «В наличии» → этот заказ в «На сборку», остальное → новый заказ-дубль.
+                let updatedOrder = try await store.splitOrderForAssembly(accessToken: session.currentAccessToken, order: order)
+                self.order = updatedOrder
+                self.comments = sortComments(updatedOrder.comments)
+                markCommentsRead(updatedOrder.comments)
+            } catch {
+                assemblyAlertMessage = error.localizedDescription
             }
         }
     }
@@ -689,8 +757,8 @@ struct OrderDetailView: View {
     ) -> HomeOrderItemCreateRequest {
         HomeOrderItemCreateRequest(
             productID: item.orderItemProductID,
-            productArticle: item.orderItemProductID == nil ? item.orderItemArticle : nil,
-            productName: item.orderItemProductID == nil ? item.orderItemName : nil,
+            productArticle: item.orderItemArticle,
+            productName: item.orderItemName,
             orderItemQuantity: item.orderItemQuantity,
             orderItemPrice: item.orderItemPrice,
             orderItemStatusID: statusID,

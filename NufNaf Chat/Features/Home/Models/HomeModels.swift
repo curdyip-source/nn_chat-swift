@@ -432,6 +432,7 @@ struct HomeChatFilterState: Codable, Equatable {
     var months: Set<Int>
     var kinds: Set<HomeChatFilterKind>
     var hideCompleted: Bool
+    var hideCancelled: Bool
     var orderMethodIDs: Set<Int>
     var establishmentIDs: Set<Int>
     var statusIDs: Set<Int>
@@ -442,7 +443,8 @@ struct HomeChatFilterState: Codable, Equatable {
             year: currentYear,
             months: [],
             kinds: [],
-            hideCompleted: false,
+            hideCompleted: true,
+            hideCancelled: true,
             orderMethodIDs: [],
             establishmentIDs: [],
             statusIDs: []
@@ -455,16 +457,18 @@ struct HomeChatFilterState: Codable, Equatable {
             year: Calendar.current.component(.year, from: Date()),
             months: [],
             kinds: [],
-            hideCompleted: false,
+            hideCompleted: true,
+            hideCancelled: true,
             orderMethodIDs: [],
             establishmentIDs: [],
             statusIDs: []
         )
     }
 
-    /// true, если задан хоть один критерий отбора (год != текущего, выбраны месяцы/
-    /// виды/методы/точки/статусы или включено «скрыть выполненные»). Переключение
-    /// режима чат/CRM критерием НЕ считается — оно сохраняется в resettingCriteria().
+    /// true, если задан хоть один критерий отбора, отличающийся от дефолта (год !=
+    /// текущего, выбраны месяцы/виды/методы/точки/статусы, либо «скрыть выполненные/
+    /// отмененные» переключены из состояния по умолчанию). Переключение режима
+    /// чат/CRM критерием НЕ считается — оно сохраняется в resettingCriteria().
     var hasActiveCriteria: Bool {
         self != resettingCriteria()
     }
@@ -475,6 +479,7 @@ struct HomeChatFilterState: Codable, Equatable {
         case months
         case kinds
         case hideCompleted
+        case hideCancelled
         case orderMethodIDs
         case establishmentIDs
         case statusIDs
@@ -486,6 +491,7 @@ struct HomeChatFilterState: Codable, Equatable {
         months: Set<Int>,
         kinds: Set<HomeChatFilterKind>,
         hideCompleted: Bool,
+        hideCancelled: Bool,
         orderMethodIDs: Set<Int>,
         establishmentIDs: Set<Int>,
         statusIDs: Set<Int>
@@ -495,6 +501,7 @@ struct HomeChatFilterState: Codable, Equatable {
         self.months = months
         self.kinds = kinds
         self.hideCompleted = hideCompleted
+        self.hideCancelled = hideCancelled
         self.orderMethodIDs = orderMethodIDs
         self.establishmentIDs = establishmentIDs
         self.statusIDs = statusIDs
@@ -506,7 +513,8 @@ struct HomeChatFilterState: Codable, Equatable {
         year = try container.decode(Int.self, forKey: .year)
         months = try container.decodeIfPresent(Set<Int>.self, forKey: .months) ?? []
         kinds = try container.decodeIfPresent(Set<HomeChatFilterKind>.self, forKey: .kinds) ?? []
-        hideCompleted = try container.decodeIfPresent(Bool.self, forKey: .hideCompleted) ?? false
+        hideCompleted = try container.decodeIfPresent(Bool.self, forKey: .hideCompleted) ?? true
+        hideCancelled = try container.decodeIfPresent(Bool.self, forKey: .hideCancelled) ?? true
         orderMethodIDs = try container.decodeIfPresent(Set<Int>.self, forKey: .orderMethodIDs) ?? []
         establishmentIDs = try container.decodeIfPresent(Set<Int>.self, forKey: .establishmentIDs) ?? []
         statusIDs = try container.decodeIfPresent(Set<Int>.self, forKey: .statusIDs) ?? []
@@ -976,6 +984,16 @@ struct HomeOrderUpdateRequest: Encodable {
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
         case items
+    }
+}
+
+struct HomeOrderSplitResponse: Decodable {
+    let order: HomeOrder
+    let newOrder: HomeOrder
+
+    enum CodingKeys: String, CodingKey {
+        case order
+        case newOrder = "new_order"
     }
 }
 

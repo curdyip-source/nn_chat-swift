@@ -278,6 +278,10 @@ struct HomeAPIClient {
         return response.item
     }
 
+    func splitOrder(accessToken: String, orderID: Int) async throws -> HomeOrderSplitResponse {
+        return try await send(path: "orders/\(orderID)/split", method: "POST", body: Optional<String>.none, accessToken: accessToken)
+    }
+
     func addOrderComment(accessToken: String, orderID: Int, text: String?, attachments: [HomeMessageAttachmentCreateRequest] = [], mentionedUserIDs: [Int] = [], idempotencyKey: String? = nil) async throws -> HomeOrderComment {
         let response: HomeItemEnvelope<HomeOrderComment> = try await send(
             path: "orders/\(orderID)/comments",

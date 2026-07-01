@@ -7,6 +7,47 @@
 
 import SwiftUI
 
+struct PendingAssemblySplit: Identifiable {
+    let id = UUID()
+    let order: HomeOrder
+    let isPreview: Bool
+}
+
+/// Диалог предложения сплита при переводе смешанного заказа в «На сборку».
+/// Вынесен в модификатор, чтобы не раздувать type-check тела HomeView.
+private struct AssemblySplitDialogModifier: ViewModifier {
+    @Binding var pending: PendingAssemblySplit?
+    @Binding var alertMessage: String?
+    let onConfirm: (PendingAssemblySplit) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog(
+                "В заказе есть товары не в наличии. Разделить заказ?",
+                isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Разделить и на сборку") {
+                    if let value = pending {
+                        pending = nil
+                        onConfirm(value)
+                    }
+                }
+                Button("Отмена", role: .cancel) { pending = nil }
+            } message: {
+                Text("Товары «В наличии» уйдут на сборку, остальные — в новый заказ (дубль).")
+            }
+            .alert(
+                "Нельзя перевести в «На сборку»",
+                isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })
+            ) {
+                Button("Понятно", role: .cancel) { alertMessage = nil }
+            } message: {
+                Text(alertMessage ?? "")
+            }
+    }
+}
+
 struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var session: AppSession
@@ -29,6 +70,8 @@ struct HomeView: View {
     @State private var crmErrorMessage: String?
     @State private var crmUpdatingDocumentKey: String?
     @State private var crmSelectedSection: CRMSection = .orders
+    @State private var pendingAssemblySplit: PendingAssemblySplit?
+    @State private var assemblyAlertMessage: String?
     @State private var isPhotoLibraryPresented = false
     @State private var isCameraPresented = false
     @State private var isFilePickerPresented = false
@@ -293,6 +336,11 @@ struct HomeView: View {
         } message: {
             Text(messageActionErrorMessage ?? "Неизвестная ошибка")
         }
+        .modifier(AssemblySplitDialogModifier(
+            pending: $pendingAssemblySplit,
+            alertMessage: $assemblyAlertMessage,
+            onConfirm: { performAssemblySplit($0) }
+        ))
         .task(id: "\(user.userID)-\(session.currentAccessToken ?? "no-token")") {
             await store.load(accessToken: session.currentAccessToken, userID: user.userID)
         }
@@ -390,6 +438,7 @@ struct HomeView: View {
                 unreadOrderCommentsCount: { order in
                     store.unreadOrderCommentCount(for: order, currentUserID: user.userID)
                 },
+                orderCommentReadRevision: store.orderCommentReadRevision,
                 onOpenDocument: { kind, id in
                     session.closeChatFilterPanel()
                     previewOrder = nil
@@ -959,9 +1008,41 @@ struct HomeView: View {
         }
     }
 
+    private func isAssemblyOrderStatus(_ statusID: Int) -> Bool {
+        store.referenceData.statuses.first { $0.statusType == "orders" && $0.id == statusID }?.statusStatus == "На сборку"
+    }
+
+    private func performAssemblySplit(_ pending: PendingAssemblySplit) {
+        Task {
+            if pending.isPreview {
+                isUpdatingPreviewOrder = true
+                previewOrderErrorMessage = nil
+            } else {
+                crmUpdatingDocumentKey = documentKey(kind: "order", id: pending.order.id)
+                crmErrorMessage = nil
+            }
+            defer {
+                if pending.isPreview { isUpdatingPreviewOrder = false } else { crmUpdatingDocumentKey = nil }
+            }
+
+            do {
+                let updated = try await store.splitOrderForAssembly(accessToken: session.currentAccessToken, order: pending.order)
+                // Превью обновляем результатом; CRM-карточки — прилетят realtime по SSE.
+                if pending.isPreview { self.previewOrder = updated }
+            } catch {
+                assemblyAlertMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func updatePreviewOrderStatus(statusID: Int) {
         guard let previewOrder else { return }
         guard previewOrder.orderStatusID != statusID else { return }
+
+        if isAssemblyOrderStatus(statusID), store.orderHasPendingItems(previewOrder), store.orderHasInStockItems(previewOrder) {
+            pendingAssemblySplit = PendingAssemblySplit(order: previewOrder, isPreview: true)
+            return
+        }
 
         Task {
             isUpdatingPreviewOrder = true
@@ -969,9 +1050,17 @@ struct HomeView: View {
             defer { isUpdatingPreviewOrder = false }
 
             do {
-                self.previewOrder = try await store.updateOrderStatus(accessToken: session.currentAccessToken, order: previewOrder, statusID: statusID)
+                if isAssemblyOrderStatus(statusID) {
+                    self.previewOrder = try await store.moveOrderToAssembly(accessToken: session.currentAccessToken, order: previewOrder, assemblyStatusID: statusID)
+                } else {
+                    self.previewOrder = try await store.updateOrderStatus(accessToken: session.currentAccessToken, order: previewOrder, statusID: statusID)
+                }
             } catch {
-                previewOrderErrorMessage = error.localizedDescription
+                if isAssemblyOrderStatus(statusID) {
+                    assemblyAlertMessage = error.localizedDescription
+                } else {
+                    previewOrderErrorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -1019,15 +1108,28 @@ struct HomeView: View {
     private func updateCRMOrderStatus(order: HomeOrder, statusID: Int) {
         guard order.orderStatusID != statusID else { return }
 
+        if isAssemblyOrderStatus(statusID), store.orderHasPendingItems(order), store.orderHasInStockItems(order) {
+            pendingAssemblySplit = PendingAssemblySplit(order: order, isPreview: false)
+            return
+        }
+
         Task {
             crmUpdatingDocumentKey = documentKey(kind: "order", id: order.id)
             crmErrorMessage = nil
             defer { crmUpdatingDocumentKey = nil }
 
             do {
-                _ = try await store.updateOrderStatus(accessToken: session.currentAccessToken, order: order, statusID: statusID)
+                if isAssemblyOrderStatus(statusID) {
+                    _ = try await store.moveOrderToAssembly(accessToken: session.currentAccessToken, order: order, assemblyStatusID: statusID)
+                } else {
+                    _ = try await store.updateOrderStatus(accessToken: session.currentAccessToken, order: order, statusID: statusID)
+                }
             } catch {
-                crmErrorMessage = error.localizedDescription
+                if isAssemblyOrderStatus(statusID) {
+                    assemblyAlertMessage = error.localizedDescription
+                } else {
+                    crmErrorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -1050,8 +1152,10 @@ struct HomeView: View {
         guard let currentItem = order.items.first(where: { $0.id == itemID }) else { return }
         guard currentItem.orderItemStatusID != collectedItemStatusID else { return }
 
+        // Отменённые позиции («Отменен»/«Не будет») не участвуют в сборке — заказ
+        // считается собранным, когда собраны все НЕотменённые товары.
         let allItemsWillBeCollected = order.items.allSatisfy { item in
-            item.id == itemID || item.orderItemStatusID == collectedItemStatusID
+            store.isCancelledOrderItem(item) || item.id == itemID || item.orderItemStatusID == collectedItemStatusID
         }
         let nextOrderStatusID = allItemsWillBeCollected ? collectedOrderStatusID : order.orderStatusID
 
@@ -1108,7 +1212,7 @@ struct HomeView: View {
         }
 
         let requiresUpdate = order.orderStatusID != completedOrderStatusID
-            || order.items.contains(where: { $0.orderItemStatusID != shippedItemStatusID })
+            || order.items.contains(where: { !store.isCancelledOrderItem($0) && $0.orderItemStatusID != shippedItemStatusID })
 
         guard requiresUpdate else { return }
 
@@ -1132,7 +1236,8 @@ struct HomeView: View {
                         items: order.items.map { item in
                             makeOrderItemRequest(
                                 item: item,
-                                statusID: shippedItemStatusID,
+                                // Отменённые не отгружаем — сохраняют свой статус.
+                                statusID: store.isCancelledOrderItem(item) ? item.orderItemStatusID : shippedItemStatusID,
                                 supplierName: item.orderItemSupplier,
                                 note: item.orderItemNote,
                                 sourceEstablishmentID: item.orderItemSourceEstablishmentID,
@@ -1270,8 +1375,8 @@ struct HomeView: View {
     ) -> HomeOrderItemCreateRequest {
         HomeOrderItemCreateRequest(
             productID: item.orderItemProductID,
-            productArticle: item.orderItemProductID == nil ? item.orderItemArticle : nil,
-            productName: item.orderItemProductID == nil ? item.orderItemName : nil,
+            productArticle: item.orderItemArticle,
+            productName: item.orderItemName,
             orderItemQuantity: item.orderItemQuantity,
             orderItemPrice: item.orderItemPrice,
             orderItemStatusID: statusID ?? item.orderItemStatusID,
@@ -1351,6 +1456,13 @@ struct HomeView: View {
             return false
         }
 
+        if kind != .message
+            && filter.hideCancelled
+            && isCancelledMessage(message)
+            && !isExplicitlySelectedCancelledStatus(message.filterStatusID, in: filter.statusIDs) {
+            return false
+        }
+
         return true
     }
 
@@ -1402,6 +1514,27 @@ struct HomeView: View {
             || normalizedStatus.contains("принято")
             || normalizedStatus.contains("done")
             || normalizedStatus.contains("complete")
+    }
+
+    private func isExplicitlySelectedCancelledStatus(_ statusID: Int?, in selectedStatusIDs: Set<Int>) -> Bool {
+        guard let statusID, selectedStatusIDs.contains(statusID) else { return false }
+        guard let status = store.referenceData.statuses.first(where: { $0.id == statusID }) else { return false }
+        return isCancelledStatusTitle(status.statusStatus)
+    }
+
+    private func isCancelledMessage(_ message: HomeMessage) -> Bool {
+        guard message.filterKind != .message else { return false }
+        return isCancelledStatusTitle(message.filterStatusText)
+    }
+
+    private func isCancelledStatusTitle(_ statusTitle: String?) -> Bool {
+        let normalizedStatus = (statusTitle ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        guard !normalizedStatus.isEmpty else { return false }
+        return normalizedStatus.contains("отмен")
+            || normalizedStatus.contains("cancel")
     }
 
     @ViewBuilder

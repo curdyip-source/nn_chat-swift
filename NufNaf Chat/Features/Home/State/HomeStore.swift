@@ -734,8 +734,8 @@ final class HomeStore: ObservableObject {
                 items: order.items.map {
                     HomeOrderItemCreateRequest(
                         productID: $0.orderItemProductID,
-                        productArticle: $0.orderItemProductID == nil ? $0.orderItemArticle : nil,
-                        productName: $0.orderItemProductID == nil ? $0.orderItemName : nil,
+                        productArticle: $0.orderItemArticle,
+                        productName: $0.orderItemName,
                         orderItemQuantity: $0.orderItemQuantity,
                         orderItemPrice: $0.orderItemPrice,
                         orderItemStatusID: $0.orderItemStatusID,
@@ -749,6 +749,118 @@ final class HomeStore: ObservableObject {
                 }
             )
         )
+    }
+
+    // MARK: - Сборка/отгрузка: отменённые позиции и перевод заказа в «На сборку»
+
+    /// Статусы товара, считающиеся отменёнными: не участвуют в сборке и не влияют на
+    /// статус заказа (не показываются в отгрузке, но остаются в карточке заказа).
+    static let cancelledItemStatusNames: Set<String> = ["Отменен", "Не будет"]
+    /// Статусы товара, при которых заказ можно перевести в «На сборку».
+    private static let assemblyReadyItemStatusNames: Set<String> = ["В наличии", "Отменен", "Не будет"]
+
+    func orderItemStatusName(_ statusID: Int?) -> String? {
+        guard let statusID else { return nil }
+        return referenceData.statuses.first { $0.statusType == "order_products" && $0.id == statusID }?.statusStatus
+    }
+
+    func isCancelledOrderItem(_ item: HomeOrderItem) -> Bool {
+        guard let name = orderItemStatusName(item.orderItemStatusID) else { return false }
+        return Self.cancelledItemStatusNames.contains(name)
+    }
+
+    /// true, если все товары «В наличии» либо отменены И есть хотя бы один «В наличии»
+    /// (иначе собирать нечего) — тогда заказ можно перевести в «На сборку».
+    func canMoveOrderToAssembly(_ order: HomeOrder) -> Bool {
+        guard !order.items.isEmpty else { return false }
+        let allResolved = order.items.allSatisfy { item in
+            guard let name = orderItemStatusName(item.orderItemStatusID) else { return false }
+            return Self.assemblyReadyItemStatusNames.contains(name)
+        }
+        let hasCollectable = order.items.contains { orderItemStatusName($0.orderItemStatusID) == "В наличии" }
+        return allResolved && hasCollectable
+    }
+
+    /// Перевод заказа в «На сборку»: гейт (все товары в наличии/отменены) + конверсия
+    /// «Не будет» → «Отменен», атомарно со сменой статуса заказа. Кидает при непройденном
+    /// гейте или отсутствии статуса «Отменен».
+    func moveOrderToAssembly(accessToken: String?, order: HomeOrder, assemblyStatusID: Int) async throws -> HomeOrder {
+        let allResolved = !order.items.isEmpty && order.items.allSatisfy { item in
+            guard let name = orderItemStatusName(item.orderItemStatusID) else { return false }
+            return Self.assemblyReadyItemStatusNames.contains(name)
+        }
+        guard allResolved else {
+            throw AuthServiceError.transport("В «На сборку» можно перевести, только когда все товары «В наличии» (или отменены: «Не будет»/«Отменен»).")
+        }
+        guard order.items.contains(where: { orderItemStatusName($0.orderItemStatusID) == "В наличии" }) else {
+            throw AuthServiceError.transport("Нельзя перевести в «На сборку»: нет товаров для сборки — все позиции отменены.")
+        }
+        guard let cancelledStatusID = referenceData.statuses.first(where: {
+            $0.statusType == "order_products" && $0.statusStatus == "Отменен"
+        })?.id else {
+            throw AuthServiceError.transport("Не найден статус товара «Отменен»")
+        }
+
+        return try await updateOrder(
+            accessToken: accessToken,
+            orderID: order.id,
+            request: HomeOrderUpdateRequest(
+                orderEstablishmentID: order.orderEstablishmentID,
+                orderMethodID: order.orderMethodID,
+                orderSubMethod: order.orderSubMethod,
+                orderContactMethod: order.orderContactMethod,
+                orderCustomer: order.orderCustomer,
+                orderInfo: order.orderInfo,
+                orderStatusID: assemblyStatusID,
+                items: order.items.map { item in
+                    let convertedStatusID = orderItemStatusName(item.orderItemStatusID) == "Не будет"
+                        ? cancelledStatusID
+                        : item.orderItemStatusID
+                    return HomeOrderItemCreateRequest(
+                        productID: item.orderItemProductID,
+                        productArticle: item.orderItemArticle,
+                        productName: item.orderItemName,
+                        orderItemQuantity: item.orderItemQuantity,
+                        orderItemPrice: item.orderItemPrice,
+                        orderItemStatusID: convertedStatusID,
+                        orderItemSupplier: item.orderItemSupplier,
+                        orderItemNote: item.orderItemNote,
+                        orderItemSourceEstablishmentID: item.orderItemSourceEstablishmentID,
+                        orderItemDestinationEstablishmentID: item.orderItemDestinationEstablishmentID,
+                        orderItemCurrencyID: item.orderItemCurrencyID,
+                        orderItemCheckpointStarted: item.orderItemCheckpointStarted,
+                        orderItemCheckpointCompleted: item.orderItemCheckpointCompleted
+                    )
+                }
+            )
+        )
+    }
+
+    func orderHasInStockItems(_ order: HomeOrder) -> Bool {
+        order.items.contains { orderItemStatusName($0.orderItemStatusID) == "В наличии" }
+    }
+
+    /// Есть ли товары не «В наличии» и не отменённые (ожидаемые) — для предложения сплита.
+    func orderHasPendingItems(_ order: HomeOrder) -> Bool {
+        order.items.contains { item in
+            guard let name = orderItemStatusName(item.orderItemStatusID) else { return true }
+            return !Self.assemblyReadyItemStatusNames.contains(name)
+        }
+    }
+
+    /// Частичная отгрузка: бэкенд атомарно оставляет «В наличии» в этом заказе (→ «На
+    /// сборку»), а остальное (ожидаемые + отменённые) переносит в новый заказ-дубль со
+    /// статусом исходного. Оба заказа синхронизируются realtime (SSE + дельта-синк);
+    /// возвращаем обновлённый исходный заказ.
+    func splitOrderForAssembly(accessToken: String?, order: HomeOrder) async throws -> HomeOrder {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        guard orderHasInStockItems(order) else {
+            throw AuthServiceError.transport("Нет товаров «В наличии» для сборки")
+        }
+        let response = try await client.splitOrder(accessToken: accessToken, orderID: order.id)
+        return response.order
     }
 
     func fetchInventory(accessToken: String?, inventoryID: Int) async throws -> HomeInventory {

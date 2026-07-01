@@ -84,7 +84,12 @@ struct CRMDocumentsListView: View {
                                         isShipmentMode: selectedSection == .shipments,
                                         orderMethods: referenceData.orderMethods,
                                         itemStatuses: orderItemStatuses,
-                                        statuses: referenceData.statuses.filter { $0.statusType == "orders" },
+                                        // «Собран»/«Выполнен» ставит только флоу отгрузки — убираем
+                                        // из ручного селекта, текущий статус заказа оставляем.
+                                        statuses: referenceData.statuses.filter {
+                                            $0.statusType == "orders"
+                                                && (!["Собран", "Выполнен"].contains($0.statusStatus) || $0.id == order.orderStatusID)
+                                        },
                                         currencyTitleProvider: currencyTitle(for:),
                                         isSaving: updatingDocumentKey == documentKey(kind: "order", id: order.id),
                                         onOpen: {
@@ -755,7 +760,7 @@ private struct CRMOrderCardView: View {
                 .frame(height: 1)
 
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(order.items) { item in
+                ForEach(visibleItems) { item in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(alignment: .top, spacing: 10) {
                             if isShipmentMode {
@@ -841,10 +846,21 @@ private struct CRMOrderCardView: View {
         return totals.isEmpty ? "Итого: \(order.items.count) поз." : "Итого: \(totals)"
     }
 
+    // В отгрузке отменённые позиции («Отменен»/«Не будет») не показываем и не учитываем
+    // в готовности к завершению (в карточке заказа они остаются — не удаляются).
+    private var visibleItems: [HomeOrderItem] {
+        isShipmentMode ? order.items.filter { !isCancelledItem($0) } : order.items
+    }
+
+    private func isCancelledItem(_ item: HomeOrderItem) -> Bool {
+        ["Отменен", "Не будет"].contains(itemStatusTitle(for: item))
+    }
+
     private var isReadyForShipmentCompletion: Bool {
         guard (order.orderStatus ?? "") != "Выполнен" else { return false }
-        guard !order.items.isEmpty else { return false }
-        return order.items.allSatisfy { itemStatusTitle(for: $0) == "Собрано" }
+        let activeItems = order.items.filter { !isCancelledItem($0) }
+        guard !activeItems.isEmpty else { return false }
+        return activeItems.allSatisfy { itemStatusTitle(for: $0) == "Собрано" }
     }
 
     private func itemStatusTitle(for item: HomeOrderItem) -> String {
