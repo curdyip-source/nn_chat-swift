@@ -25,6 +25,7 @@ struct CRMDocumentsListView: View {
     @State private var supplierQuery = ""
     @State private var supplierResults: [HomeContact] = []
     @State private var isSearchingSuppliers = false
+    @FocusState private var isSearchFieldFocused: Bool
 
     var body: some View {
         ZStack {
@@ -115,6 +116,15 @@ struct CRMDocumentsListView: View {
                 // Небольшой запас снизу, чтобы поле «Заметка» поднималось чуть выше
                 // клавиатуры, а не упиралось в неё.
                 .contentMargins(.bottom, 16, for: .scrollContent)
+                // Свайп вниз по списку убирает клавиатуру поиска.
+                .scrollDismissesKeyboard(.immediately)
+                // Тап по списку/карточкам (вне поля поиска) тоже скрывает клавиатуру;
+                // simultaneousGesture не мешает нажатиям на сами карточки.
+                .simultaneousGesture(TapGesture().onEnded { isSearchFieldFocused = false })
+            }
+            // Уходим из CRM в чат — гарантированно убираем клавиатуру поиска.
+            .onChange(of: session.chatFilterState.displayMode) { _, newMode in
+                if newMode != .crm { isSearchFieldFocused = false }
             }
 
             if let movementSelection {
@@ -256,10 +266,14 @@ struct CRMDocumentsListView: View {
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(Color.white)
                 .submitLabel(.search)
+                .focused($isSearchFieldFocused)
+                .onSubmit { isSearchFieldFocused = false }
 
             if !session.crmSearchQuery.isEmpty {
                 Button {
+                    // Крестик: чистим текст и заодно убираем клавиатуру.
                     session.crmSearchQuery = ""
+                    isSearchFieldFocused = false
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 14, weight: .semibold))
@@ -1425,18 +1439,20 @@ private struct CRMSectionBar: View {
 private func summarizedTotal(entries: [(price: String, quantity: Int, currency: String)]) -> String {
     guard !entries.isEmpty else { return "" }
 
-    let currencies = Set(entries.map(\.currency))
-    guard currencies.count == 1 else {
-        return "\(entries.count) поз."
-    }
-
-    var total = Decimal.zero
+    // Считаем сумму по каждой валюте отдельно и склеиваем через « + » (10₽ + 55$),
+    // чтобы мультивалютный заказ читался как сумма, а не «или/или».
+    var order: [String] = []
+    var totals: [String: Decimal] = [:]
     for entry in entries {
-        let normalized = entry.price.replacingOccurrences(of: ",", with: ".")
+        let normalized = entry.price
+            .replacingOccurrences(of: "\u{00A0}", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: ",", with: ".")
         guard let value = Decimal(string: normalized) else {
             return "\(entries.count) поз."
         }
-        total += value * Decimal(entry.quantity)
+        if totals[entry.currency] == nil { order.append(entry.currency) }
+        totals[entry.currency, default: .zero] += value * Decimal(entry.quantity)
     }
 
     let formatter = NumberFormatter()
@@ -1445,7 +1461,10 @@ private func summarizedTotal(entries: [(price: String, quantity: Int, currency: 
     formatter.minimumFractionDigits = 0
     formatter.maximumFractionDigits = 2
 
-    let number = NSDecimalNumber(decimal: total)
-    let amount = formatter.string(from: number) ?? number.stringValue
-    return "\(amount)\(currencies.first ?? "")"
+    return order.compactMap { currency -> String? in
+        guard let sum = totals[currency] else { return nil }
+        let number = NSDecimalNumber(decimal: sum)
+        let amount = formatter.string(from: number) ?? number.stringValue
+        return "\(amount)\(currency)"
+    }.joined(separator: " + ")
 }

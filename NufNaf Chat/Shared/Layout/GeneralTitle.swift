@@ -22,6 +22,17 @@ struct GeneralTitle: View {
         session.chatFilterState.displayMode == .crm
     }
 
+    // Активные (не дефолтные) критерии фильтра подсвечиваем зелёным, чтобы не забыть
+    // про, например, оставленный фильтр по складу. Приоритет у «открыт» (чёрный на белом).
+    private var filterIconColor: Color {
+        if session.isChatFilterPresented {
+            return .black
+        }
+        return session.chatFilterState.hasActiveCriteria
+            ? Color(red: 0.30, green: 0.82, blue: 0.46)
+            : .white
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             AppTheme.titleBackground
@@ -33,7 +44,7 @@ struct GeneralTitle: View {
                     } label: {
                         Image(systemName: "line.3.horizontal.decrease.circle")
                             .font(.system(size: 19, weight: .medium))
-                            .foregroundStyle(session.isChatFilterPresented ? Color.black : Color.white)
+                            .foregroundStyle(filterIconColor)
                             .frame(width: 36, height: 36)
                             .background(session.isChatFilterPresented ? Color.white : Color.white.opacity(0.08))
                             .clipShape(Circle())

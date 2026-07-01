@@ -334,6 +334,10 @@ struct HomeView: View {
             },
             onInteractionBegan: {
                 dismissKeyboard()
+                // Поле поиска CRM живёт со своим @FocusState в другом вью — снимаем
+                // первого ответчика глобально, чтобы клавиатура уезжала сразу на старте
+                // свайпа, а не после оседания страницы.
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             },
             chatPage: {
                 contentView(for: .chat)

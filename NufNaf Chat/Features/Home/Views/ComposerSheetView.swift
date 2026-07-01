@@ -150,6 +150,13 @@ struct ComposerSheetView: View {
             .onChange(of: store.referenceData.currencies) { _, _ in
                 applyDefaultCurrencyToItems()
             }
+            // Тап по цене товара очищает старое значение — сразу вводим новое,
+            // не стирая вручную. Срабатывает при получении фокуса полем цены позиции.
+            .onChange(of: focusedField) { _, newValue in
+                guard case let .itemPrice(itemID) = newValue,
+                      let index = selectedItems.firstIndex(where: { $0.id == itemID }) else { return }
+                selectedItems[index].price = ""
+            }
             .onChange(of: selectedSection) { _, newValue in
                 pendingSection = newValue
                 if activeSection != newValue {
@@ -1185,7 +1192,11 @@ struct ComposerSheetView: View {
             }
 
             HStack(spacing: 8) {
-                compactQuantityControl(item: item)
+                CompactQuantityControl(
+                    quantity: item.quantity,
+                    background: inputFieldBackground,
+                    border: inputFieldBorder
+                )
 
                 TextField("Цена", text: item.price)
                     .focused($focusedField, equals: .itemPrice(itemValue.id))
@@ -1236,38 +1247,6 @@ struct ComposerSheetView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)))
     }
 
-    private func compactQuantityControl(item: Binding<HomeComposerItemDraft>) -> some View {
-        HStack(spacing: 0) {
-            Button {
-                item.wrappedValue.quantity = max(1, item.wrappedValue.quantity - 1)
-            } label: {
-                Image(systemName: "minus")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 28, height: 36)
-            }
-            .buttonStyle(.plain)
-
-            Text("\(item.wrappedValue.quantity)")
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .frame(minWidth: 34)
-
-            Button {
-                item.wrappedValue.quantity = min(999, item.wrappedValue.quantity + 1)
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 28, height: 36)
-            }
-            .buttonStyle(.plain)
-        }
-        .foregroundStyle(.primary)
-        .background(inputFieldBackground)
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(inputFieldBorder, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
 
     private func currencyButtonTitle(for currencyID: Int?) -> String {
         guard let currency = availableCurrencies.first(where: { $0.id == currencyID }) else {
@@ -1556,5 +1535,85 @@ struct ComposerSheetView: View {
             return
         }
         selectedOrderSubMethod = nil
+    }
+}
+
+/// Контрол количества: сохраняет прежний вид (−  N  +), но по тапу в центр даёт
+/// ручной ввод с той же механикой, что и у цены — поле очищается при фокусе, чтобы
+/// сразу набрать новое значение, не стирая старое. Внешний вид не меняется.
+private struct CompactQuantityControl: View {
+    @Binding var quantity: Int
+    let background: Color
+    let border: Color
+
+    @FocusState private var isFocused: Bool
+    @State private var text: String = ""
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button {
+                quantity = max(1, quantity - 1)
+            } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 28, height: 36)
+            }
+            .buttonStyle(.plain)
+
+            TextField("", text: $text)
+                .focused($isFocused)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.center)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .frame(minWidth: 34)
+
+            Button {
+                quantity = min(999, quantity + 1)
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 28, height: 36)
+            }
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(.primary)
+        .background(background)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(border, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .onAppear { text = "\(quantity)" }
+        // Кнопки −/+ меняют число — синхронизируем поле, пока оно не редактируется.
+        .onChange(of: quantity) { _, newValue in
+            if !isFocused { text = "\(newValue)" }
+        }
+        // Фокус: при входе очищаем (как цена), при выходе — фиксируем валидное значение.
+        .onChange(of: isFocused) { _, focused in
+            if focused {
+                text = ""
+            } else {
+                commit()
+            }
+        }
+        // Живой ввод: только цифры; пустое поле не трогает количество (зафиксируем на blur).
+        .onChange(of: text) { _, newValue in
+            let digits = newValue.filter(\.isNumber)
+            if digits != newValue {
+                text = digits
+                return
+            }
+            if let value = Int(digits) {
+                quantity = min(999, max(1, value))
+            }
+        }
+    }
+
+    private func commit() {
+        let digits = text.filter(\.isNumber)
+        if let value = Int(digits) {
+            quantity = min(999, max(1, value))
+        }
+        text = "\(quantity)"
     }
 }

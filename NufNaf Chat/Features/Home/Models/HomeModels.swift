@@ -462,6 +462,13 @@ struct HomeChatFilterState: Codable, Equatable {
         )
     }
 
+    /// true, если задан хоть один критерий отбора (год != текущего, выбраны месяцы/
+    /// виды/методы/точки/статусы или включено «скрыть выполненные»). Переключение
+    /// режима чат/CRM критерием НЕ считается — оно сохраняется в resettingCriteria().
+    var hasActiveCriteria: Bool {
+        self != resettingCriteria()
+    }
+
     enum CodingKeys: String, CodingKey {
         case displayMode
         case year

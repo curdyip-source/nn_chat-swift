@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct OrderDetailView: View {
     @EnvironmentObject private var session: AppSession
@@ -213,7 +214,9 @@ struct OrderDetailView: View {
                                     statuses: orderItemStatuses,
                                     quantity: "\($0.orderItemQuantity)",
                                     price: $0.orderItemPrice,
-                                    currencyTitle: currencyTitle(for: $0.orderItemCurrencyID)
+                                    currencyTitle: currencyTitle(for: $0.orderItemCurrencyID),
+                                    quantityValue: $0.orderItemQuantity,
+                                    priceValue: parseOrderItemPrice($0.orderItemPrice)
                                 )
                             },
                             isSaving: isSaving,
@@ -772,10 +775,49 @@ private struct OrderDocumentItemsSection: View {
     let isSaving: Bool
     let onSelectStatus: (Int, Int) -> Void
 
+    @State private var didCopy = false
+
+    // Итоги, сгруппированные по валюте (в заказе позиции могут быть в разных валютах),
+    // в порядке первого появления валюты в списке.
+    private var totalsByCurrency: [(currency: String, total: Double)] {
+        var totals: [String: Double] = [:]
+        var order: [String] = []
+        for item in items {
+            guard let lineTotal = item.lineTotal else { continue }
+            if totals[item.currencyTitle] == nil { order.append(item.currencyTitle) }
+            totals[item.currencyTitle, default: 0] += lineTotal
+        }
+        return order.compactMap { currency in
+            totals[currency].map { (currency, $0) }
+        }
+    }
+
+    private var totalSummaryText: String {
+        totalsByCurrency
+            .map { "\(formatOrderAmount($0.total)) \($0.currency)" }
+            .joined(separator: " + ")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.system(size: 17, weight: .semibold, design: .rounded))
+            HStack(alignment: .center, spacing: 8) {
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+
+                if !items.isEmpty {
+                    Button(action: copyItems) {
+                        Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(didCopy ? Color.green : Color.accentColor)
+                            .frame(width: 30, height: 30)
+                            .background((didCopy ? Color.green : Color.accentColor).opacity(0.12), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Копировать позиции")
+                }
+
+                Spacer()
+            }
 
             if items.isEmpty {
                 Text("Позиции отсутствуют")
@@ -806,6 +848,10 @@ private struct OrderDocumentItemsSection: View {
                             OrderCompactMetricView(title: "Кол-во", value: item.quantity)
                             OrderCompactMetricView(title: "Цена", value: item.price)
                             OrderCompactMetricView(title: "Валюта", value: item.currencyTitle)
+                            OrderCompactMetricView(
+                                title: "Сумма",
+                                value: item.lineTotal.map { "\(formatOrderAmount($0)) \(item.currencyTitle)" } ?? "—"
+                            )
                         }
                     }
                     .padding(.top, 12)
@@ -817,6 +863,19 @@ private struct OrderDocumentItemsSection: View {
                             .stroke(Color(uiColor: .separator).opacity(0.35), lineWidth: 1)
                     )
                 }
+
+                if !totalsByCurrency.isEmpty {
+                    Divider()
+                        .padding(.vertical, 2)
+
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Spacer()
+                        Text("Итого")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        Text(totalSummaryText)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -825,6 +884,24 @@ private struct OrderDocumentItemsSection: View {
         .padding(.trailing, 18)
         .padding(.leading, 8)
         .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func copyItems() {
+        var lines = items.map { item -> String in
+            let priceText = item.priceValue.map { formatOrderAmount($0) } ?? item.price
+            return "\(item.name) * \(item.quantityValue) шт. * \(priceText) \(item.currencyTitle)"
+        }
+        if !totalsByCurrency.isEmpty {
+            lines.append("")
+            lines.append("Итого: \(totalSummaryText)")
+        }
+        UIPasteboard.general.string = lines.joined(separator: "\n")
+
+        didCopy = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            await MainActor.run { didCopy = false }
+        }
     }
 }
 
@@ -1220,6 +1297,31 @@ private struct OrderDocumentItemViewModel: Identifiable {
     let quantity: String
     let price: String
     let currencyTitle: String
+    let quantityValue: Int
+    let priceValue: Double?
+
+    /// Сумма по позиции (цена × количество), если цена распарсилась.
+    var lineTotal: Double? {
+        priceValue.map { $0 * Double(quantityValue) }
+    }
+}
+
+/// Парсит строковую цену бэкенда (возможны пробелы-разделители и запятая) в Double.
+private func parseOrderItemPrice(_ raw: String) -> Double? {
+    let normalized = raw
+        .replacingOccurrences(of: "\u{00A0}", with: "")
+        .replacingOccurrences(of: " ", with: "")
+        .replacingOccurrences(of: ",", with: ".")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return normalized.isEmpty ? nil : Double(normalized)
+}
+
+/// Форматирует сумму: целые — без дробной части, иначе две цифры.
+private func formatOrderAmount(_ value: Double) -> String {
+    if value.rounded() == value {
+        return String(format: "%.0f", value)
+    }
+    return String(format: "%.2f", value)
 }
 
 private struct OrderItemMovementSelection: Identifiable {
