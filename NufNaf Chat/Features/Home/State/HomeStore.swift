@@ -756,8 +756,11 @@ final class HomeStore: ObservableObject {
     /// Статусы товара, считающиеся отменёнными: не участвуют в сборке и не влияют на
     /// статус заказа (не показываются в отгрузке, но остаются в карточке заказа).
     static let cancelledItemStatusNames: Set<String> = ["Отменен", "Не будет"]
+    /// Статусы позиции, которая реально уходит в отгрузку сейчас: «В наличии» — надо
+    /// собрать, «Собрано» — склад уже собрал (в «Отгрузках» позиция сразу отмечена).
+    static let collectableItemStatusNames: Set<String> = ["В наличии", "Собрано"]
     /// Статусы товара, при которых заказ можно перевести в «На сборку».
-    private static let assemblyReadyItemStatusNames: Set<String> = ["В наличии", "Отменен", "Не будет"]
+    private static let assemblyReadyItemStatusNames: Set<String> = ["В наличии", "Собрано", "Отменен", "Не будет"]
 
     func orderItemStatusName(_ statusID: Int?) -> String? {
         guard let statusID else { return nil }
@@ -769,16 +772,16 @@ final class HomeStore: ObservableObject {
         return Self.cancelledItemStatusNames.contains(name)
     }
 
-    /// true, если все товары «В наличии» либо отменены И есть хотя бы один «В наличии»
-    /// (иначе собирать нечего) — тогда заказ можно перевести в «На сборку».
+    /// true, если все товары готовы к сборке («В наличии»/«Собрано» либо отменены)
+    /// И есть хотя бы один собираемый («В наличии»/«Собрано», иначе собирать нечего) —
+    /// тогда заказ можно перевести в «На сборку».
     func canMoveOrderToAssembly(_ order: HomeOrder) -> Bool {
         guard !order.items.isEmpty else { return false }
         let allResolved = order.items.allSatisfy { item in
             guard let name = orderItemStatusName(item.orderItemStatusID) else { return false }
             return Self.assemblyReadyItemStatusNames.contains(name)
         }
-        let hasCollectable = order.items.contains { orderItemStatusName($0.orderItemStatusID) == "В наличии" }
-        return allResolved && hasCollectable
+        return allResolved && orderHasCollectableItems(order)
     }
 
     /// Перевод заказа в «На сборку»: гейт (все товары в наличии/отменены) + конверсия
@@ -790,9 +793,9 @@ final class HomeStore: ObservableObject {
             return Self.assemblyReadyItemStatusNames.contains(name)
         }
         guard allResolved else {
-            throw AuthServiceError.transport("В «На сборку» можно перевести, только когда все товары «В наличии» (или отменены: «Не будет»/«Отменен»).")
+            throw AuthServiceError.transport("В «На сборку» можно перевести, только когда все товары «В наличии»/«Собрано» (или отменены: «Не будет»/«Отменен»).")
         }
-        guard order.items.contains(where: { orderItemStatusName($0.orderItemStatusID) == "В наличии" }) else {
+        guard orderHasCollectableItems(order) else {
             throw AuthServiceError.transport("Нельзя перевести в «На сборку»: нет товаров для сборки — все позиции отменены.")
         }
         guard let cancelledStatusID = referenceData.statuses.first(where: {
@@ -836,11 +839,15 @@ final class HomeStore: ObservableObject {
         )
     }
 
-    func orderHasInStockItems(_ order: HomeOrder) -> Bool {
-        order.items.contains { orderItemStatusName($0.orderItemStatusID) == "В наличии" }
+    /// Есть ли позиции, готовые к отгрузке сейчас («В наличии» или уже «Собрано»).
+    func orderHasCollectableItems(_ order: HomeOrder) -> Bool {
+        order.items.contains { item in
+            guard let name = orderItemStatusName(item.orderItemStatusID) else { return false }
+            return Self.collectableItemStatusNames.contains(name)
+        }
     }
 
-    /// Есть ли товары не «В наличии» и не отменённые (ожидаемые) — для предложения сплита.
+    /// Есть ли ожидаемые товары (не готовы к сборке и не отменены) — для предложения сплита.
     func orderHasPendingItems(_ order: HomeOrder) -> Bool {
         order.items.contains { item in
             guard let name = orderItemStatusName(item.orderItemStatusID) else { return true }
@@ -856,8 +863,8 @@ final class HomeStore: ObservableObject {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")
         }
-        guard orderHasInStockItems(order) else {
-            throw AuthServiceError.transport("Нет товаров «В наличии» для сборки")
+        guard orderHasCollectableItems(order) else {
+            throw AuthServiceError.transport("Нет товаров для сборки")
         }
         let response = try await client.splitOrder(accessToken: accessToken, orderID: order.id)
         return response.order

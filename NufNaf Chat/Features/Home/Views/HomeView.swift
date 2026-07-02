@@ -1039,7 +1039,7 @@ struct HomeView: View {
         guard let previewOrder else { return }
         guard previewOrder.orderStatusID != statusID else { return }
 
-        if isAssemblyOrderStatus(statusID), store.orderHasPendingItems(previewOrder), store.orderHasInStockItems(previewOrder) {
+        if isAssemblyOrderStatus(statusID), store.orderHasPendingItems(previewOrder), store.orderHasCollectableItems(previewOrder) {
             pendingAssemblySplit = PendingAssemblySplit(order: previewOrder, isPreview: true)
             return
         }
@@ -1108,7 +1108,7 @@ struct HomeView: View {
     private func updateCRMOrderStatus(order: HomeOrder, statusID: Int) {
         guard order.orderStatusID != statusID else { return }
 
-        if isAssemblyOrderStatus(statusID), store.orderHasPendingItems(order), store.orderHasInStockItems(order) {
+        if isAssemblyOrderStatus(statusID), store.orderHasPendingItems(order), store.orderHasCollectableItems(order) {
             pendingAssemblySplit = PendingAssemblySplit(order: order, isPreview: false)
             return
         }

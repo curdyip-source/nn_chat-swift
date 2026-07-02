@@ -399,7 +399,7 @@ struct OrderDetailView: View {
             ?? store.referenceData.statuses.first(where: { $0.statusType == "orders" && $0.id == statusID })?.statusStatus
 
         // Смешанный заказ (есть и «В наличии», и ожидаемые) — предлагаем сплит.
-        if targetName == "На сборку", store.orderHasPendingItems(order), store.orderHasInStockItems(order) {
+        if targetName == "На сборку", store.orderHasPendingItems(order), store.orderHasCollectableItems(order) {
             assemblySplitStatusID = statusID
             return
         }
