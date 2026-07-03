@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Экран создания накладной СДЭК для заказа: получатель → поиск города → способ →
 /// поиск ПВЗ по адресу / адрес → габариты → тариф → доп. услуги → создать.
@@ -79,6 +80,7 @@ struct CdekWaybillSheet: View {
                             cityQuery = city.fullName ?? ""
                             cityCode = city.code
                             cityResults = []
+                            hideKeyboard()
                         } label: { Text(city.fullName ?? "—").font(.subheadline) }
                     }
                 }
@@ -98,6 +100,7 @@ struct CdekWaybillSheet: View {
                                 pvzQuery = p.address ?? ""
                                 pvzCode = p.code
                                 pvzResults = []
+                                hideKeyboard()
                             } label: {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(p.address ?? "—").font(.subheadline)
@@ -129,6 +132,7 @@ struct CdekWaybillSheet: View {
                                 Text("\(t.tariffName ?? "Тариф") — \(Int(t.deliverySum ?? 0))₽ (\(t.periodMin ?? 0)–\(t.periodMax ?? 0) дн)").tag(t.tariffCode)
                             }
                         }
+                        .pickerStyle(.menu)
                     }
                 }
 
@@ -148,24 +152,33 @@ struct CdekWaybillSheet: View {
                     Section { Text(errorMessage).foregroundStyle(.red).font(.subheadline) }
                 }
             }
+            .scrollDismissesKeyboard(.immediately)
             .navigationTitle("Накладная СДЭК")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() }.disabled(submitting) }
                 ToolbarItem(placement: .confirmationAction) { Button(submitting ? "Создание…" : "Создать") { submit() }.disabled(submitting) }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Готово") { hideKeyboard() }
+                }
             }
             .task(id: "\(cityCode ?? 0)-\(weight)") { await loadTariffs() }
         }
     }
 
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private func numberField(_ title: String, _ text: Binding<String>) -> some View {
         HStack {
-            Text(title).foregroundStyle(.secondary)
-            Spacer()
+            Text(title).foregroundStyle(.secondary).lineLimit(1)
+            Spacer(minLength: 8)
             TextField("0", text: text)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 140)
+                .frame(maxWidth: 96)
         }
     }
 
