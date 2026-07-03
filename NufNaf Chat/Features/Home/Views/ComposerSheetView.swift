@@ -155,9 +155,6 @@ struct ComposerSheetView: View {
                 composerFooter
             }
             .background(Color(UIColor.systemBackground))
-            // Тап по любому месту вне поля ввода (Склад, Способ, кнопки) закрывает клавиатуру.
-            // Обнуляем именно focusedField композера — глобальный resign гасил не то поле.
-            .background(KeyboardDismissTap(onTap: { dismissKeyboard() }))
             .onAppear {
                 syncSelectedOrderSubMethod()
                 applyDefaultCurrencyToItems()
@@ -1446,6 +1443,7 @@ struct ComposerSheetView: View {
                     let isSelected = selectedValue == option
 
                     Button {
+                        dismissKeyboard()
                         onSelect(option)
                     } label: {
                         Text(option)
@@ -1479,6 +1477,7 @@ struct ComposerSheetView: View {
                         let isSelected = item.id == selectedID
 
                         Button {
+                            dismissKeyboard()
                             onSelect(item)
                         } label: {
                             Text(value(item))
@@ -1501,6 +1500,7 @@ struct ComposerSheetView: View {
                         let isSelected = item.id == selectedID
 
                         Button {
+                            dismissKeyboard()
                             onSelect(item)
                         } label: {
                             Text(value(item))
