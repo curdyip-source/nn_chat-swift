@@ -40,6 +40,7 @@ struct OrderDetailView: View {
     @State private var commentScrollRequest = 0
     @State private var cdekSheetOrder: HomeOrder?
     @State private var cdekOverride: HomeOrderCdek?
+    @State private var didCopyTrack = false
     // Mirrors the detail container's slide offset so the comment dock (a safeAreaInset, outside the
     // container) slides out together with the card on close instead of lingering.
     @State private var dockOffsetX: CGFloat = 0
@@ -88,6 +89,11 @@ struct OrderDetailView: View {
         .animation(.easeInOut(duration: 0.18), value: isCommentAttachmentMenuPresented)
         .task(id: orderID) {
             await loadOrder()
+            // Авто-обновление статуса СДЭК при открытии заказа (если накладная уже создана).
+            if let oid = order?.id, order?.cdek?.hasWaybill == true,
+               let upd = try? await store.cdekWaybillStatus(accessToken: session.currentAccessToken, orderID: oid) {
+                cdekOverride = upd
+            }
         }
         .confirmationDialog(
             "В заказе есть товары не в наличии. Разделить заказ?",
@@ -797,7 +803,19 @@ struct OrderDetailView: View {
             Text("СДЭК").font(.system(size: 17, weight: .semibold, design: .rounded))
             if let c, c.hasWaybill {
                 if let track = c.trackNumber, !track.isEmpty {
-                    Text("Трек-номер: \(track)").font(.subheadline)
+                    HStack(spacing: 8) {
+                        Text("Трек-номер: \(track)").font(.subheadline)
+                        Button { copyTrack(track) } label: {
+                            Image(systemName: didCopyTrack ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(didCopyTrack ? Color.green : Color.accentColor)
+                                .frame(width: 30, height: 30)
+                                .background((didCopyTrack ? Color.green : Color.accentColor).opacity(0.12), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Копировать трек-номер")
+                        Spacer()
+                    }
                 } else {
                     Text("Трек-номер: создаётся…").font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -820,15 +838,26 @@ struct OrderDetailView: View {
 
     private func afterCdekWaybillCreated(_ c: HomeOrderCdek) {
         cdekOverride = c
-        guard c.trackNumber == nil else { return }
+        // Печать асинхронна: ~несколько секунд ждём трек И подтягиваем комментарии
+        // (накладные-PDF от cdek_helper) в открытую карточку, не дожидаясь переоткрытия.
         Task {
             for _ in 0..<8 {
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
-                guard let oid = order?.id,
-                      let upd = try? await store.cdekWaybillStatus(accessToken: session.currentAccessToken, orderID: oid) else { continue }
-                cdekOverride = upd
-                if upd.trackNumber != nil { break }
+                if let oid = order?.id,
+                   let upd = try? await store.cdekWaybillStatus(accessToken: session.currentAccessToken, orderID: oid) {
+                    cdekOverride = upd
+                }
+                await loadOrder()
             }
+        }
+    }
+
+    private func copyTrack(_ track: String) {
+        UIPasteboard.general.string = track
+        didCopyTrack = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            await MainActor.run { didCopyTrack = false }
         }
     }
 
@@ -1011,10 +1040,7 @@ private struct OrderDocumentItemsSection: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 18)
-        .padding(.bottom, 18)
-        .padding(.trailing, 18)
-        .padding(.leading, 8)
+        .padding(18)
         .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 

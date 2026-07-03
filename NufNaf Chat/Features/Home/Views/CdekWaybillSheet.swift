@@ -307,8 +307,9 @@ struct CdekWaybillSheet: View {
 }
 
 /// Закрывает клавиатуру по тапу в любом месте — оконный жест с cancelsTouchesInView=false
-/// и делегатом, который игнорирует тапы по контролам/полям (кнопки/выбор не ломаются).
-private struct KeyboardDismissTap: UIViewRepresentable {
+/// и делегатом, который игнорирует тапы по полям ввода (поле фокусируется нормально, а
+/// тап по кнопке/выбору и закрывает клавиатуру, и срабатывает). Переиспользуется в композере.
+struct KeyboardDismissTap: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> UIView {
