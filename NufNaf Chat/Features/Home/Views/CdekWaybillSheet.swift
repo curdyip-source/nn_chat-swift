@@ -153,8 +153,7 @@ struct CdekWaybillSheet: View {
                     Section { Text(errorMessage).foregroundStyle(.red).font(.subheadline) }
                 }
             }
-            .scrollDismissesKeyboard(.immediately)
-            .simultaneousGesture(TapGesture().onEnded { hideKeyboard() })
+            .scrollDismissesKeyboard(.never)
             .navigationTitle("Накладная СДЭК")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
