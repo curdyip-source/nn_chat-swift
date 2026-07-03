@@ -29,6 +29,7 @@ struct CdekWaybillSheet: View {
     @State private var height = "10"
 
     @State private var tariffs: [CdekTariff] = []
+    @State private var loadedTariffKey: String?
     @State private var tariffCode: Int?
 
     @State private var declaredValue = "0"
@@ -71,8 +72,8 @@ struct CdekWaybillSheet: View {
             ScrollViewReader { proxy in
             Form {
                 Section("Получатель") {
-                    labeledField("ФИО", $recipientName, placeholder: "Иван Иванов")
-                    labeledField("Телефон", $recipientPhone, placeholder: "+7 900 000-00-00", keyboard: .phonePad)
+                    textFieldRow("ФИО", $recipientName, placeholder: "Иван Иванов")
+                    textFieldRow("Телефон", $recipientPhone, placeholder: "+7 900 000-00-00", keyboard: .phonePad)
                 }
 
                 Section("Город") {
@@ -188,13 +189,10 @@ struct CdekWaybillSheet: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
-    private func labeledField(_ title: String, _ text: Binding<String>, placeholder: String = "", keyboard: UIKeyboardType = .default) -> some View {
-        HStack {
-            Text(title).foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            TextField(placeholder, text: text)
-                .keyboardType(keyboard)
-                .multilineTextAlignment(.trailing)
+    private func textFieldRow(_ title: String, _ text: Binding<String>, placeholder: String = "", keyboard: UIKeyboardType = .default) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            TextField(placeholder, text: text).keyboardType(keyboard)
         }
     }
 
@@ -247,9 +245,12 @@ struct CdekWaybillSheet: View {
     }
 
     private func loadTariffs() async {
-        guard let cityCode else { tariffs = []; tariffCode = nil; return }
+        guard let cityCode else { tariffs = []; tariffCode = nil; loadedTariffKey = nil; return }
+        let key = "\(cityCode)-\(Int(weight) ?? 500)"
+        guard loadedTariffKey != key else { return }   // уже загружено для этого города+веса — не дёргаем
         let res = await store.fetchCdekTariffs(accessToken: accessToken, toCode: cityCode, weight: Int(weight) ?? 500)
         tariffs = res
+        loadedTariffKey = key
     }
 
     private func submit() {
