@@ -1557,9 +1557,6 @@ struct HomeView: View {
                 // Светлый экран создания (фон + тёмный читаемый текст) в тёмном приложении.
                 .environment(\.colorScheme, .light)
             }
-            // Оверлей сам не реагирует на клавиатуру: высота фиксирована, поля видны за счёт
-            // внутреннего ScrollView. Иначе keyboard-avoidance двигал и чат позади.
-            .ignoresSafeArea(.keyboard, edges: .bottom)
         }
     }
 }
