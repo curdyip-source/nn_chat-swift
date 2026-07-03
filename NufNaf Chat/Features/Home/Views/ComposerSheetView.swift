@@ -361,10 +361,18 @@ struct ComposerSheetView: View {
             guard let item = await store.cdekPrefill(accessToken: session.currentAccessToken, customer: name) else { return }
             if let v = item.recipientName, cdekName.isEmpty { cdekName = v }
             if let v = item.recipientPhone, cdekPhone.isEmpty { cdekPhone = v }
-            if let v = item.cityName, cdekCityQuery.isEmpty { cdekCityQuery = v }
+            // Текст города/ПВЗ выставляем под suppress-флагом, иначе onChange →
+            // searchCdek* обнулит только что подтянутый код, и тариф не загрузится.
+            if let v = item.cityName, cdekCityQuery.isEmpty {
+                suppressCdekCitySearch = true
+                cdekCityQuery = v
+            }
             if let v = item.cityCode, cdekCityCode == nil { cdekCityCode = v }
             if item.deliveryMode == "door" || item.deliveryMode == "pvz" { cdekMode = item.deliveryMode! }
-            if let v = item.pvzAddress, cdekPvzQuery.isEmpty { cdekPvzQuery = v }
+            if let v = item.pvzAddress, cdekPvzQuery.isEmpty {
+                suppressCdekPvzSearch = true
+                cdekPvzQuery = v
+            }
             if let v = item.pvzCode, cdekPvzCode == nil { cdekPvzCode = v }
             if let v = item.deliveryAddress, cdekDeliveryAddress.isEmpty { cdekDeliveryAddress = v }
         }
