@@ -135,13 +135,24 @@ struct CdekWaybillSheet: View {
                     } else if tariffs.isEmpty {
                         Text("Загрузка тарифов…").foregroundStyle(.secondary)
                     } else {
-                        Picker("Тариф", selection: Binding(get: { tariffCode ?? -1 }, set: { tariffCode = $0 == -1 ? nil : $0 })) {
-                            Text("— выберите —").tag(-1)
-                            ForEach(tariffs) { t in
-                                Text("\(t.tariffName ?? "Тариф") — \(Int(t.deliverySum ?? 0))₽ (\(t.periodMin ?? 0)–\(t.periodMax ?? 0) дн)").tag(t.tariffCode)
+                        ForEach(tariffs) { t in
+                            Button {
+                                tariffCode = t.tariffCode
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(t.tariffName ?? "Тариф").foregroundStyle(.primary)
+                                        Text("\(Int(t.deliverySum ?? 0))₽ · \(t.periodMin ?? 0)–\(t.periodMax ?? 0) дн")
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if tariffCode == t.tariffCode {
+                                        Image(systemName: "checkmark").foregroundStyle(.tint)
+                                    }
+                                }
+                                .contentShape(Rectangle())
                             }
                         }
-                        .pickerStyle(.menu)
                     }
                 }
 
