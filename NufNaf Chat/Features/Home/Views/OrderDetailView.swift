@@ -800,22 +800,24 @@ struct OrderDetailView: View {
     private func cdekBlock(order: HomeOrder) -> some View {
         let c = cdekOverride ?? order.cdek
         VStack(alignment: .leading, spacing: 14) {
-            Text("СДЭК").font(.system(size: 17, weight: .semibold, design: .rounded))
+            HStack(alignment: .center, spacing: 8) {
+                Text("СДЭК").font(.system(size: 17, weight: .semibold, design: .rounded))
+                if let c, c.hasWaybill, let track = c.trackNumber, !track.isEmpty {
+                    Button { copyTrack(track) } label: {
+                        Image(systemName: didCopyTrack ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(didCopyTrack ? Color.green : Color.accentColor)
+                            .frame(width: 30, height: 30)
+                            .background((didCopyTrack ? Color.green : Color.accentColor).opacity(0.12), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Копировать трек-номер")
+                }
+                Spacer()
+            }
             if let c, c.hasWaybill {
                 if let track = c.trackNumber, !track.isEmpty {
-                    HStack(spacing: 8) {
-                        Text("Трек-номер: \(track)").font(.subheadline)
-                        Button { copyTrack(track) } label: {
-                            Image(systemName: didCopyTrack ? "checkmark" : "doc.on.doc")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(didCopyTrack ? Color.green : Color.accentColor)
-                                .frame(width: 30, height: 30)
-                                .background((didCopyTrack ? Color.green : Color.accentColor).opacity(0.12), in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Копировать трек-номер")
-                        Spacer()
-                    }
+                    Text("Трек-номер: \(track)").font(.subheadline)
                 } else {
                     Text("Трек-номер: создаётся…").font(.subheadline).foregroundStyle(.secondary)
                 }

@@ -156,7 +156,8 @@ struct ComposerSheetView: View {
             }
             .background(Color(UIColor.systemBackground))
             // Тап по любому месту вне поля ввода (Склад, Способ, кнопки) закрывает клавиатуру.
-            .background(KeyboardDismissTap())
+            // Обнуляем именно focusedField композера — глобальный resign гасил не то поле.
+            .background(KeyboardDismissTap(onTap: { dismissKeyboard() }))
             .onAppear {
                 syncSelectedOrderSubMethod()
                 applyDefaultCurrencyToItems()

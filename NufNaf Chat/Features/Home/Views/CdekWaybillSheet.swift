@@ -310,7 +310,12 @@ struct CdekWaybillSheet: View {
 /// и делегатом, который игнорирует тапы по полям ввода (поле фокусируется нормально, а
 /// тап по кнопке/выбору и закрывает клавиатуру, и срабатывает). Переиспользуется в композере.
 struct KeyboardDismissTap: UIViewRepresentable {
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    /// Что делать по тапу вне поля. По умолчанию — глобальный resignFirstResponder.
+    /// Экраны с @FocusState передают сюда обнуление своего focusedField, иначе
+    /// глобальный resign может погасить не то поле (напр. поле чата под sheet).
+    var onTap: (() -> Void)? = nil
+
+    func makeCoordinator() -> Coordinator { Coordinator(onTap: onTap) }
 
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
@@ -320,6 +325,7 @@ struct KeyboardDismissTap: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onTap = onTap
         if context.coordinator.window == nil {
             DispatchQueue.main.async { context.coordinator.attach(to: uiView.window) }
         }
@@ -329,7 +335,10 @@ struct KeyboardDismissTap: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         weak var window: UIWindow?
+        var onTap: (() -> Void)?
         private var tap: UITapGestureRecognizer?
+
+        init(onTap: (() -> Void)?) { self.onTap = onTap }
 
         func attach(to window: UIWindow?) {
             guard let window, self.window == nil else { return }
@@ -348,7 +357,11 @@ struct KeyboardDismissTap: UIViewRepresentable {
         }
 
         @objc private func handle() {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            if let onTap {
+                onTap()
+            } else {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            }
         }
 
         // Не перехватываем тап, если он по полю ввода (иначе поле не сфокусируется).
