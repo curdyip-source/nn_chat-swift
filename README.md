@@ -84,13 +84,16 @@ NufNaf Chat/
 open "NufNaf Chat.xcodeproj"
 ```
 
-Затем выбрать схему **NufNaf Chat** и нажать ▶︎ (`Cmd + R`).
+Выбрать схему и нажать ▶︎ (`Cmd + R`):
+
+- **NufNaf Chat (Local)** — Debug-сборка на **локальный** бэкенд (build-фаза подставляет `http://<IP-Mac-в-Wi-Fi>:8001/api/v1`, IP определяется автоматически). Для теста на живом iPhone подними локальный стек `nn_chat` (`docker compose up`, API на `:8001`) и держи телефон в той же Wi-Fi.
+- **NufNaf Chat (Prod)** — Release-сборка на прод (`chat.nufnafchat.su`). **Archive для TestFlight — всегда эта схема.**
 
 Из командной строки:
 
 ```bash
-# Сборка под симулятор
-xcodebuild -project "NufNaf Chat.xcodeproj" -scheme "NufNaf Chat" -configuration Debug
+# Сборка под симулятор (локальная схема)
+xcodebuild -project "NufNaf Chat.xcodeproj" -scheme "NufNaf Chat (Local)" -configuration Debug
 
 # Тесты
 xcodebuild test -project "NufNaf Chat.xcodeproj" -scheme "NufNaf ChatTests"
@@ -119,6 +122,8 @@ xcodebuild test -project "NufNaf Chat.xcodeproj" -scheme "NufNaf ChatTests"
 |----------|----------------------|------------------------|
 | API base URL | `https://chat.nufnafchat.su/api/v1` | `Info.plist → API_BASE_URL` |
 | Media base URL | `https://chat.nufnafchat.su/media` | `Info.plist → MEDIA_BASE_URL` |
+
+Значение `API_BASE_URL` выбирается **схемой при сборке**: Local (Debug) — build-фаза `Set Local API host` (`Scripts/inject_local_api_host.sh`) подставляет локальный адрес; Prod (Release) — остаётся прод из `Info.plist`. `AppConfig.swift` читает ключ из Info.plist (fallback — прод).
 
 Основные эндпоинты: `POST /auth/login`, `POST /auth/refresh`, `GET /auth/me`, `GET·POST·PUT·DELETE /messages`, `GET /users/participants`, `POST /users/me/profile-photo`, `GET /reference-data`, а также CRM-маршруты (`/orders`, `/products`, `/contacts`, `/inventory`).
 
