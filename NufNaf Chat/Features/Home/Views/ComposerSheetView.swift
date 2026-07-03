@@ -58,6 +58,8 @@ struct ComposerSheetView: View {
     @State private var cdekPvzResults: [CdekPvz] = []
     @State private var cdekDeliveryAddress = ""
     @State private var cdekPrefilledFor: String?
+    @State private var suppressCdekCitySearch = false
+    @State private var suppressCdekPvzSearch = false
 
     let kind: HomeComposerKind
     let editingOrder: HomeOrder?
@@ -289,6 +291,7 @@ struct ComposerSheetView: View {
                 .onChange(of: cdekCityQuery) { _, q in searchCdekCity(q) }
             ForEach(cdekCityResults) { city in
                 Button {
+                    suppressCdekCitySearch = true
                     cdekCityQuery = city.fullName ?? ""
                     cdekCityCode = city.code
                     cdekCityResults = []
@@ -307,6 +310,7 @@ struct ComposerSheetView: View {
                     .onChange(of: cdekPvzQuery) { _, q in searchCdekPvz(q) }
                 ForEach(cdekPvzResults) { p in
                     Button {
+                        suppressCdekPvzSearch = true
                         cdekPvzQuery = p.address ?? ""
                         cdekPvzCode = p.code
                         cdekPvzResults = []
@@ -321,7 +325,9 @@ struct ComposerSheetView: View {
     }
 
     private func searchCdekCity(_ query: String) {
+        if suppressCdekCitySearch { suppressCdekCitySearch = false; return }
         cdekCityCode = nil
+        cdekPvzCode = nil
         Task {
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard cdekCityQuery == query else { return }
@@ -332,6 +338,7 @@ struct ComposerSheetView: View {
     }
 
     private func searchCdekPvz(_ query: String) {
+        if suppressCdekPvzSearch { suppressCdekPvzSearch = false; return }
         cdekPvzCode = nil
         guard let code = cdekCityCode else { cdekPvzResults = []; return }
         Task {

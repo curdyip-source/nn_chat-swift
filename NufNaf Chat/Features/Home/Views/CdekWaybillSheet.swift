@@ -39,6 +39,10 @@ struct CdekWaybillSheet: View {
 
     @State private var submitting = false
     @State private var errorMessage: String?
+    // true, когда текст поля поменяли программно (подстановка выбора), а не вводом —
+    // чтобы onChange не сбрасывал выбранный код города/ПВЗ и не запускал поиск.
+    @State private var suppressCitySearch = false
+    @State private var suppressPvzSearch = false
 
     init(order: HomeOrder, store: HomeStore, accessToken: String?, onCreated: @escaping (HomeOrderCdek) -> Void) {
         self.order = order
@@ -71,6 +75,7 @@ struct CdekWaybillSheet: View {
                         .onChange(of: cityQuery) { _, q in searchCity(q) }
                     ForEach(cityResults) { city in
                         Button {
+                            suppressCitySearch = true
                             cityQuery = city.fullName ?? ""
                             cityCode = city.code
                             cityResults = []
@@ -89,6 +94,7 @@ struct CdekWaybillSheet: View {
                             .onChange(of: pvzQuery) { _, q in searchPvz(q) }
                         ForEach(pvzResults) { p in
                             Button {
+                                suppressPvzSearch = true
                                 pvzQuery = p.address ?? ""
                                 pvzCode = p.code
                                 pvzResults = []
@@ -159,7 +165,10 @@ struct CdekWaybillSheet: View {
     }
 
     private func searchCity(_ query: String) {
+        if suppressCitySearch { suppressCitySearch = false; return }
         cityCode = nil
+        pvzCode = nil
+        pvzQuery = ""
         Task {
             try? await Task.sleep(nanoseconds: 200_000_000)
             guard cityQuery == query else { return }
@@ -170,6 +179,7 @@ struct CdekWaybillSheet: View {
     }
 
     private func searchPvz(_ query: String) {
+        if suppressPvzSearch { suppressPvzSearch = false; return }
         pvzCode = nil
         guard let cityCode else { pvzResults = []; return }
         Task {
