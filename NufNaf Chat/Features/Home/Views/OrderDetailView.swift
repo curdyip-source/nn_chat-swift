@@ -41,6 +41,7 @@ struct OrderDetailView: View {
     @State private var cdekSheetOrder: HomeOrder?
     @State private var cdekOverride: HomeOrderCdek?
     @State private var didCopyTrack = false
+    @State private var cdekRecreating = false
     // Mirrors the detail container's slide offset so the comment dock (a safeAreaInset, outside the
     // container) slides out together with the card on close instead of lingering.
     @State private var dockOffsetX: CGFloat = 0
@@ -826,6 +827,13 @@ struct OrderDetailView: View {
                 }
                 // Статус обновляется автоматически (вебхук СДЭК + при открытии карточки),
                 // поэтому ручная кнопка «Обновить статус» убрана.
+                // Пересоздание: если накладная создалась невалидной («Некорректный заказ»)
+                // или данные надо поправить — сбрасываем и открываем форму заново.
+                Button(role: .destructive) { recreateCdek(order: order) } label: {
+                    Label(cdekRecreating ? "Сброс…" : "Пересоздать накладную", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.subheadline)
+                }
+                .disabled(cdekRecreating)
             } else {
                 Button { cdekSheetOrder = order } label: {
                     Label("Создать накладную", systemImage: "shippingbox").font(.subheadline.weight(.semibold))
@@ -851,6 +859,24 @@ struct OrderDetailView: View {
                 await loadOrder()
             }
         }
+    }
+
+    private func recreateCdek(order: HomeOrder) {
+        guard !cdekRecreating else { return }
+        cdekRecreating = true
+        Task {
+            defer { cdekRecreating = false }
+            if let upd = try? await store.deleteCdekWaybill(accessToken: session.currentAccessToken, orderID: order.id) {
+                cdekOverride = upd
+                await loadOrder()
+                // Открываем форму пересоздания с сохранёнными данными.
+                cdekSheetOrder = cachedOrderForSheet(order)
+            }
+        }
+    }
+
+    private func cachedOrderForSheet(_ fallback: HomeOrder) -> HomeOrder {
+        order ?? fallback
     }
 
     private func copyTrack(_ track: String) {

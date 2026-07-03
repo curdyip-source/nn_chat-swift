@@ -840,6 +840,8 @@ struct CdekWaybillCreateRequest: Encodable {
     let recipientPhone: String
     let fromCityCode: Int?
     let fromCityName: String?
+    let shipmentPoint: String?
+    let shipmentPointAddress: String?
     let cityCode: Int
     let cityName: String?
     let deliveryMode: String        // pvz | door
@@ -861,6 +863,8 @@ struct CdekWaybillCreateRequest: Encodable {
         case recipientPhone = "recipient_phone"
         case fromCityCode = "from_city_code"
         case fromCityName = "from_city_name"
+        case shipmentPoint = "shipment_point"
+        case shipmentPointAddress = "shipment_point_address"
         case cityCode = "city_code"
         case cityName = "city_name"
         case deliveryMode = "delivery_mode"
@@ -881,6 +885,21 @@ struct CdekWaybillCreateRequest: Encodable {
 struct CdekCitiesResponse: Decodable { let items: [CdekCity] }
 struct CdekPvzResponse: Decodable { let items: [CdekPvz] }
 struct CdekTariffsResponse: Decodable { let items: [CdekTariff] }
+
+/// Дефолт отправителя (последний использованный ПВЗ сдачи + город) — /cdek/defaults.
+struct CdekOriginDefault: Decodable {
+    let fromCityCode: Int?
+    let fromCityName: String?
+    let shipmentPoint: String?
+    let shipmentPointAddress: String?
+
+    enum CodingKeys: String, CodingKey {
+        case fromCityCode = "from_city_code"
+        case fromCityName = "from_city_name"
+        case shipmentPoint = "shipment_point"
+        case shipmentPointAddress = "shipment_point_address"
+    }
+}
 
 struct HomeOrderComment: Codable, Identifiable, Hashable {
     let id: Int

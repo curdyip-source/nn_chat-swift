@@ -19,6 +19,12 @@ struct CdekWaybillSheet: View {
     @State private var fromCityCode: Int? = 44
     @State private var fromCityResults: [CdekCity] = []
     @State private var suppressFromCitySearch = false
+    // ПВЗ сдачи отправителем (origin ПВЗ). Пусто = курьер/договор; выбран = shipment_point.
+    @State private var shipmentQuery = ""
+    @State private var shipmentPoint: String?
+    @State private var shipmentResults: [CdekPvz] = []
+    @State private var suppressShipmentSearch = false
+    @State private var loadedDefaults = false
     @State private var cityQuery: String
     @State private var cityCode: Int?
     @State private var cityResults: [CdekCity] = []
@@ -52,7 +58,7 @@ struct CdekWaybillSheet: View {
     @State private var suppressPvzSearch = false
     @State private var numBuffers: [FocusField: String] = [:]   // очистить при фокусе, вернуть если не меняли
     @FocusState private var focusedField: FocusField?
-    private enum FocusField: Hashable { case fromCity, city, pvz, weight, length, width, height, declared, cod }
+    private enum FocusField: Hashable { case fromCity, shipment, city, pvz, weight, length, width, height, declared, cod }
 
     init(order: HomeOrder, store: HomeStore, accessToken: String?, onCreated: @escaping (HomeOrderCdek) -> Void) {
         self.order = order
@@ -92,8 +98,28 @@ struct CdekWaybillSheet: View {
                             fromCityQuery = city.fullName ?? ""
                             fromCityCode = city.code
                             fromCityResults = []
+                            clearShipment()
                             hideKeyboard()
                         } label: { Text(city.fullName ?? "—").font(.subheadline) }
+                    }
+
+                    TextField(fromCityCode == nil ? "Сначала выберите город" : "ПВЗ отправителя (сдаю в ПВЗ; пусто = курьер)", text: $shipmentQuery)
+                        .focused($focusedField, equals: .shipment)
+                        .id("shipmentField")
+                        .onChange(of: shipmentQuery) { _, q in searchShipment(q) }
+                    ForEach(shipmentResults) { p in
+                        Button {
+                            suppressShipmentSearch = true
+                            shipmentQuery = p.address ?? ""
+                            shipmentPoint = p.code
+                            shipmentResults = []
+                            hideKeyboard()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(p.address ?? "—").font(.subheadline)
+                                if let wt = p.workTime, !wt.isEmpty { Text(wt).font(.caption).foregroundStyle(.secondary) }
+                            }
+                        }
                     }
                 }
 
@@ -206,10 +232,17 @@ struct CdekWaybillSheet: View {
                 }
             }
             .task(id: "\(fromCityCode ?? 0)-\(cityCode ?? 0)-\(weight)") { await loadTariffs() }
+            .task { await loadOriginDefault() }
             .onChange(of: focusedField) { _, field in
-                guard let field, field == .fromCity || field == .city || field == .pvz else { return }
+                guard let field, field == .fromCity || field == .shipment || field == .city || field == .pvz else { return }
                 // Поднимаем поле к верху, чтобы результаты поиска были видны над клавиатурой.
-                let anchor = field == .fromCity ? "fromCityField" : (field == .city ? "cityField" : "pvzField")
+                let anchor: String
+                switch field {
+                case .fromCity: anchor = "fromCityField"
+                case .shipment: anchor = "shipmentField"
+                case .city: anchor = "cityField"
+                default: anchor = "pvzField"
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                     withAnimation { proxy.scrollTo(anchor, anchor: .top) }
                 }
@@ -276,6 +309,26 @@ struct CdekWaybillSheet: View {
         }
     }
 
+    private func clearShipment() {
+        suppressShipmentSearch = true
+        shipmentQuery = ""
+        shipmentPoint = nil
+        shipmentResults = []
+    }
+
+    private func searchShipment(_ query: String) {
+        if suppressShipmentSearch { suppressShipmentSearch = false; return }
+        shipmentPoint = nil
+        guard let fromCityCode else { shipmentResults = []; return }
+        Task {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard shipmentQuery == query else { return }
+            let res = await store.fetchCdekDeliveryPoints(accessToken: accessToken, cityCode: fromCityCode, query: query)
+            guard shipmentQuery == query else { return }
+            shipmentResults = res
+        }
+    }
+
     private func searchPvz(_ query: String) {
         if suppressPvzSearch { suppressPvzSearch = false; return }
         pvzCode = nil
@@ -287,6 +340,20 @@ struct CdekWaybillSheet: View {
             guard pvzQuery == query else { return }
             pvzResults = res
         }
+    }
+
+    private func loadOriginDefault() async {
+        guard !loadedDefaults else { return }
+        loadedDefaults = true
+        guard let def = await store.cdekDefaults(accessToken: accessToken), let sp = def.shipmentPoint, !sp.isEmpty else { return }
+        if let code = def.fromCityCode {
+            suppressFromCitySearch = true
+            fromCityQuery = def.fromCityName ?? fromCityQuery
+            fromCityCode = code
+        }
+        suppressShipmentSearch = true
+        shipmentQuery = def.shipmentPointAddress ?? ""
+        shipmentPoint = sp
     }
 
     private func loadTariffs() async {
@@ -314,6 +381,8 @@ struct CdekWaybillSheet: View {
             recipientPhone: recipientPhone.trimmingCharacters(in: .whitespaces),
             fromCityCode: fromCityCode,
             fromCityName: fromCityQuery.isEmpty ? nil : fromCityQuery,
+            shipmentPoint: shipmentPoint,
+            shipmentPointAddress: shipmentPoint != nil ? (shipmentQuery.isEmpty ? nil : shipmentQuery) : nil,
             cityCode: cityCode,
             cityName: cityQuery.isEmpty ? nil : cityQuery,
             deliveryMode: mode,

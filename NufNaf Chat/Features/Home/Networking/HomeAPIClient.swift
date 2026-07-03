@@ -363,6 +363,18 @@ struct HomeAPIClient {
         return response.item
     }
 
+    func deleteCdekWaybill(accessToken: String, orderID: Int) async throws -> HomeOrderCdek {
+        let response: HomeItemEnvelope<HomeOrderCdek> = try await send(
+            path: "cdek/orders/\(orderID)/waybill", method: "DELETE", body: Optional<String>.none, accessToken: accessToken)
+        return response.item
+    }
+
+    func cdekDefaults(accessToken: String) async throws -> CdekOriginDefault {
+        let response: HomeItemEnvelope<CdekOriginDefault> = try await send(
+            path: "cdek/defaults", method: "GET", body: Optional<String>.none, accessToken: accessToken)
+        return response.item
+    }
+
     func cdekPrefill(accessToken: String, customer: String) async throws -> CdekPrefill {
         let response: HomeItemEnvelope<CdekPrefill> = try await send(
             path: "cdek/prefill",

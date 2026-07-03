@@ -635,6 +635,16 @@ final class HomeStore: ObservableObject {
         do { return try await client.cdekPrefill(accessToken: accessToken, customer: customer) } catch { return nil }
     }
 
+    func deleteCdekWaybill(accessToken: String?, orderID: Int) async throws -> HomeOrderCdek {
+        guard let accessToken else { throw AuthServiceError.transport("Сессия не найдена") }
+        return try await client.deleteCdekWaybill(accessToken: accessToken, orderID: orderID)
+    }
+
+    func cdekDefaults(accessToken: String?) async -> CdekOriginDefault? {
+        guard let accessToken else { return nil }
+        do { return try await client.cdekDefaults(accessToken: accessToken) } catch { return nil }
+    }
+
     func createProduct(accessToken: String?, article: String, name: String, costUSD: String) async throws -> HomeProduct {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")
