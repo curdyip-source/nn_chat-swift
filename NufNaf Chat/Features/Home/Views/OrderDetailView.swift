@@ -38,6 +38,8 @@ struct OrderDetailView: View {
     @State private var assemblySplitStatusID: Int?
     @State private var assemblyAlertMessage: String?
     @State private var commentScrollRequest = 0
+    @State private var isCdekSheetPresented = false
+    @State private var cdekOverride: HomeOrderCdek?
     // Mirrors the detail container's slide offset so the comment dock (a safeAreaInset, outside the
     // container) slides out together with the card on close instead of lingering.
     @State private var dockOffsetX: CGFloat = 0
@@ -172,6 +174,11 @@ struct OrderDetailView: View {
         .sheet(item: $localFilePreview) { preview in
             LocalFileQuickLookPreview(fileURL: preview.url)
         }
+        .sheet(isPresented: $isCdekSheetPresented) {
+            if let order {
+                CdekWaybillSheet(order: order, store: store, accessToken: session.currentAccessToken, onCreated: afterCdekWaybillCreated)
+            }
+        }
         .fullScreenCover(item: $activePhotoAttachment) { attachment in
             OrderCommentPhotoViewer(attachment: attachment) {
                 activePhotoAttachment = nil
@@ -224,6 +231,10 @@ struct OrderDetailView: View {
                             rows: infoRows(for: order),
                             labelWidth: 108
                         )
+
+                        if isCdekOrder(order) {
+                            cdekBlock(order: order)
+                        }
 
                         OrderDocumentItemsSection(
                             title: "Позиции",
@@ -775,6 +786,61 @@ struct OrderDetailView: View {
         guard let statusID else { return false }
         guard let status = orderItemStatuses.first(where: { $0.id == statusID }) else { return false }
         return ["Заказ поставщику", "Перемещение"].contains(status.statusStatus)
+    }
+
+    private func isCdekOrder(_ order: HomeOrder) -> Bool {
+        order.orderMethodName == "СДЭК" || order.orderSubMethod == "СДЭК"
+    }
+
+    @ViewBuilder
+    private func cdekBlock(order: HomeOrder) -> some View {
+        let c = cdekOverride ?? order.cdek
+        VStack(alignment: .leading, spacing: 8) {
+            Text("СДЭК").font(.headline)
+            if let c, c.hasWaybill {
+                if let track = c.trackNumber, !track.isEmpty {
+                    Text("Трек-номер: \(track)").font(.subheadline)
+                } else {
+                    Text("Трек-номер: создаётся…").font(.subheadline).foregroundStyle(.secondary)
+                }
+                if let st = c.status, !st.isEmpty {
+                    Text("Статус: \(st)").font(.subheadline).foregroundStyle(.secondary)
+                }
+                Button { refreshCdekStatus() } label: {
+                    Label("Обновить статус", systemImage: "arrow.clockwise").font(.subheadline)
+                }
+            } else {
+                Button { isCdekSheetPresented = true } label: {
+                    Label("Создать накладную", systemImage: "shippingbox").font(.subheadline.weight(.semibold))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func afterCdekWaybillCreated(_ c: HomeOrderCdek) {
+        cdekOverride = c
+        guard c.trackNumber == nil else { return }
+        Task {
+            for _ in 0..<8 {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard let oid = order?.id,
+                      let upd = try? await store.cdekWaybillStatus(accessToken: session.currentAccessToken, orderID: oid) else { continue }
+                cdekOverride = upd
+                if upd.trackNumber != nil { break }
+            }
+        }
+    }
+
+    private func refreshCdekStatus() {
+        guard let oid = order?.id else { return }
+        Task {
+            if let upd = try? await store.cdekWaybillStatus(accessToken: session.currentAccessToken, orderID: oid) {
+                cdekOverride = upd
+            }
+        }
     }
 
     private func infoRows(for order: HomeOrder) -> [BusinessDocumentInfoRowModel] {
