@@ -202,6 +202,7 @@ struct ComposerSheetView: View {
 
         if kind == .order {
             composerField(title: "Информация", text: $info, placeholder: "г. Москва, улица Восьмая 6", focus: .info)
+                .id("infoField")
             composerDivider
         } else if showsCounterpartyField {
             composerDivider
@@ -308,33 +309,43 @@ struct ComposerSheetView: View {
     }
 
     private func composerPage<PageContent: View>(minHeight: CGFloat, @ViewBuilder content: @escaping () -> PageContent) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if let submitErrorMessage, !submitErrorMessage.isEmpty {
-                    Text(submitErrorMessage)
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.red)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let submitErrorMessage, !submitErrorMessage.isEmpty {
+                        Text(submitErrorMessage)
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
 
-                content()
+                    content()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: minHeight, alignment: .top)
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    dismissKeyboard()
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(minHeight: minHeight, alignment: .top)
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            .padding(.bottom, 16)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                dismissKeyboard()
+            .scrollDismissesKeyboard(.interactively)
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicators(.hidden)
+            // Тап в «Информация» поднимает поле к верху (под свитчер), чтобы кнопки
+            // Склад/Способ/Метод были видны — как scroll-to-top в СДЭК-накладной.
+            .onChange(of: focusedField) { _, field in
+                guard field == .info else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    withAnimation { proxy.scrollTo("infoField", anchor: .top) }
+                }
             }
         }
-        .scrollDismissesKeyboard(.interactively)
-        .scrollBounceBehavior(.basedOnSize)
-        .scrollIndicators(.hidden)
     }
 
     private struct ComposerSectionPager<InfoPage: View, ProductsPage: View>: View {
@@ -672,6 +683,7 @@ struct ComposerSheetView: View {
                     .focused($focusedField, equals: .counterparty)
                     .submitLabel(.search)
                     .foregroundStyle(.primary)
+                    .environment(\.colorScheme, .light)   // светлая клавиатура (как у остальных полей)
 
                 if !counterpartyName.isEmpty {
                     Button {
@@ -1154,6 +1166,10 @@ struct ComposerSheetView: View {
                     TextField(placeholder, text: text)
                 }
             }
+            // Светлая клавиатура для всех полей композера: окружение с уровня оверлея
+            // не всегда доходит до keyboardAppearance через кастомный пейджер, поэтому
+            // задаём светлую тему прямо на поле — иначе часть полей давала тёмную клавиатуру.
+            .environment(\.colorScheme, .light)
             .keyboardType(keyboard)
             .textFieldStyle(.plain)
             .foregroundStyle(.primary)
@@ -1308,6 +1324,7 @@ struct ComposerSheetView: View {
                     let isSelected = selectedValue == option
 
                     Button {
+                        dismissKeyboard()
                         onSelect(option)
                     } label: {
                         Text(option)
@@ -1341,6 +1358,7 @@ struct ComposerSheetView: View {
                         let isSelected = item.id == selectedID
 
                         Button {
+                            dismissKeyboard()
                             onSelect(item)
                         } label: {
                             Text(value(item))
@@ -1363,6 +1381,7 @@ struct ComposerSheetView: View {
                         let isSelected = item.id == selectedID
 
                         Button {
+                            dismissKeyboard()
                             onSelect(item)
                         } label: {
                             Text(value(item))
