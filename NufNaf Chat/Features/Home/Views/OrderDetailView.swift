@@ -97,15 +97,11 @@ struct OrderDetailView: View {
                 cdekOverride = upd
             }
         }
-        .confirmationDialog(
-            "Пересоздать накладную СДЭК?",
-            isPresented: $cdekRecreateConfirm,
-            titleVisibility: .visible
-        ) {
+        .alert("Пересоздать накладную СДЭК?", isPresented: $cdekRecreateConfirm) {
+            Button("Отмена", role: .cancel) {}
             Button("Сбросить и создать заново", role: .destructive) {
                 if let order { recreateCdek(order: order) }
             }
-            Button("Отмена", role: .cancel) {}
         } message: {
             Text("Текущая накладная будет удалена в СДЭК. Данные получателя сохранятся — форма откроется заново.")
         }
@@ -830,23 +826,30 @@ struct OrderDetailView: View {
                 Spacer()
             }
             if let c, c.hasWaybill {
-                if let track = c.trackNumber, !track.isEmpty {
-                    Text("Трек-номер: \(track)").font(.subheadline)
-                } else {
-                    Text("Трек-номер: создаётся…").font(.subheadline).foregroundStyle(.secondary)
+                // Трек + иконка «Пересоздать» в одну строку. Пересоздание сбрасывает
+                // накладную (спасает от «Некорректный заказ») и открывает форму заново.
+                HStack(spacing: 8) {
+                    if let track = c.trackNumber, !track.isEmpty {
+                        Text("Трек-номер: \(track)").font(.subheadline)
+                    } else {
+                        Text("Трек-номер: создаётся…").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Button { cdekRecreateConfirm = true } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(cdekRecreating ? Color.secondary : Color.orange)
+                            .frame(width: 28, height: 28)
+                            .background((cdekRecreating ? Color.secondary : Color.orange).opacity(0.12), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(cdekRecreating)
+                    .accessibilityLabel("Пересоздать накладную")
+                    Spacer()
                 }
                 if let st = c.status, !st.isEmpty {
                     Text("Статус: \(st)").font(.subheadline).foregroundStyle(.secondary)
                 }
-                // Статус обновляется автоматически (вебхук СДЭК + при открытии карточки),
-                // поэтому ручная кнопка «Обновить статус» убрана.
-                // Пересоздание: если накладная создалась невалидной («Некорректный заказ»)
-                // или данные надо поправить — сбрасываем и открываем форму заново.
-                Button(role: .destructive) { cdekRecreateConfirm = true } label: {
-                    Label(cdekRecreating ? "Сброс…" : "Пересоздать накладную", systemImage: "arrow.triangle.2.circlepath")
-                        .font(.subheadline)
-                }
-                .disabled(cdekRecreating)
+                // Статус обновляется автоматически (вебхук СДЭК + при открытии карточки).
             } else {
                 Button { cdekSheetOrder = order } label: {
                     Label("Создать накладную", systemImage: "shippingbox").font(.subheadline.weight(.semibold))
