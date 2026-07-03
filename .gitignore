@@ -6,4 +6,7 @@ build/
 
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
+**/xcuserdata/
 *.xcuserstate
+# Claude Code local config
+.claude/
