@@ -44,7 +44,9 @@ struct CdekWaybillSheet: View {
     // чтобы onChange не сбрасывал выбранный код города/ПВЗ и не запускал поиск.
     @State private var suppressCitySearch = false
     @State private var suppressPvzSearch = false
-    @State private var editBuffer = ""   // для «очистить при фокусе, вернуть если не меняли»
+    @State private var numBuffers: [FocusField: String] = [:]   // очистить при фокусе, вернуть если не меняли
+    @FocusState private var focusedField: FocusField?
+    private enum FocusField: Hashable { case city, pvz, weight, length, width, height, declared, cod }
 
     init(order: HomeOrder, store: HomeStore, accessToken: String?, onCreated: @escaping (HomeOrderCdek) -> Void) {
         self.order = order
@@ -66,6 +68,7 @@ struct CdekWaybillSheet: View {
 
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             Form {
                 Section("Получатель") {
                     labeledField("ФИО", $recipientName, placeholder: "Иван Иванов")
@@ -74,6 +77,8 @@ struct CdekWaybillSheet: View {
 
                 Section("Город") {
                     TextField("Поиск по названию", text: $cityQuery)
+                        .focused($focusedField, equals: .city)
+                        .id("cityField")
                         .onChange(of: cityQuery) { _, q in searchCity(q) }
                     ForEach(cityResults) { city in
                         Button {
@@ -94,6 +99,8 @@ struct CdekWaybillSheet: View {
 
                     if mode == "pvz" {
                         TextField(cityCode == nil ? "Сначала выберите город" : "Поиск ПВЗ по адресу", text: $pvzQuery)
+                            .focused($focusedField, equals: .pvz)
+                            .id("pvzField")
                             .onChange(of: pvzQuery) { _, q in searchPvz(q) }
                         ForEach(pvzResults) { p in
                             Button {
@@ -115,10 +122,10 @@ struct CdekWaybillSheet: View {
                 }
 
                 Section("Габариты посылки") {
-                    numberField("Вес, г", $weight)
-                    numberField("Длина, см", $length)
-                    numberField("Ширина, см", $width)
-                    numberField("Высота, см", $height)
+                    numberField("Вес, г", $weight, .weight)
+                    numberField("Длина, см", $length, .length)
+                    numberField("Ширина, см", $width, .width)
+                    numberField("Высота, см", $height, .height)
                 }
 
                 Section("Тариф") {
@@ -138,10 +145,10 @@ struct CdekWaybillSheet: View {
                 }
 
                 Section("Доп. услуги") {
-                    numberField("Объявленная стоимость, ₽", $declaredValue)
+                    numberField("Объявленная стоимость, ₽", $declaredValue, .declared)
                     Toggle("Страхование (по объявл. стоимости)", isOn: $insurance)
                     Toggle("СМС-уведомление (зависит от тарифа)", isOn: $sms)
-                    numberField("Наложенный платёж, ₽", $codAmount)
+                    numberField("Наложенный платёж, ₽", $codAmount, .cod)
                     Picker("Оплата доставки", selection: $payer) {
                         Text("Отправитель").tag("sender")
                         Text("Получатель").tag("recipient")
@@ -154,6 +161,7 @@ struct CdekWaybillSheet: View {
                 }
             }
             .scrollDismissesKeyboard(.never)
+            .background(KeyboardDismissTap())
             .navigationTitle("Накладная СДЭК")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -165,6 +173,14 @@ struct CdekWaybillSheet: View {
                 }
             }
             .task(id: "\(cityCode ?? 0)-\(weight)") { await loadTariffs() }
+            .onChange(of: focusedField) { _, field in
+                guard let field, field == .city || field == .pvz else { return }
+                // Поднимаем поле к верху, чтобы результаты поиска были видны над клавиатурой.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    withAnimation { proxy.scrollTo(field == .city ? "cityField" : "pvzField", anchor: .top) }
+                }
+            }
+            }
         }
     }
 
@@ -182,21 +198,24 @@ struct CdekWaybillSheet: View {
         }
     }
 
-    private func numberField(_ title: String, _ text: Binding<String>) -> some View {
+    private func numberField(_ title: String, _ text: Binding<String>, _ focus: FocusField) -> some View {
         HStack {
             Text(title).foregroundStyle(.secondary).lineLimit(1)
             Spacer(minLength: 8)
-            TextField("0", text: text, onEditingChanged: { editing in
-                if editing {
-                    editBuffer = text.wrappedValue
-                    text.wrappedValue = ""
-                } else if text.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty {
-                    text.wrappedValue = editBuffer   // не меняли — вернуть прежнее
+            TextField("0", text: text)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: 96)
+                .focused($focusedField, equals: focus)
+                .onChange(of: focusedField) { old, new in
+                    if old == focus, text.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty {
+                        text.wrappedValue = numBuffers[focus] ?? text.wrappedValue   // не меняли — вернуть
+                    }
+                    if new == focus {
+                        numBuffers[focus] = text.wrappedValue
+                        text.wrappedValue = ""
+                    }
                 }
-            })
-            .keyboardType(.numberPad)
-            .multilineTextAlignment(.trailing)
-            .frame(maxWidth: 96)
         }
     }
 
@@ -271,6 +290,62 @@ struct CdekWaybillSheet: View {
                 errorMessage = error.localizedDescription
                 submitting = false
             }
+        }
+    }
+}
+
+/// Закрывает клавиатуру по тапу в любом месте — оконный жест с cancelsTouchesInView=false
+/// и делегатом, который игнорирует тапы по контролам/полям (кнопки/выбор не ломаются).
+private struct KeyboardDismissTap: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        DispatchQueue.main.async { context.coordinator.attach(to: view.window) }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        if context.coordinator.window == nil {
+            DispatchQueue.main.async { context.coordinator.attach(to: uiView.window) }
+        }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) { coordinator.detach() }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        weak var window: UIWindow?
+        private var tap: UITapGestureRecognizer?
+
+        func attach(to window: UIWindow?) {
+            guard let window, self.window == nil else { return }
+            let g = UITapGestureRecognizer(target: self, action: #selector(handle))
+            g.cancelsTouchesInView = false
+            g.delegate = self
+            window.addGestureRecognizer(g)
+            tap = g
+            self.window = window
+        }
+
+        func detach() {
+            if let tap, let window { window.removeGestureRecognizer(tap) }
+            tap = nil
+            window = nil
+        }
+
+        @objc private func handle() {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        }
+
+        // Не перехватываем тап, если он по полю ввода (иначе поле не сфокусируется).
+        func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            var view = touch.view
+            while let current = view {
+                if current is UITextField || current is UITextView { return false }
+                view = current.superview
+            }
+            return true
         }
     }
 }
