@@ -628,6 +628,27 @@ struct HomeMessageUpdateRequest: Encodable {
     }
 }
 
+struct HomeOrderCdekRequest: Encodable {
+    let recipientName: String?
+    let recipientPhone: String?
+    let cityCode: Int?
+    let cityName: String?
+    let deliveryMode: String?
+    let pvzCode: String?
+    let pvzAddress: String?
+    let deliveryAddress: String?
+    enum CodingKeys: String, CodingKey {
+        case recipientName = "recipient_name"
+        case recipientPhone = "recipient_phone"
+        case cityCode = "city_code"
+        case cityName = "city_name"
+        case deliveryMode = "delivery_mode"
+        case pvzCode = "pvz_code"
+        case pvzAddress = "pvz_address"
+        case deliveryAddress = "delivery_address"
+    }
+}
+
 struct HomeOrderCreateRequest: Encodable {
     let orderEstablishmentID: Int
     let orderMethodID: Int
@@ -637,6 +658,7 @@ struct HomeOrderCreateRequest: Encodable {
     let orderInfo: String
     let orderStatusID: Int?
     let saveContact: Bool
+    let cdek: HomeOrderCdekRequest?
     let items: [HomeOrderItemCreateRequest]
 
     enum CodingKeys: String, CodingKey {
@@ -648,6 +670,7 @@ struct HomeOrderCreateRequest: Encodable {
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
         case saveContact = "save_contact"
+        case cdek
         case items
     }
 }
@@ -668,6 +691,7 @@ struct HomeOrder: Codable, Identifiable, Hashable {
     let orderCreatedAt: String?
     let items: [HomeOrderItem]
     let comments: [HomeOrderComment]
+    let cdek: HomeOrderCdek?
 
     enum CodingKeys: String, CodingKey {
         case id = "order_id"
@@ -685,6 +709,195 @@ struct HomeOrder: Codable, Identifiable, Hashable {
         case orderCreatedAt = "order_created_at"
         case items
         case comments
+        case cdek
+    }
+}
+
+// MARK: - СДЭК (доставка)
+
+/// Блок cdek у заказа (и ответ статуса накладной). Отдаётся бэкендом в serialize_order.
+struct HomeOrderCdek: Codable, Hashable {
+    let hasWaybill: Bool
+    let uuid: String?
+    let trackNumber: String?
+    let status: String?
+    let statusUpdatedAt: String?
+    let recipientName: String?
+    let recipientPhone: String?
+    let cityCode: Int?
+    let cityName: String?
+    let deliveryMode: String?
+    let pvzCode: String?
+    let pvzAddress: String?
+    let deliveryAddress: String?
+
+    enum CodingKeys: String, CodingKey {
+        case hasWaybill = "has_waybill"
+        case uuid
+        case trackNumber = "track_number"
+        case status
+        case statusUpdatedAt = "status_updated_at"
+        case recipientName = "recipient_name"
+        case recipientPhone = "recipient_phone"
+        case cityCode = "city_code"
+        case cityName = "city_name"
+        case deliveryMode = "delivery_mode"
+        case pvzCode = "pvz_code"
+        case pvzAddress = "pvz_address"
+        case deliveryAddress = "delivery_address"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        hasWaybill = (try? c.decode(Bool.self, forKey: .hasWaybill)) ?? false
+        uuid = try? c.decode(String.self, forKey: .uuid)
+        trackNumber = try? c.decode(String.self, forKey: .trackNumber)
+        status = try? c.decode(String.self, forKey: .status)
+        statusUpdatedAt = try? c.decode(String.self, forKey: .statusUpdatedAt)
+        recipientName = try? c.decode(String.self, forKey: .recipientName)
+        recipientPhone = try? c.decode(String.self, forKey: .recipientPhone)
+        cityCode = try? c.decode(Int.self, forKey: .cityCode)
+        cityName = try? c.decode(String.self, forKey: .cityName)
+        deliveryMode = try? c.decode(String.self, forKey: .deliveryMode)
+        pvzCode = try? c.decode(String.self, forKey: .pvzCode)
+        pvzAddress = try? c.decode(String.self, forKey: .pvzAddress)
+        deliveryAddress = try? c.decode(String.self, forKey: .deliveryAddress)
+    }
+}
+
+struct CdekCity: Codable, Hashable, Identifiable {
+    let code: Int
+    let fullName: String?
+    let cityUuid: String?
+    var id: Int { code }
+    enum CodingKeys: String, CodingKey {
+        case code
+        case fullName = "full_name"
+        case cityUuid = "city_uuid"
+    }
+}
+
+struct CdekPvz: Codable, Hashable, Identifiable {
+    let code: String
+    let name: String?
+    let address: String?
+    let workTime: String?
+    let type: String?
+    var id: String { code }
+    enum CodingKeys: String, CodingKey {
+        case code, name, address, type
+        case workTime = "work_time"
+    }
+}
+
+struct CdekTariff: Codable, Hashable, Identifiable {
+    let tariffCode: Int
+    let tariffName: String?
+    let deliverySum: Double?
+    let periodMin: Int?
+    let periodMax: Int?
+    var id: Int { tariffCode }
+    enum CodingKeys: String, CodingKey {
+        case tariffCode = "tariff_code"
+        case tariffName = "tariff_name"
+        case deliverySum = "delivery_sum"
+        case periodMin = "period_min"
+        case periodMax = "period_max"
+    }
+}
+
+struct CdekPrefill: Codable, Hashable {
+    let recipientName: String?
+    let recipientPhone: String?
+    let cityCode: Int?
+    let cityName: String?
+    let deliveryMode: String?
+    let pvzCode: String?
+    let pvzAddress: String?
+    let deliveryAddress: String?
+    enum CodingKeys: String, CodingKey {
+        case recipientName = "recipient_name"
+        case recipientPhone = "recipient_phone"
+        case cityCode = "city_code"
+        case cityName = "city_name"
+        case deliveryMode = "delivery_mode"
+        case pvzCode = "pvz_code"
+        case pvzAddress = "pvz_address"
+        case deliveryAddress = "delivery_address"
+    }
+}
+
+struct CdekPackageRequest: Encodable {
+    var weight: Int = 500
+    var length: Int = 20
+    var width: Int = 15
+    var height: Int = 10
+}
+
+struct CdekWaybillCreateRequest: Encodable {
+    let tariffCode: Int
+    let recipientName: String
+    let recipientPhone: String
+    let fromCityCode: Int?
+    let fromCityName: String?
+    let shipmentPoint: String?
+    let shipmentPointAddress: String?
+    let cityCode: Int
+    let cityName: String?
+    let deliveryMode: String        // pvz | door
+    let pvzCode: String?
+    let pvzAddress: String?
+    let deliveryAddress: String?
+    let package: CdekPackageRequest
+    let comment: String?
+    let declaredValue: Double
+    let insurance: Bool
+    let sms: Bool
+    let codAmount: Double
+    let deliveryPaidByRecipient: Bool
+    let deliveryCost: Double
+
+    enum CodingKeys: String, CodingKey {
+        case tariffCode = "tariff_code"
+        case recipientName = "recipient_name"
+        case recipientPhone = "recipient_phone"
+        case fromCityCode = "from_city_code"
+        case fromCityName = "from_city_name"
+        case shipmentPoint = "shipment_point"
+        case shipmentPointAddress = "shipment_point_address"
+        case cityCode = "city_code"
+        case cityName = "city_name"
+        case deliveryMode = "delivery_mode"
+        case pvzCode = "pvz_code"
+        case pvzAddress = "pvz_address"
+        case deliveryAddress = "delivery_address"
+        case package
+        case comment
+        case declaredValue = "declared_value"
+        case insurance
+        case sms
+        case codAmount = "cod_amount"
+        case deliveryPaidByRecipient = "delivery_paid_by_recipient"
+        case deliveryCost = "delivery_cost"
+    }
+}
+
+struct CdekCitiesResponse: Decodable { let items: [CdekCity] }
+struct CdekPvzResponse: Decodable { let items: [CdekPvz] }
+struct CdekTariffsResponse: Decodable { let items: [CdekTariff] }
+
+/// Дефолт отправителя (последний использованный ПВЗ сдачи + город) — /cdek/defaults.
+struct CdekOriginDefault: Decodable {
+    let fromCityCode: Int?
+    let fromCityName: String?
+    let shipmentPoint: String?
+    let shipmentPointAddress: String?
+
+    enum CodingKeys: String, CodingKey {
+        case fromCityCode = "from_city_code"
+        case fromCityName = "from_city_name"
+        case shipmentPoint = "shipment_point"
+        case shipmentPointAddress = "shipment_point_address"
     }
 }
 

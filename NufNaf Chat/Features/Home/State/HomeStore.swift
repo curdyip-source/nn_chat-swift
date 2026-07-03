@@ -603,6 +603,48 @@ final class HomeStore: ObservableObject {
         }
     }
 
+    // MARK: - СДЭК
+
+    func searchCdekCities(accessToken: String?, query: String) async -> [CdekCity] {
+        guard let accessToken, query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else { return [] }
+        do { return try await client.suggestCdekCities(accessToken: accessToken, query: query) } catch { return [] }
+    }
+
+    func fetchCdekDeliveryPoints(accessToken: String?, cityCode: Int, query: String?) async -> [CdekPvz] {
+        guard let accessToken else { return [] }
+        do { return try await client.fetchCdekDeliveryPoints(accessToken: accessToken, cityCode: cityCode, query: query) } catch { return [] }
+    }
+
+    func fetchCdekTariffs(accessToken: String?, toCode: Int, weight: Int, fromCode: Int? = nil) async -> [CdekTariff] {
+        guard let accessToken else { return [] }
+        do { return try await client.fetchCdekTariffs(accessToken: accessToken, toCode: toCode, weight: weight, fromCode: fromCode) } catch { return [] }
+    }
+
+    func createCdekWaybill(accessToken: String?, orderID: Int, request: CdekWaybillCreateRequest) async throws -> HomeOrderCdek {
+        guard let accessToken else { throw AuthServiceError.transport("Сессия не найдена") }
+        return try await client.createCdekWaybill(accessToken: accessToken, orderID: orderID, request: request)
+    }
+
+    func cdekWaybillStatus(accessToken: String?, orderID: Int) async throws -> HomeOrderCdek {
+        guard let accessToken else { throw AuthServiceError.transport("Сессия не найдена") }
+        return try await client.cdekWaybillStatus(accessToken: accessToken, orderID: orderID)
+    }
+
+    func cdekPrefill(accessToken: String?, customer: String) async -> CdekPrefill? {
+        guard let accessToken, !customer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        do { return try await client.cdekPrefill(accessToken: accessToken, customer: customer) } catch { return nil }
+    }
+
+    func deleteCdekWaybill(accessToken: String?, orderID: Int) async throws -> HomeOrderCdek {
+        guard let accessToken else { throw AuthServiceError.transport("Сессия не найдена") }
+        return try await client.deleteCdekWaybill(accessToken: accessToken, orderID: orderID)
+    }
+
+    func cdekDefaults(accessToken: String?) async -> CdekOriginDefault? {
+        guard let accessToken else { return nil }
+        do { return try await client.cdekDefaults(accessToken: accessToken) } catch { return nil }
+    }
+
     func createProduct(accessToken: String?, article: String, name: String, costUSD: String) async throws -> HomeProduct {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")
@@ -924,7 +966,7 @@ final class HomeStore: ObservableObject {
         return try await client.uploadProfilePhoto(accessToken: accessToken, jpegData: jpegData)
     }
 
-    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, orderContactMethod: String?, counterpartyName: String, info: String, saveContact: Bool, orderStatusID: Int? = nil, defaultOrderItemStatusID: Int? = nil, items: [HomeComposerItemDraft]) async {
+    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, orderContactMethod: String?, counterpartyName: String, info: String, saveContact: Bool, orderStatusID: Int? = nil, defaultOrderItemStatusID: Int? = nil, cdek: HomeOrderCdekRequest? = nil, items: [HomeComposerItemDraft]) async {
         guard let accessToken else { return }
         let normalizedItems = items.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.price.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !normalizedItems.isEmpty else { return }
@@ -943,6 +985,7 @@ final class HomeStore: ObservableObject {
                 orderInfo: info,
                 orderStatusID: orderStatusID,
                 saveContact: saveContact,
+                cdek: cdek,
                 items: normalizedItems.map {
                     HomeOrderItemCreateRequest(
                         productID: $0.productID,

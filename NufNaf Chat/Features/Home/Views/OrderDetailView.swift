@@ -38,6 +38,11 @@ struct OrderDetailView: View {
     @State private var assemblySplitStatusID: Int?
     @State private var assemblyAlertMessage: String?
     @State private var commentScrollRequest = 0
+    @State private var cdekSheetOrder: HomeOrder?
+    @State private var cdekOverride: HomeOrderCdek?
+    @State private var didCopyTrack = false
+    @State private var cdekRecreating = false
+    @State private var cdekRecreateConfirm = false
     // Mirrors the detail container's slide offset so the comment dock (a safeAreaInset, outside the
     // container) slides out together with the card on close instead of lingering.
     @State private var dockOffsetX: CGFloat = 0
@@ -86,6 +91,19 @@ struct OrderDetailView: View {
         .animation(.easeInOut(duration: 0.18), value: isCommentAttachmentMenuPresented)
         .task(id: orderID) {
             await loadOrder()
+            // Авто-обновление статуса СДЭК при открытии заказа (если накладная уже создана).
+            if let oid = order?.id, order?.cdek?.hasWaybill == true,
+               let upd = try? await store.cdekWaybillStatus(accessToken: session.currentAccessToken, orderID: oid) {
+                cdekOverride = upd
+            }
+        }
+        .alert("Пересоздать накладную СДЭК?", isPresented: $cdekRecreateConfirm) {
+            Button("Отмена", role: .cancel) {}
+            Button("Сбросить и создать заново", role: .destructive) {
+                if let order { recreateCdek(order: order) }
+            }
+        } message: {
+            Text("Текущая накладная будет удалена в СДЭК. Данные получателя сохранятся — форма откроется заново.")
         }
         .confirmationDialog(
             "В заказе есть товары не в наличии. Разделить заказ?",
@@ -172,6 +190,9 @@ struct OrderDetailView: View {
         .sheet(item: $localFilePreview) { preview in
             LocalFileQuickLookPreview(fileURL: preview.url)
         }
+        .sheet(item: $cdekSheetOrder) { snapshot in
+            CdekWaybillSheet(order: snapshot, store: store, accessToken: session.currentAccessToken, onCreated: afterCdekWaybillCreated)
+        }
         .fullScreenCover(item: $activePhotoAttachment) { attachment in
             OrderCommentPhotoViewer(attachment: attachment) {
                 activePhotoAttachment = nil
@@ -224,6 +245,10 @@ struct OrderDetailView: View {
                             rows: infoRows(for: order),
                             labelWidth: 108
                         )
+
+                        if isCdekOrder(order) {
+                            cdekBlock(order: order)
+                        }
 
                         OrderDocumentItemsSection(
                             title: "Позиции",
@@ -777,6 +802,108 @@ struct OrderDetailView: View {
         return ["Заказ поставщику", "Перемещение"].contains(status.statusStatus)
     }
 
+    private func isCdekOrder(_ order: HomeOrder) -> Bool {
+        order.orderMethodName == "СДЭК" || order.orderSubMethod == "СДЭК"
+    }
+
+    @ViewBuilder
+    private func cdekBlock(order: HomeOrder) -> some View {
+        let c = cdekOverride ?? order.cdek
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 8) {
+                Text("СДЭК").font(.system(size: 17, weight: .semibold, design: .rounded))
+                if let c, c.hasWaybill, let track = c.trackNumber, !track.isEmpty {
+                    Button { copyTrack(track) } label: {
+                        Image(systemName: didCopyTrack ? "checkmark" : "doc.on.doc")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(didCopyTrack ? Color.green : Color.accentColor)
+                            .frame(width: 30, height: 30)
+                            .background((didCopyTrack ? Color.green : Color.accentColor).opacity(0.12), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Копировать трек-номер")
+                }
+                Spacer()
+            }
+            if let c, c.hasWaybill {
+                // Трек + иконка «Пересоздать» в одну строку. Пересоздание сбрасывает
+                // накладную (спасает от «Некорректный заказ») и открывает форму заново.
+                HStack(spacing: 8) {
+                    if let track = c.trackNumber, !track.isEmpty {
+                        Text("Трек-номер: \(track)").font(.subheadline)
+                    } else {
+                        Text("Трек-номер: создаётся…").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Button { cdekRecreateConfirm = true } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(cdekRecreating ? Color.secondary : Color.orange)
+                            .frame(width: 28, height: 28)
+                            .background((cdekRecreating ? Color.secondary : Color.orange).opacity(0.12), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(cdekRecreating)
+                    .accessibilityLabel("Пересоздать накладную")
+                    Spacer()
+                }
+                if let st = c.status, !st.isEmpty {
+                    Text("Статус: \(st)").font(.subheadline).foregroundStyle(.secondary)
+                }
+                // Статус обновляется автоматически (вебхук СДЭК + при открытии карточки).
+            } else {
+                Button { cdekSheetOrder = order } label: {
+                    Label("Создать накладную", systemImage: "shippingbox").font(.subheadline.weight(.semibold))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func afterCdekWaybillCreated(_ c: HomeOrderCdek) {
+        cdekOverride = c
+        // Печать асинхронна: ~несколько секунд ждём трек И подтягиваем комментарии
+        // (накладные-PDF от cdek_helper) в открытую карточку, не дожидаясь переоткрытия.
+        Task {
+            for _ in 0..<8 {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if let oid = order?.id,
+                   let upd = try? await store.cdekWaybillStatus(accessToken: session.currentAccessToken, orderID: oid) {
+                    cdekOverride = upd
+                }
+                await loadOrder()
+            }
+        }
+    }
+
+    private func recreateCdek(order: HomeOrder) {
+        guard !cdekRecreating else { return }
+        cdekRecreating = true
+        Task {
+            defer { cdekRecreating = false }
+            if let upd = try? await store.deleteCdekWaybill(accessToken: session.currentAccessToken, orderID: order.id) {
+                cdekOverride = upd
+                await loadOrder()
+                // Открываем форму пересоздания с сохранёнными данными.
+                cdekSheetOrder = cachedOrderForSheet(order)
+            }
+        }
+    }
+
+    private func cachedOrderForSheet(_ fallback: HomeOrder) -> HomeOrder {
+        order ?? fallback
+    }
+
+    private func copyTrack(_ track: String) {
+        UIPasteboard.general.string = track
+        didCopyTrack = true
+        Task {
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            await MainActor.run { didCopyTrack = false }
+        }
+    }
+
     private func infoRows(for order: HomeOrder) -> [BusinessDocumentInfoRowModel] {
         var rows = [
             BusinessDocumentInfoRowModel(title: "Точка", value: order.orderEstablishmentName ?? establishmentTitle(for: order.orderEstablishmentID)),
@@ -947,10 +1074,7 @@ private struct OrderDocumentItemsSection: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 18)
-        .padding(.bottom, 18)
-        .padding(.trailing, 18)
-        .padding(.leading, 8)
+        .padding(18)
         .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 

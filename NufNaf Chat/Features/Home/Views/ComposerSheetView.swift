@@ -46,6 +46,21 @@ struct ComposerSheetView: View {
 
     private let orderContactMethods = ["WA", "TG", "AV", "IG", "SMS", "MX"]
 
+    // Данные СДЭК (показываются, когда метод/подметод = СДЭК)
+    @State private var cdekName = ""
+    @State private var cdekPhone = ""
+    @State private var cdekCityQuery = ""
+    @State private var cdekCityCode: Int?
+    @State private var cdekCityResults: [CdekCity] = []
+    @State private var cdekMode = "pvz"
+    @State private var cdekPvzQuery = ""
+    @State private var cdekPvzCode: String?
+    @State private var cdekPvzResults: [CdekPvz] = []
+    @State private var cdekDeliveryAddress = ""
+    @State private var cdekPrefilledFor: String?
+    @State private var suppressCdekCitySearch = false
+    @State private var suppressCdekPvzSearch = false
+
     let kind: HomeComposerKind
     let editingOrder: HomeOrder?
     let editingItemStatusIDs: [Int: Int?]
@@ -252,7 +267,127 @@ struct ComposerSheetView: View {
                     onSelect: { selectedOrderSubMethod = $0 }
                 )
             }
+
+            if isCdekComposer {
+                composerDivider
+                cdekComposerBlock
+                    .onAppear { prefillCdekIfNeeded() }
+                    .onChange(of: counterpartyName) { _, _ in prefillCdekIfNeeded() }
+            }
         }
+    }
+
+    private var isCdekComposer: Bool {
+        selectedOrderMethod?.orderMethodName == "СДЭК" || selectedOrderSubMethod == "СДЭК"
+    }
+
+    @ViewBuilder
+    private var cdekComposerBlock: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Данные СДЭК").font(.subheadline.weight(.semibold))
+            composerField(title: "Получатель (ФИО)", text: $cdekName, placeholder: "Иван Иванов")
+            composerField(title: "Телефон", text: $cdekPhone, placeholder: "+7 900 000-00-00", keyboard: .phonePad)
+
+            composerField(title: "Город (поиск)", text: $cdekCityQuery, placeholder: "Начните вводить город")
+                .onChange(of: cdekCityQuery) { _, q in searchCdekCity(q) }
+            ForEach(cdekCityResults) { city in
+                Button {
+                    suppressCdekCitySearch = true
+                    cdekCityQuery = city.fullName ?? ""
+                    cdekCityCode = city.code
+                    cdekCityResults = []
+                } label: {
+                    Text(city.fullName ?? "—").font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            Picker("Способ", selection: $cdekMode) {
+                Text("В пункт выдачи").tag("pvz")
+                Text("Курьером").tag("door")
+            }.pickerStyle(.segmented)
+
+            if cdekMode == "pvz" {
+                composerField(title: "Пункт выдачи (по адресу)", text: $cdekPvzQuery, placeholder: cdekCityCode == nil ? "Сначала выберите город" : "Поиск ПВЗ")
+                    .onChange(of: cdekPvzQuery) { _, q in searchCdekPvz(q) }
+                ForEach(cdekPvzResults) { p in
+                    Button {
+                        suppressCdekPvzSearch = true
+                        cdekPvzQuery = p.address ?? ""
+                        cdekPvzCode = p.code
+                        cdekPvzResults = []
+                    } label: {
+                        Text(p.address ?? "—").font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } else {
+                composerField(title: "Адрес доставки", text: $cdekDeliveryAddress, placeholder: "Улица, дом, кв")
+            }
+        }
+    }
+
+    private func searchCdekCity(_ query: String) {
+        if suppressCdekCitySearch { suppressCdekCitySearch = false; return }
+        cdekCityCode = nil
+        cdekPvzCode = nil
+        Task {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard cdekCityQuery == query else { return }
+            let res = await store.searchCdekCities(accessToken: session.currentAccessToken, query: query)
+            guard cdekCityQuery == query else { return }
+            cdekCityResults = res
+        }
+    }
+
+    private func searchCdekPvz(_ query: String) {
+        if suppressCdekPvzSearch { suppressCdekPvzSearch = false; return }
+        cdekPvzCode = nil
+        guard let code = cdekCityCode else { cdekPvzResults = []; return }
+        Task {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard cdekPvzQuery == query else { return }
+            let res = await store.fetchCdekDeliveryPoints(accessToken: session.currentAccessToken, cityCode: code, query: query)
+            guard cdekPvzQuery == query else { return }
+            cdekPvzResults = res
+        }
+    }
+
+    private func prefillCdekIfNeeded() {
+        let name = counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isCdekComposer, !name.isEmpty, cdekPrefilledFor != name else { return }
+        cdekPrefilledFor = name
+        Task {
+            guard let item = await store.cdekPrefill(accessToken: session.currentAccessToken, customer: name) else { return }
+            if let v = item.recipientName, cdekName.isEmpty { cdekName = v }
+            if let v = item.recipientPhone, cdekPhone.isEmpty { cdekPhone = v }
+            // Текст города/ПВЗ выставляем под suppress-флагом, иначе onChange →
+            // searchCdek* обнулит только что подтянутый код, и тариф не загрузится.
+            if let v = item.cityName, cdekCityQuery.isEmpty {
+                suppressCdekCitySearch = true
+                cdekCityQuery = v
+            }
+            if let v = item.cityCode, cdekCityCode == nil { cdekCityCode = v }
+            if item.deliveryMode == "door" || item.deliveryMode == "pvz" { cdekMode = item.deliveryMode! }
+            if let v = item.pvzAddress, cdekPvzQuery.isEmpty {
+                suppressCdekPvzSearch = true
+                cdekPvzQuery = v
+            }
+            if let v = item.pvzCode, cdekPvzCode == nil { cdekPvzCode = v }
+            if let v = item.deliveryAddress, cdekDeliveryAddress.isEmpty { cdekDeliveryAddress = v }
+        }
+    }
+
+    private func cdekRequestForComposer() -> HomeOrderCdekRequest? {
+        guard isCdekComposer else { return nil }
+        return HomeOrderCdekRequest(
+            recipientName: cdekName.isEmpty ? nil : cdekName,
+            recipientPhone: cdekPhone.isEmpty ? nil : cdekPhone,
+            cityCode: cdekCityCode,
+            cityName: cdekCityQuery.isEmpty ? nil : cdekCityQuery,
+            deliveryMode: cdekMode,
+            pvzCode: cdekMode == "pvz" ? cdekPvzCode : nil,
+            pvzAddress: cdekMode == "pvz" ? (cdekPvzQuery.isEmpty ? nil : cdekPvzQuery) : nil,
+            deliveryAddress: cdekMode == "door" ? (cdekDeliveryAddress.isEmpty ? nil : cdekDeliveryAddress) : nil
+        )
     }
 
     @ViewBuilder
@@ -1464,6 +1599,7 @@ struct ComposerSheetView: View {
             saveContact: shouldSaveContact,
             orderStatusID: shouldMarkItemsInStock ? orderAssemblyStatusID : nil,
             defaultOrderItemStatusID: shouldMarkItemsInStock ? inStockOrderItemStatusID : nil,
+            cdek: cdekRequestForComposer(),
             items: selectedItems
         )
         dismissProductOverlays(clearSearch: true)
