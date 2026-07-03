@@ -42,6 +42,7 @@ struct OrderDetailView: View {
     @State private var cdekOverride: HomeOrderCdek?
     @State private var didCopyTrack = false
     @State private var cdekRecreating = false
+    @State private var cdekRecreateConfirm = false
     // Mirrors the detail container's slide offset so the comment dock (a safeAreaInset, outside the
     // container) slides out together with the card on close instead of lingering.
     @State private var dockOffsetX: CGFloat = 0
@@ -95,6 +96,18 @@ struct OrderDetailView: View {
                let upd = try? await store.cdekWaybillStatus(accessToken: session.currentAccessToken, orderID: oid) {
                 cdekOverride = upd
             }
+        }
+        .confirmationDialog(
+            "Пересоздать накладную СДЭК?",
+            isPresented: $cdekRecreateConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Сбросить и создать заново", role: .destructive) {
+                if let order { recreateCdek(order: order) }
+            }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Текущая накладная будет удалена в СДЭК. Данные получателя сохранятся — форма откроется заново.")
         }
         .confirmationDialog(
             "В заказе есть товары не в наличии. Разделить заказ?",
@@ -829,7 +842,7 @@ struct OrderDetailView: View {
                 // поэтому ручная кнопка «Обновить статус» убрана.
                 // Пересоздание: если накладная создалась невалидной («Некорректный заказ»)
                 // или данные надо поправить — сбрасываем и открываем форму заново.
-                Button(role: .destructive) { recreateCdek(order: order) } label: {
+                Button(role: .destructive) { cdekRecreateConfirm = true } label: {
                     Label(cdekRecreating ? "Сброс…" : "Пересоздать накладную", systemImage: "arrow.triangle.2.circlepath")
                         .font(.subheadline)
                 }
