@@ -110,13 +110,11 @@ struct CdekWaybillSheet: View {
                     }
                 }
 
-                Section("Габариты (вес г · см)") {
-                    HStack {
-                        numberField("Вес", $weight)
-                        numberField("Длина", $length)
-                        numberField("Ширина", $width)
-                        numberField("Высота", $height)
-                    }
+                Section("Габариты посылки") {
+                    numberField("Вес, г", $weight)
+                    numberField("Длина, см", $length)
+                    numberField("Ширина, см", $width)
+                    numberField("Высота, см", $height)
                 }
 
                 Section("Тариф") {
@@ -161,7 +159,14 @@ struct CdekWaybillSheet: View {
     }
 
     private func numberField(_ title: String, _ text: Binding<String>) -> some View {
-        TextField(title, text: text).keyboardType(.numberPad)
+        HStack {
+            Text(title).foregroundStyle(.secondary)
+            Spacer()
+            TextField("0", text: text)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: 140)
+        }
     }
 
     private func searchCity(_ query: String) {
