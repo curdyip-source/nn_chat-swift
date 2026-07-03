@@ -628,6 +628,27 @@ struct HomeMessageUpdateRequest: Encodable {
     }
 }
 
+struct HomeOrderCdekRequest: Encodable {
+    let recipientName: String?
+    let recipientPhone: String?
+    let cityCode: Int?
+    let cityName: String?
+    let deliveryMode: String?
+    let pvzCode: String?
+    let pvzAddress: String?
+    let deliveryAddress: String?
+    enum CodingKeys: String, CodingKey {
+        case recipientName = "recipient_name"
+        case recipientPhone = "recipient_phone"
+        case cityCode = "city_code"
+        case cityName = "city_name"
+        case deliveryMode = "delivery_mode"
+        case pvzCode = "pvz_code"
+        case pvzAddress = "pvz_address"
+        case deliveryAddress = "delivery_address"
+    }
+}
+
 struct HomeOrderCreateRequest: Encodable {
     let orderEstablishmentID: Int
     let orderMethodID: Int
@@ -637,6 +658,7 @@ struct HomeOrderCreateRequest: Encodable {
     let orderInfo: String
     let orderStatusID: Int?
     let saveContact: Bool
+    let cdek: HomeOrderCdekRequest?
     let items: [HomeOrderItemCreateRequest]
 
     enum CodingKeys: String, CodingKey {
@@ -648,6 +670,7 @@ struct HomeOrderCreateRequest: Encodable {
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
         case saveContact = "save_contact"
+        case cdek
         case items
     }
 }
