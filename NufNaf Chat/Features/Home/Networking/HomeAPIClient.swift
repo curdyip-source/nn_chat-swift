@@ -340,10 +340,12 @@ struct HomeAPIClient {
         return response.items
     }
 
-    func fetchCdekTariffs(accessToken: String, toCode: Int, weight: Int) async throws -> [CdekTariff] {
+    func fetchCdekTariffs(accessToken: String, toCode: Int, weight: Int, fromCode: Int? = nil) async throws -> [CdekTariff] {
+        var query = [URLQueryItem(name: "to_code", value: String(toCode)), URLQueryItem(name: "weight", value: String(weight))]
+        if let fromCode { query.append(URLQueryItem(name: "from_code", value: String(fromCode))) }
         let response: CdekTariffsResponse = try await send(
             path: "cdek/tariffs",
-            queryItems: [URLQueryItem(name: "to_code", value: String(toCode)), URLQueryItem(name: "weight", value: String(weight))],
+            queryItems: query,
             method: "GET", body: Optional<String>.none, accessToken: accessToken)
         return response.items
     }

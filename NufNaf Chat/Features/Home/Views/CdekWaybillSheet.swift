@@ -14,6 +14,11 @@ struct CdekWaybillSheet: View {
     // Предзаполнение из данных заказа (сохранённых при создании / прошлой накладной).
     @State private var recipientName: String
     @State private var recipientPhone: String
+    // Город отправителя (origin). Дефолт — Москва (44); меняем на Тулу и др. при необходимости.
+    @State private var fromCityQuery = "Москва"
+    @State private var fromCityCode: Int? = 44
+    @State private var fromCityResults: [CdekCity] = []
+    @State private var suppressFromCitySearch = false
     @State private var cityQuery: String
     @State private var cityCode: Int?
     @State private var cityResults: [CdekCity] = []
@@ -47,7 +52,7 @@ struct CdekWaybillSheet: View {
     @State private var suppressPvzSearch = false
     @State private var numBuffers: [FocusField: String] = [:]   // очистить при фокусе, вернуть если не меняли
     @FocusState private var focusedField: FocusField?
-    private enum FocusField: Hashable { case city, pvz, weight, length, width, height, declared, cod }
+    private enum FocusField: Hashable { case fromCity, city, pvz, weight, length, width, height, declared, cod }
 
     init(order: HomeOrder, store: HomeStore, accessToken: String?, onCreated: @escaping (HomeOrderCdek) -> Void) {
         self.order = order
@@ -76,7 +81,23 @@ struct CdekWaybillSheet: View {
                     textFieldRow("Телефон", $recipientPhone, placeholder: "+7 900 000-00-00", keyboard: .phonePad)
                 }
 
-                Section("Город") {
+                Section("Откуда — город отправителя (по умолчанию Москва)") {
+                    TextField("Город отправителя", text: $fromCityQuery)
+                        .focused($focusedField, equals: .fromCity)
+                        .id("fromCityField")
+                        .onChange(of: fromCityQuery) { _, q in searchFromCity(q) }
+                    ForEach(fromCityResults) { city in
+                        Button {
+                            suppressFromCitySearch = true
+                            fromCityQuery = city.fullName ?? ""
+                            fromCityCode = city.code
+                            fromCityResults = []
+                            hideKeyboard()
+                        } label: { Text(city.fullName ?? "—").font(.subheadline) }
+                    }
+                }
+
+                Section("Куда — город получателя") {
                     TextField("Поиск по названию", text: $cityQuery)
                         .focused($focusedField, equals: .city)
                         .id("cityField")
@@ -184,12 +205,13 @@ struct CdekWaybillSheet: View {
                     Button("Готово") { hideKeyboard() }
                 }
             }
-            .task(id: "\(cityCode ?? 0)-\(weight)") { await loadTariffs() }
+            .task(id: "\(fromCityCode ?? 0)-\(cityCode ?? 0)-\(weight)") { await loadTariffs() }
             .onChange(of: focusedField) { _, field in
-                guard let field, field == .city || field == .pvz else { return }
+                guard let field, field == .fromCity || field == .city || field == .pvz else { return }
                 // Поднимаем поле к верху, чтобы результаты поиска были видны над клавиатурой.
+                let anchor = field == .fromCity ? "fromCityField" : (field == .city ? "cityField" : "pvzField")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                    withAnimation { proxy.scrollTo(field == .city ? "cityField" : "pvzField", anchor: .top) }
+                    withAnimation { proxy.scrollTo(anchor, anchor: .top) }
                 }
             }
             }
@@ -242,6 +264,18 @@ struct CdekWaybillSheet: View {
         }
     }
 
+    private func searchFromCity(_ query: String) {
+        if suppressFromCitySearch { suppressFromCitySearch = false; return }
+        fromCityCode = nil
+        Task {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard fromCityQuery == query else { return }
+            let res = await store.searchCdekCities(accessToken: accessToken, query: query)
+            guard fromCityQuery == query else { return }
+            fromCityResults = res
+        }
+    }
+
     private func searchPvz(_ query: String) {
         if suppressPvzSearch { suppressPvzSearch = false; return }
         pvzCode = nil
@@ -257,9 +291,9 @@ struct CdekWaybillSheet: View {
 
     private func loadTariffs() async {
         guard let cityCode else { tariffs = []; tariffCode = nil; loadedTariffKey = nil; return }
-        let key = "\(cityCode)-\(Int(weight) ?? 500)"
-        guard loadedTariffKey != key else { return }   // уже загружено для этого города+веса — не дёргаем
-        let res = await store.fetchCdekTariffs(accessToken: accessToken, toCode: cityCode, weight: Int(weight) ?? 500)
+        let key = "\(fromCityCode ?? 0)-\(cityCode)-\(Int(weight) ?? 500)"
+        guard loadedTariffKey != key else { return }   // уже загружено для этого origin+города+веса
+        let res = await store.fetchCdekTariffs(accessToken: accessToken, toCode: cityCode, weight: Int(weight) ?? 500, fromCode: fromCityCode)
         tariffs = res
         loadedTariffKey = key
     }
@@ -278,6 +312,8 @@ struct CdekWaybillSheet: View {
             tariffCode: tariffCode,
             recipientName: recipientName.trimmingCharacters(in: .whitespaces),
             recipientPhone: recipientPhone.trimmingCharacters(in: .whitespaces),
+            fromCityCode: fromCityCode,
+            fromCityName: fromCityQuery.isEmpty ? nil : fromCityQuery,
             cityCode: cityCode,
             cityName: cityQuery.isEmpty ? nil : cityQuery,
             deliveryMode: mode,

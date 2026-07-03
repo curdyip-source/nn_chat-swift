@@ -615,9 +615,9 @@ final class HomeStore: ObservableObject {
         do { return try await client.fetchCdekDeliveryPoints(accessToken: accessToken, cityCode: cityCode, query: query) } catch { return [] }
     }
 
-    func fetchCdekTariffs(accessToken: String?, toCode: Int, weight: Int) async -> [CdekTariff] {
+    func fetchCdekTariffs(accessToken: String?, toCode: Int, weight: Int, fromCode: Int? = nil) async -> [CdekTariff] {
         guard let accessToken else { return [] }
-        do { return try await client.fetchCdekTariffs(accessToken: accessToken, toCode: toCode, weight: weight) } catch { return [] }
+        do { return try await client.fetchCdekTariffs(accessToken: accessToken, toCode: toCode, weight: weight, fromCode: fromCode) } catch { return [] }
     }
 
     func createCdekWaybill(accessToken: String?, orderID: Int, request: CdekWaybillCreateRequest) async throws -> HomeOrderCdek {

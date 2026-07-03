@@ -838,6 +838,8 @@ struct CdekWaybillCreateRequest: Encodable {
     let tariffCode: Int
     let recipientName: String
     let recipientPhone: String
+    let fromCityCode: Int?
+    let fromCityName: String?
     let cityCode: Int
     let cityName: String?
     let deliveryMode: String        // pvz | door
@@ -857,6 +859,8 @@ struct CdekWaybillCreateRequest: Encodable {
         case tariffCode = "tariff_code"
         case recipientName = "recipient_name"
         case recipientPhone = "recipient_phone"
+        case fromCityCode = "from_city_code"
+        case fromCityName = "from_city_name"
         case cityCode = "city_code"
         case cityName = "city_name"
         case deliveryMode = "delivery_mode"
