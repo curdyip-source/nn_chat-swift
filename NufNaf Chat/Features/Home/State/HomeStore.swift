@@ -603,6 +603,38 @@ final class HomeStore: ObservableObject {
         }
     }
 
+    // MARK: - СДЭК
+
+    func searchCdekCities(accessToken: String?, query: String) async -> [CdekCity] {
+        guard let accessToken, query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else { return [] }
+        do { return try await client.suggestCdekCities(accessToken: accessToken, query: query) } catch { return [] }
+    }
+
+    func fetchCdekDeliveryPoints(accessToken: String?, cityCode: Int, query: String?) async -> [CdekPvz] {
+        guard let accessToken else { return [] }
+        do { return try await client.fetchCdekDeliveryPoints(accessToken: accessToken, cityCode: cityCode, query: query) } catch { return [] }
+    }
+
+    func fetchCdekTariffs(accessToken: String?, toCode: Int, weight: Int) async -> [CdekTariff] {
+        guard let accessToken else { return [] }
+        do { return try await client.fetchCdekTariffs(accessToken: accessToken, toCode: toCode, weight: weight) } catch { return [] }
+    }
+
+    func createCdekWaybill(accessToken: String?, orderID: Int, request: CdekWaybillCreateRequest) async throws -> HomeOrderCdek {
+        guard let accessToken else { throw AuthServiceError.transport("Сессия не найдена") }
+        return try await client.createCdekWaybill(accessToken: accessToken, orderID: orderID, request: request)
+    }
+
+    func cdekWaybillStatus(accessToken: String?, orderID: Int) async throws -> HomeOrderCdek {
+        guard let accessToken else { throw AuthServiceError.transport("Сессия не найдена") }
+        return try await client.cdekWaybillStatus(accessToken: accessToken, orderID: orderID)
+    }
+
+    func cdekPrefill(accessToken: String?, customer: String) async -> CdekPrefill? {
+        guard let accessToken, !customer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        do { return try await client.cdekPrefill(accessToken: accessToken, customer: customer) } catch { return nil }
+    }
+
     func createProduct(accessToken: String?, article: String, name: String, costUSD: String) async throws -> HomeProduct {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")

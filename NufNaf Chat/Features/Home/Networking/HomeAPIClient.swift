@@ -321,6 +321,54 @@ struct HomeAPIClient {
         return response.item
     }
 
+    // MARK: - СДЭК
+
+    func suggestCdekCities(accessToken: String, query: String) async throws -> [CdekCity] {
+        let response: CdekCitiesResponse = try await send(
+            path: "cdek/cities/suggest",
+            queryItems: [URLQueryItem(name: "name", value: query)],
+            method: "GET", body: Optional<String>.none, accessToken: accessToken)
+        return response.items
+    }
+
+    func fetchCdekDeliveryPoints(accessToken: String, cityCode: Int, query: String?) async throws -> [CdekPvz] {
+        var items = [URLQueryItem(name: "city_code", value: String(cityCode))]
+        if let query, !query.isEmpty { items.append(URLQueryItem(name: "query", value: query)) }
+        let response: CdekPvzResponse = try await send(
+            path: "cdek/delivery-points", queryItems: items,
+            method: "GET", body: Optional<String>.none, accessToken: accessToken)
+        return response.items
+    }
+
+    func fetchCdekTariffs(accessToken: String, toCode: Int, weight: Int) async throws -> [CdekTariff] {
+        let response: CdekTariffsResponse = try await send(
+            path: "cdek/tariffs",
+            queryItems: [URLQueryItem(name: "to_code", value: String(toCode)), URLQueryItem(name: "weight", value: String(weight))],
+            method: "GET", body: Optional<String>.none, accessToken: accessToken)
+        return response.items
+    }
+
+    func createCdekWaybill(accessToken: String, orderID: Int, request: CdekWaybillCreateRequest) async throws -> HomeOrderCdek {
+        let response: HomeItemEnvelope<HomeOrderCdek> = try await send(
+            path: "cdek/orders/\(orderID)/waybill", method: "POST", body: request,
+            accessToken: accessToken, idempotencyKey: UUID().uuidString)
+        return response.item
+    }
+
+    func cdekWaybillStatus(accessToken: String, orderID: Int) async throws -> HomeOrderCdek {
+        let response: HomeItemEnvelope<HomeOrderCdek> = try await send(
+            path: "cdek/orders/\(orderID)/status", method: "GET", body: Optional<String>.none, accessToken: accessToken)
+        return response.item
+    }
+
+    func cdekPrefill(accessToken: String, customer: String) async throws -> CdekPrefill {
+        let response: HomeItemEnvelope<CdekPrefill> = try await send(
+            path: "cdek/prefill",
+            queryItems: [URLQueryItem(name: "customer", value: customer)],
+            method: "GET", body: Optional<String>.none, accessToken: accessToken)
+        return response.item
+    }
+
     private func send<RequestBody: Encodable, ResponseBody: Decodable>(
         path: String,
         queryItems: [URLQueryItem] = [],
