@@ -44,6 +44,7 @@ struct CdekWaybillSheet: View {
     // чтобы onChange не сбрасывал выбранный код города/ПВЗ и не запускал поиск.
     @State private var suppressCitySearch = false
     @State private var suppressPvzSearch = false
+    @State private var editBuffer = ""   // для «очистить при фокусе, вернуть если не меняли»
 
     init(order: HomeOrder, store: HomeStore, accessToken: String?, onCreated: @escaping (HomeOrderCdek) -> Void) {
         self.order = order
@@ -67,8 +68,8 @@ struct CdekWaybillSheet: View {
         NavigationStack {
             Form {
                 Section("Получатель") {
-                    TextField("ФИО", text: $recipientName)
-                    TextField("Телефон", text: $recipientPhone).keyboardType(.phonePad)
+                    labeledField("ФИО", $recipientName, placeholder: "Иван Иванов")
+                    labeledField("Телефон", $recipientPhone, placeholder: "+7 900 000-00-00", keyboard: .phonePad)
                 }
 
                 Section("Город") {
@@ -153,6 +154,7 @@ struct CdekWaybillSheet: View {
                 }
             }
             .scrollDismissesKeyboard(.immediately)
+            .simultaneousGesture(TapGesture().onEnded { hideKeyboard() })
             .navigationTitle("Накладная СДЭК")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -171,14 +173,31 @@ struct CdekWaybillSheet: View {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
+    private func labeledField(_ title: String, _ text: Binding<String>, placeholder: String = "", keyboard: UIKeyboardType = .default) -> some View {
+        HStack {
+            Text(title).foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            TextField(placeholder, text: text)
+                .keyboardType(keyboard)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
     private func numberField(_ title: String, _ text: Binding<String>) -> some View {
         HStack {
             Text(title).foregroundStyle(.secondary).lineLimit(1)
             Spacer(minLength: 8)
-            TextField("0", text: text)
-                .keyboardType(.numberPad)
-                .multilineTextAlignment(.trailing)
-                .frame(maxWidth: 96)
+            TextField("0", text: text, onEditingChanged: { editing in
+                if editing {
+                    editBuffer = text.wrappedValue
+                    text.wrappedValue = ""
+                } else if text.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty {
+                    text.wrappedValue = editBuffer   // не меняли — вернуть прежнее
+                }
+            })
+            .keyboardType(.numberPad)
+            .multilineTextAlignment(.trailing)
+            .frame(maxWidth: 96)
         }
     }
 

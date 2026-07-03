@@ -38,7 +38,7 @@ struct OrderDetailView: View {
     @State private var assemblySplitStatusID: Int?
     @State private var assemblyAlertMessage: String?
     @State private var commentScrollRequest = 0
-    @State private var isCdekSheetPresented = false
+    @State private var cdekSheetOrder: HomeOrder?
     @State private var cdekOverride: HomeOrderCdek?
     // Mirrors the detail container's slide offset so the comment dock (a safeAreaInset, outside the
     // container) slides out together with the card on close instead of lingering.
@@ -174,10 +174,8 @@ struct OrderDetailView: View {
         .sheet(item: $localFilePreview) { preview in
             LocalFileQuickLookPreview(fileURL: preview.url)
         }
-        .sheet(isPresented: $isCdekSheetPresented) {
-            if let order {
-                CdekWaybillSheet(order: order, store: store, accessToken: session.currentAccessToken, onCreated: afterCdekWaybillCreated)
-            }
+        .sheet(item: $cdekSheetOrder) { snapshot in
+            CdekWaybillSheet(order: snapshot, store: store, accessToken: session.currentAccessToken, onCreated: afterCdekWaybillCreated)
         }
         .fullScreenCover(item: $activePhotoAttachment) { attachment in
             OrderCommentPhotoViewer(attachment: attachment) {
@@ -795,8 +793,8 @@ struct OrderDetailView: View {
     @ViewBuilder
     private func cdekBlock(order: HomeOrder) -> some View {
         let c = cdekOverride ?? order.cdek
-        VStack(alignment: .leading, spacing: 8) {
-            Text("СДЭК").font(.headline)
+        VStack(alignment: .leading, spacing: 14) {
+            Text("СДЭК").font(.system(size: 17, weight: .semibold, design: .rounded))
             if let c, c.hasWaybill {
                 if let track = c.trackNumber, !track.isEmpty {
                     Text("Трек-номер: \(track)").font(.subheadline)
@@ -810,14 +808,14 @@ struct OrderDetailView: View {
                     Label("Обновить статус", systemImage: "arrow.clockwise").font(.subheadline)
                 }
             } else {
-                Button { isCdekSheetPresented = true } label: {
+                Button { cdekSheetOrder = order } label: {
                     Label("Создать накладную", systemImage: "shippingbox").font(.subheadline.weight(.semibold))
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(18)
+        .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private func afterCdekWaybillCreated(_ c: HomeOrderCdek) {
