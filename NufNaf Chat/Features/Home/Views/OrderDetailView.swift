@@ -824,9 +824,8 @@ struct OrderDetailView: View {
                 if let st = c.status, !st.isEmpty {
                     Text("Статус: \(st)").font(.subheadline).foregroundStyle(.secondary)
                 }
-                Button { refreshCdekStatus() } label: {
-                    Label("Обновить статус", systemImage: "arrow.clockwise").font(.subheadline)
-                }
+                // Статус обновляется автоматически (вебхук СДЭК + при открытии карточки),
+                // поэтому ручная кнопка «Обновить статус» убрана.
             } else {
                 Button { cdekSheetOrder = order } label: {
                     Label("Создать накладную", systemImage: "shippingbox").font(.subheadline.weight(.semibold))
@@ -860,15 +859,6 @@ struct OrderDetailView: View {
         Task {
             try? await Task.sleep(nanoseconds: 1_600_000_000)
             await MainActor.run { didCopyTrack = false }
-        }
-    }
-
-    private func refreshCdekStatus() {
-        guard let oid = order?.id else { return }
-        Task {
-            if let upd = try? await store.cdekWaybillStatus(accessToken: session.currentAccessToken, orderID: oid) {
-                cdekOverride = upd
-            }
         }
     }
 
