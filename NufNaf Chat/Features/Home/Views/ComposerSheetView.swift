@@ -1443,7 +1443,6 @@ struct ComposerSheetView: View {
                     let isSelected = selectedValue == option
 
                     Button {
-                        dismissKeyboard()
                         onSelect(option)
                     } label: {
                         Text(option)
@@ -1477,7 +1476,6 @@ struct ComposerSheetView: View {
                         let isSelected = item.id == selectedID
 
                         Button {
-                            dismissKeyboard()
                             onSelect(item)
                         } label: {
                             Text(value(item))
@@ -1500,7 +1498,6 @@ struct ComposerSheetView: View {
                         let isSelected = item.id == selectedID
 
                         Button {
-                            dismissKeyboard()
                             onSelect(item)
                         } label: {
                             Text(value(item))
