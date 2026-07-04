@@ -47,6 +47,8 @@ struct AuthUser: Codable, Equatable {
     let userCreatedAt: String?
     // Права по складам: по строке настроек на каждый склад-членство.
     let userEstablishmentRoles: [EstablishmentPermission]?
+    // Разрешённые разделы меню (ось A). nil = все операционные разделы.
+    let userSections: [String]?
 
     enum CodingKeys: String, CodingKey {
         case userID = "user_id"
@@ -61,6 +63,7 @@ struct AuthUser: Codable, Equatable {
         case userVerifiedUserID = "user_verified_user_id"
         case userCreatedAt = "user_created_at"
         case userEstablishmentRoles = "user_establishment_roles"
+        case userSections = "user_sections"
     }
 }
 
