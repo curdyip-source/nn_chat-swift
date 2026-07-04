@@ -214,10 +214,6 @@ final class AppSession: ObservableObject {
         loadStoredSession()?.accessToken
     }
 
-    var currentRefreshToken: String? {
-        loadStoredSession()?.refreshToken
-    }
-
     var currentUser: AuthUser? {
         switch screenState {
         case let .authenticated(user):

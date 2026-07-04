@@ -408,7 +408,9 @@ struct HomeView: View {
             case .crm:
                 crmContent
             case .price:
-                PriceWebView(accessToken: session.currentAccessToken, refreshToken: session.currentRefreshToken)
+                Color.black
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea()
             }
         }
     }
