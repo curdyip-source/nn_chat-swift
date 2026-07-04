@@ -16,6 +16,16 @@ struct APIErrorPayload: Decodable {
     let message: String
 }
 
+struct EstablishmentRole: Codable, Equatable {
+    let establishmentID: Int
+    let role: String
+
+    enum CodingKeys: String, CodingKey {
+        case establishmentID = "establishment_id"
+        case role
+    }
+}
+
 struct AuthUser: Codable, Equatable {
     let userID: Int
     let userLogin: String
@@ -28,6 +38,7 @@ struct AuthUser: Codable, Equatable {
     let userAddress: String
     let userVerifiedUserID: Int?
     let userCreatedAt: String?
+    let userEstablishmentRoles: [EstablishmentRole]?
 
     enum CodingKeys: String, CodingKey {
         case userID = "user_id"
@@ -41,6 +52,7 @@ struct AuthUser: Codable, Equatable {
         case userAddress = "user_address"
         case userVerifiedUserID = "user_verified_user_id"
         case userCreatedAt = "user_created_at"
+        case userEstablishmentRoles = "user_establishment_roles"
     }
 }
 
