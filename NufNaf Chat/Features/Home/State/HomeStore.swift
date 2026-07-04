@@ -23,6 +23,10 @@ final class HomeStore: ObservableObject {
     @Published var participants: [ChatParticipant] = []
     @Published private(set) var orderCommentReadRevision = 0
 
+    /// Вызывается при SSE-событии `user_updated` (реалтайм-смена прав) с id затронутого
+    /// пользователя. Проводится из HomeView, чтобы перечитать /me и применить доступ на лету.
+    var onUserUpdated: ((Int) -> Void)?
+
     private let client: HomeAPIClient
     private let stream = MessageStreamClient()
     private let defaults = UserDefaults.standard
@@ -316,6 +320,12 @@ final class HomeStore: ObservableObject {
             guard let id = event.messageID else { return }
             applySyncItems([.tombstone(id: id)])
             schedulePersist()
+        case "user_updated":
+            // Реалтайм-смена прав/разделов/статуса. Пробрасываем наверх (сверку с текущим
+            // пользователем и перечитывание /me делает HomeView).
+            if let userID = event.subjectUserID {
+                onUserUpdated?(userID)
+            }
         default:
             break
         }

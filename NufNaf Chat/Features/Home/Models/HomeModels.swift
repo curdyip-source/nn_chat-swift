@@ -692,6 +692,9 @@ struct HomeOrder: Codable, Identifiable, Hashable {
     let orderStatus: String?
     let orderStatusColor: String?
     let orderCreatedAt: String?
+    let orderOwnerUserLogin: String?
+    let orderOwnerFirstName: String?
+    let orderOwnerSecondName: String?
     let items: [HomeOrderItem]
     let comments: [HomeOrderComment]
     let cdek: HomeOrderCdek?
@@ -710,9 +713,25 @@ struct HomeOrder: Codable, Identifiable, Hashable {
         case orderStatus = "order_status"
         case orderStatusColor = "order_status_color"
         case orderCreatedAt = "order_created_at"
+        case orderOwnerUserLogin = "order_owner_user_login"
+        case orderOwnerFirstName = "order_owner_first_name"
+        case orderOwnerSecondName = "order_owner_second_name"
         case items
         case comments
         case cdek
+    }
+
+    /// ФИО создателя заказа (Фамилия Имя), иначе логин. Для строки «Кем создана».
+    var orderOwnerDisplayName: String? {
+        let fullName = [orderOwnerSecondName, orderOwnerFirstName]
+            .compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " ")
+        if !fullName.isEmpty { return fullName }
+        if let login = orderOwnerUserLogin, !login.isEmpty { return login }
+        return nil
     }
 }
 

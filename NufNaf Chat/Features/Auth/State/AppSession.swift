@@ -242,6 +242,25 @@ final class AppSession: ObservableObject {
         loadChatFilterState(for: user.userID)
     }
 
+    /// Реалтайм-обновление прав: перечитываем /me и обновляем пользователя в сессии.
+    /// НЕ трогаем chatFilterState (в т.ч. текущий режим) — гейтинг недоступного режима
+    /// делает HomeView через onChange(currentUser). Ошибки/сеть — молча игнорируем.
+    func refreshCurrentUser() async {
+        guard let accessToken = currentAccessToken else { return }
+        guard let meResponse = try? await client.me(accessToken: accessToken) else { return }
+        if var storedSession = loadStoredSession() {
+            storedSession = StoredSession(
+                accessToken: storedSession.accessToken,
+                refreshToken: storedSession.refreshToken,
+                user: meResponse.user,
+                accessExpiresAt: storedSession.accessExpiresAt,
+                refreshExpiresAt: storedSession.refreshExpiresAt
+            )
+            saveStoredSession(storedSession)
+        }
+        screenState = .authenticated(meResponse.user)
+    }
+
     func openProfile() {
         guard currentUser != nil else { return }
         activeDocument = nil

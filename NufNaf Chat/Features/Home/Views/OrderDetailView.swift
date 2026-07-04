@@ -917,6 +917,9 @@ struct OrderDetailView: View {
             rows.append(BusinessDocumentInfoRowModel(title: "Способ связи", value: contactMethod))
         }
         rows.append(BusinessDocumentInfoRowModel(title: "Создана", value: formattedDate(order.orderCreatedAt)))
+        if let owner = order.orderOwnerDisplayName {
+            rows.append(BusinessDocumentInfoRowModel(title: "Кем создана", value: owner))
+        }
         return rows
     }
 

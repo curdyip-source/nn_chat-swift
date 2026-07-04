@@ -48,10 +48,13 @@ struct MessageStreamEvent: Decodable {
     let type: String
     let message: HomeMessage?
     let messageID: Int?
+    /// Для события `user_updated` — id пользователя, чьи права/разделы/статус изменились.
+    let subjectUserID: Int?
 
     enum CodingKeys: String, CodingKey {
         case type
         case message
         case messageID = "message_id"
+        case subjectUserID = "user_id"
     }
 }

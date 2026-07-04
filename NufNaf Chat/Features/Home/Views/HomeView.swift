@@ -342,11 +342,23 @@ struct HomeView: View {
             onConfirm: { performAssemblySplit($0) }
         ))
         .task(id: "\(user.userID)-\(session.currentAccessToken ?? "no-token")") {
+            // Гейтинг при запуске/смене пользователя: недоступный сохранённый режим → Чат.
+            gateInaccessibleMode()
             await store.load(accessToken: session.currentAccessToken, userID: user.userID)
         }
         .task(id: "chat-stream-\(user.userID)-\(session.currentAccessToken ?? "no-token")-\(scenePhase == .active)") {
             // Realtime: SSE pushes live changes; the loop also delta-syncs on (re)connect.
             guard scenePhase == .active else { return }
+            // Реалтайм-права: при SSE-событии `user_updated` про текущего пользователя
+            // перечитываем /me — доступ к режимам/разделам применится на лету (без перезахода).
+            store.onUserUpdated = { updatedUserID in
+                guard updatedUserID == user.userID else { return }
+                Task {
+                    await session.refreshCurrentUser()
+                    // После обновления прав — сгейтить недоступный текущий режим.
+                    gateInaccessibleMode()
+                }
+            }
             await store.runRealtime(accessToken: session.currentAccessToken)
         }
         .task(id: "chat-refresh-\(user.userID)-\(session.currentAccessToken ?? "no-token")-\(scenePhase == .active)") {
@@ -387,6 +399,8 @@ struct HomeView: View {
                 // свайпа, а не после оседания страницы.
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             },
+            showChat: showChatPage,
+            showCrm: hasCrmAccess,
             showPrice: hasPriceAccess,
             chatPage: {
                 contentView(for: .chat)
@@ -424,6 +438,50 @@ struct HomeView: View {
         return sections.contains("price")
     }
 
+    // Режим «СРМ» доступен: админ, разделы не заданы (null = все), либо есть 'crm'.
+    private var hasCrmAccess: Bool {
+        guard let user = session.currentUser else { return false }
+        if user.userAdmin { return true }
+        guard let sections = user.userSections else { return true }
+        return sections.contains("crm")
+    }
+
+    // Режим «Чат» доступен: админ, разделы не заданы (null = все), либо есть 'chat'.
+    private var hasChatAccess: Bool {
+        guard let user = session.currentUser else { return false }
+        if user.userAdmin { return true }
+        guard let sections = user.userSections else { return true }
+        return sections.contains("chat")
+    }
+
+    // Показывать страницу чата: если раздел выдан — да; сейф-нет — если не выдано ничего
+    // (ни СРМ, ни Прайс), всё равно показываем чат, чтобы приложение не осталось пустым.
+    private var showChatPage: Bool {
+        hasChatAccess || (!hasCrmAccess && !hasPriceAccess)
+    }
+
+    // Первый доступный режим — куда «падать», если текущий стал недоступен.
+    private var firstAvailableMode: HomeDisplayMode {
+        if showChatPage { return .chat }
+        if hasCrmAccess { return .crm }
+        if hasPriceAccess { return .price }
+        return .chat
+    }
+
+    /// Если текущий выбранный режим недоступен по правам — перейти на первый доступный.
+    /// Зовём при загрузке/смене пользователя и после реалтайм-обновления прав.
+    private func gateInaccessibleMode() {
+        let accessible: Bool
+        switch currentDisplayMode {
+        case .chat: accessible = showChatPage
+        case .crm: accessible = hasCrmAccess
+        case .price: accessible = hasPriceAccess
+        }
+        if !accessible {
+            session.setHomeDisplayMode(firstAvailableMode)
+        }
+    }
+
     private var chatContent: some View {
         VStack(spacing: 0) {
             if let loadErrorMessage = store.loadErrorMessage {
@@ -457,11 +515,14 @@ struct HomeView: View {
                 },
                 orderCommentReadRevision: store.orderCommentReadRevision,
                 onOpenDocument: { kind, id in
+                    // Без прав СРМ карточки видны, но открыть просмотр нельзя (как на вебе).
+                    guard hasCrmAccess else { return }
                     session.closeChatFilterPanel()
                     previewOrder = nil
                     session.openDocument(kind: kind, id: id)
                 },
                 onPreviewOrder: { order in
+                    guard hasCrmAccess else { return }
                     session.closeChatFilterPanel()
                     closeAttachmentMenu()
                     previewOrderErrorMessage = nil
@@ -1582,6 +1643,8 @@ private struct HomePagingContainer<ChatPage: View, CRMPage: View, PricePage: Vie
     let currentPage: HomeDisplayMode
     let onSettledPage: (HomeDisplayMode) -> Void
     var onInteractionBegan: () -> Void = {}
+    let showChat: Bool
+    let showCrm: Bool
     let showPrice: Bool
     @ViewBuilder let chatPage: () -> ChatPage
     @ViewBuilder let crmPage: () -> CRMPage
@@ -1590,19 +1653,26 @@ private struct HomePagingContainer<ChatPage: View, CRMPage: View, PricePage: Vie
     @State private var activePage: HomeDisplayMode?
     @State private var pendingPage: HomeDisplayMode?
 
+    // Сигнатура набора видимых страниц: меняется при выдаче/отзыве раздела.
+    private var pageSignature: String { "\(showChat)-\(showCrm)-\(showPrice)" }
+
     var body: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 1)
 
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
-                    chatPage()
-                        .frame(width: width)
-                        .id(HomeDisplayMode.chat)
+                    if showChat {
+                        chatPage()
+                            .frame(width: width)
+                            .id(HomeDisplayMode.chat)
+                    }
 
-                    crmPage()
-                        .frame(width: width)
-                        .id(HomeDisplayMode.crm)
+                    if showCrm {
+                        crmPage()
+                            .frame(width: width)
+                            .id(HomeDisplayMode.crm)
+                    }
 
                     if showPrice {
                         pricePage()
@@ -1643,6 +1713,15 @@ private struct HomePagingContainer<ChatPage: View, CRMPage: View, PricePage: Vie
                 withAnimation(.interactiveSpring(response: 0.32, dampingFraction: 0.86)) {
                     activePage = page
                 }
+            }
+            .onChange(of: pageSignature) { _, _ in
+                // Набор доступных страниц изменился (выдали/забрали раздел). Переякориваем
+                // пейджер на ТЕКУЩИЙ режим, чтобы вставка/удаление страницы слева не сдвигала
+                // экран (при добавлении прав пользователь остаётся там, где был).
+                let target = currentPage
+                activePage = target
+                pendingPage = target
+                DispatchQueue.main.async { activePage = target }
             }
             .onAppear {
                 activePage = currentPage
