@@ -413,6 +413,7 @@ enum HomeChatFilterKind: String, CaseIterable, Codable, Hashable, Identifiable {
 enum HomeDisplayMode: String, CaseIterable, Codable, Hashable, Identifiable {
     case chat
     case crm
+    case price
 
     var id: String { rawValue }
 
@@ -422,6 +423,8 @@ enum HomeDisplayMode: String, CaseIterable, Codable, Hashable, Identifiable {
             return "Чат"
         case .crm:
             return "CRM"
+        case .price:
+            return "Прайс"
         }
     }
 }

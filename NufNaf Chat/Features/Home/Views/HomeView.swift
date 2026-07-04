@@ -387,11 +387,15 @@ struct HomeView: View {
                 // свайпа, а не после оседания страницы.
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
             },
+            showPrice: hasPriceAccess,
             chatPage: {
                 contentView(for: .chat)
             },
             crmPage: {
                 contentView(for: .crm)
+            },
+            pricePage: {
+                contentView(for: .price)
             }
         )
     }
@@ -403,8 +407,19 @@ struct HomeView: View {
                 chatContent
             case .crm:
                 crmContent
+            case .price:
+                PriceWebView(accessToken: session.currentAccessToken, refreshToken: session.currentRefreshToken)
             }
         }
+    }
+
+    // Режим «Прайс» доступен, если пользователь админ, разделы не заданы (null = все),
+    // либо в разделах есть 'price'.
+    private var hasPriceAccess: Bool {
+        guard let user = session.currentUser else { return false }
+        if user.userAdmin { return true }
+        guard let sections = user.userSections else { return true }
+        return sections.contains("price")
     }
 
     private var chatContent: some View {
@@ -1561,12 +1576,14 @@ struct HomeView: View {
     }
 }
 
-private struct HomePagingContainer<ChatPage: View, CRMPage: View>: View {
+private struct HomePagingContainer<ChatPage: View, CRMPage: View, PricePage: View>: View {
     let currentPage: HomeDisplayMode
     let onSettledPage: (HomeDisplayMode) -> Void
     var onInteractionBegan: () -> Void = {}
+    let showPrice: Bool
     @ViewBuilder let chatPage: () -> ChatPage
     @ViewBuilder let crmPage: () -> CRMPage
+    @ViewBuilder let pricePage: () -> PricePage
 
     @State private var activePage: HomeDisplayMode?
     @State private var pendingPage: HomeDisplayMode?
@@ -1584,6 +1601,12 @@ private struct HomePagingContainer<ChatPage: View, CRMPage: View>: View {
                     crmPage()
                         .frame(width: width)
                         .id(HomeDisplayMode.crm)
+
+                    if showPrice {
+                        pricePage()
+                            .frame(width: width)
+                            .id(HomeDisplayMode.price)
+                    }
                 }
                 .scrollTargetLayout()
                 // Гасим rubber-band оверскролл ТОЛЬКО у этого (горизонтального) пейджера,

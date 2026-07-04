@@ -37,6 +37,23 @@ enum AppConfig {
         return components.url ?? apiBaseURL
     }
 
+    /// Корень веб-приложения (для встраиваемого прайса в WebView). Выводится из
+    /// apiBaseURL заменой пути на "/" (на проде чат/API/прайс на одном хосте).
+    static var webBaseURL: URL {
+        if let rawValue = Bundle.main.object(forInfoDictionaryKey: "WEB_BASE_URL") as? String,
+           let url = URL(string: rawValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+           url.scheme != nil {
+            return url
+        }
+        guard var components = URLComponents(url: apiBaseURL, resolvingAgainstBaseURL: false) else {
+            return apiBaseURL
+        }
+        components.path = "/"
+        components.query = nil
+        components.fragment = nil
+        return components.url ?? apiBaseURL
+    }
+
     static func mediaURL(for value: String?) -> URL? {
         guard let value else { return nil }
         let normalizedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
