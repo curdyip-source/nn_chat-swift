@@ -16,6 +16,23 @@ struct APIErrorPayload: Decodable {
     let message: String
 }
 
+// Настройки прав пользователя на конкретном складе (per-warehouse).
+struct EstablishmentPermission: Codable, Equatable {
+    let establishmentID: Int
+    let viewScope: String
+    let canCreate: Bool
+    let editScope: String
+    let deleteScope: String
+
+    enum CodingKeys: String, CodingKey {
+        case establishmentID = "establishment_id"
+        case viewScope = "view_scope"
+        case canCreate = "can_create"
+        case editScope = "edit_scope"
+        case deleteScope = "delete_scope"
+    }
+}
+
 struct AuthUser: Codable, Equatable {
     let userID: Int
     let userLogin: String
@@ -28,12 +45,8 @@ struct AuthUser: Codable, Equatable {
     let userAddress: String
     let userVerifiedUserID: Int?
     let userCreatedAt: String?
-    // Профиль прав (ось C) + членство в складах. scope: own | establishment | all.
-    let userViewScope: String?
-    let userCanCreate: Bool?
-    let userEditScope: String?
-    let userDeleteScope: String?
-    let userEstablishmentIDs: [Int]?
+    // Права по складам: по строке настроек на каждый склад-членство.
+    let userEstablishmentRoles: [EstablishmentPermission]?
 
     enum CodingKeys: String, CodingKey {
         case userID = "user_id"
@@ -47,11 +60,7 @@ struct AuthUser: Codable, Equatable {
         case userAddress = "user_address"
         case userVerifiedUserID = "user_verified_user_id"
         case userCreatedAt = "user_created_at"
-        case userViewScope = "user_view_scope"
-        case userCanCreate = "user_can_create"
-        case userEditScope = "user_edit_scope"
-        case userDeleteScope = "user_delete_scope"
-        case userEstablishmentIDs = "user_establishment_ids"
+        case userEstablishmentRoles = "user_establishment_roles"
     }
 }
 
