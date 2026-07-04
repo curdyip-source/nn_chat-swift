@@ -180,7 +180,14 @@ final class AppSession: ObservableObject {
 
     func logout() async {
         stopTokenRefreshScheduler()
-        let accessToken = loadStoredSession()?.accessToken
+        let stored = loadStoredSession()
+        let accessToken = stored?.accessToken
+        // Чистим дисковый кэш ленты этого пользователя — иначе при перезаходе всплывут
+        // старые карточки (в т.ч. заказы складов, доступ к которым уже отозван): дельта-синк
+        // их не удаляет, а лента строится из кэш+дельта. После очистки перезаход = полный синк.
+        if let userID = stored?.user.userID {
+            MessageCache(userID: userID).clear()
+        }
         clearStoredSession()
         screenState = .login
         authErrorMessage = nil
