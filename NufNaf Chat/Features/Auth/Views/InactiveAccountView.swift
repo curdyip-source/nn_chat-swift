@@ -90,7 +90,9 @@ struct InactiveAccountView: View {
                 userAge: 0,
                 userAddress: "-",
                 userVerifiedUserID: nil,
-                userCreatedAt: nil
+                userCreatedAt: nil,
+                userEstablishmentRoles: nil,
+                userSections: nil
             ),
             onBackToLogin: {}
         )

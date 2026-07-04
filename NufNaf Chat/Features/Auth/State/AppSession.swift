@@ -482,7 +482,9 @@ final class AppSession: ObservableObject {
                 userAge: 0,
                 userAddress: "",
                 userVerifiedUserID: nil,
-                userCreatedAt: nil
+                userCreatedAt: nil,
+                userEstablishmentRoles: nil,
+                userSections: nil
             )
             screenState = .awaitingApproval(inactiveUser)
         default:
