@@ -16,16 +16,6 @@ struct APIErrorPayload: Decodable {
     let message: String
 }
 
-struct EstablishmentRole: Codable, Equatable {
-    let establishmentID: Int
-    let role: String
-
-    enum CodingKeys: String, CodingKey {
-        case establishmentID = "establishment_id"
-        case role
-    }
-}
-
 struct AuthUser: Codable, Equatable {
     let userID: Int
     let userLogin: String
@@ -38,7 +28,12 @@ struct AuthUser: Codable, Equatable {
     let userAddress: String
     let userVerifiedUserID: Int?
     let userCreatedAt: String?
-    let userEstablishmentRoles: [EstablishmentRole]?
+    // Профиль прав (ось C) + членство в складах. scope: own | establishment | all.
+    let userViewScope: String?
+    let userCanCreate: Bool?
+    let userEditScope: String?
+    let userDeleteScope: String?
+    let userEstablishmentIDs: [Int]?
 
     enum CodingKeys: String, CodingKey {
         case userID = "user_id"
@@ -52,7 +47,11 @@ struct AuthUser: Codable, Equatable {
         case userAddress = "user_address"
         case userVerifiedUserID = "user_verified_user_id"
         case userCreatedAt = "user_created_at"
-        case userEstablishmentRoles = "user_establishment_roles"
+        case userViewScope = "user_view_scope"
+        case userCanCreate = "user_can_create"
+        case userEditScope = "user_edit_scope"
+        case userDeleteScope = "user_delete_scope"
+        case userEstablishmentIDs = "user_establishment_ids"
     }
 }
 
