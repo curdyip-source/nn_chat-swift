@@ -355,8 +355,12 @@ struct HomeView: View {
                 guard updatedUserID == user.userID else { return }
                 Task {
                     await session.refreshCurrentUser()
-                    // После обновления прав — сгейтить недоступный текущий режим.
+                    // После обновления прав — сгейтить недоступный текущий режим...
                     gateInaccessibleMode()
+                    // ...и перезабрать ленту с нуля: карточки заказов недоступных теперь
+                    // складов должны исчезнуть (сервер их уже не отдаёт), а дельта-синк
+                    // сам по себе закешированные карточки не удаляет.
+                    await store.reloadFeedFromScratch(accessToken: session.currentAccessToken)
                 }
             }
             await store.runRealtime(accessToken: session.currentAccessToken)

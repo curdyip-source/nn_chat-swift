@@ -253,6 +253,17 @@ final class HomeStore: ObservableObject {
         await loadParticipants(accessToken: accessToken)
     }
 
+    /// Полный пере-синк ленты С НУЛЯ: сбрасываем курсор и текущие сообщения, затем тянем весь
+    /// (уже отфильтрованный сервером по правам склада) фид заново. Нужно при реалтайм-смене прав —
+    /// обычный дельта-синк НЕ убирает уже закешированные карточки, ставшие недоступными.
+    func reloadFeedFromScratch(accessToken: String?) async {
+        guard let accessToken, cache != nil else { return }
+        syncCursor = nil
+        messages = []
+        persistCache()
+        await syncDelta(accessToken: accessToken)
+    }
+
     /// Point the store at this user's cache and show it immediately. No-op if already configured.
     private func configureCache(for userID: Int) {
         if cache?.userID == userID { return }
