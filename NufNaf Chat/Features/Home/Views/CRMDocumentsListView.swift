@@ -9,6 +9,9 @@ struct CRMDocumentsListView: View {
     let errorMessage: String?
     let updatingDocumentKey: String?
     @Binding var selectedSection: CRMSection
+    /// Разделы СРМ, доступные пользователю по правам (гейтинг вкладок). Пустой список
+    /// трактуем как «все» (сейф-нет, чтобы не оставить экран без вкладок).
+    let allowedSections: [CRMSection]
     let onOpenDocument: (String, Int) -> Void
     let onSelectOrderStatus: (HomeOrder, Int) -> Void
     let onSelectOrderItemStatus: (HomeOrder, Int, Int, Int?, Int?, String?) -> Void
@@ -231,7 +234,7 @@ struct CRMDocumentsListView: View {
             // Это та же системная величина, что двигает блок, в той же анимации —
             // поэтому без рассинхрона и без «всплывания».
             GeometryReader { geo in
-                CRMSectionBar(selection: $selectedSection)
+                CRMSectionBar(selection: $selectedSection, sections: visibleSections)
                     .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
                     .padding(.top, 10)
                     .padding(.bottom, max(AppTheme.PageLayout.bottomPadding - 8, 8) + 15)
@@ -252,6 +255,21 @@ struct CRMDocumentsListView: View {
                     shipmentCompletionConfirmation = nil
                 })
             )
+        }
+        // Если выбранная вкладка недоступна по правам — переводим на первую доступную.
+        .onAppear { snapSelectionIfNeeded() }
+        .onChange(of: allowedSections) { _, _ in snapSelectionIfNeeded() }
+    }
+
+    /// Доступные вкладки; пустой список означает «все» (сейф-нет).
+    private var visibleSections: [CRMSection] {
+        allowedSections.isEmpty ? CRMSection.allCases : allowedSections
+    }
+
+    private func snapSelectionIfNeeded() {
+        let visible = visibleSections
+        if !visible.contains(selectedSection), let first = visible.first {
+            selectedSection = first
         }
     }
 
@@ -508,6 +526,19 @@ enum CRMSection: String, CaseIterable, Identifiable {
             return "Товары"
         case .shipments:
             return "Отгрузки"
+        }
+    }
+
+    /// Ключ раздела в `user_sections` для гейтинга доступа (свой набор для приложения,
+    /// не пересекается с веб-разделами orders/products).
+    var sectionKey: String {
+        switch self {
+        case .orders:
+            return "app_orders"
+        case .products:
+            return "app_products"
+        case .shipments:
+            return "app_shipments"
         }
     }
 }
@@ -1421,10 +1452,11 @@ private struct CRMMovementRouteSheet: View {
 
 private struct CRMSectionBar: View {
     @Binding var selection: CRMSection
+    let sections: [CRMSection]
 
     var body: some View {
         HStack(spacing: 10) {
-            ForEach(CRMSection.allCases) { section in
+            ForEach(sections) { section in
                 Button {
                     selection = section
                 } label: {

@@ -450,6 +450,19 @@ struct HomeView: View {
         return sections.contains("crm")
     }
 
+    // Доступные вкладки СРМ (Все заказы / Товары / Отгрузки) по правам.
+    // Админ и null-разделы → все. Если ни один app-ключ не задан в разделах — считаем,
+    // что подразделы не сконфигурированы, и показываем все вкладки (обратная совместимость:
+    // старым пользователям без app_* ключей не режем СРМ). Иначе — строго по ключам.
+    private var allowedCrmSections: [CRMSection] {
+        guard let user = session.currentUser else { return CRMSection.allCases }
+        if user.userAdmin { return CRMSection.allCases }
+        guard let sections = user.userSections else { return CRMSection.allCases }
+        let configured = CRMSection.allCases.contains { sections.contains($0.sectionKey) }
+        guard configured else { return CRMSection.allCases }
+        return CRMSection.allCases.filter { sections.contains($0.sectionKey) }
+    }
+
     // Режим «Чат» доступен: админ, разделы не заданы (null = все), либо есть 'chat'.
     private var hasChatAccess: Bool {
         guard let user = session.currentUser else { return false }
@@ -666,6 +679,7 @@ struct HomeView: View {
                     errorMessage: crmErrorMessage ?? store.loadErrorMessage,
                     updatingDocumentKey: crmUpdatingDocumentKey,
                     selectedSection: $crmSelectedSection,
+                    allowedSections: allowedCrmSections,
                     onOpenDocument: { kind, id in
                         session.closeChatFilterPanel()
                         previewOrder = nil
