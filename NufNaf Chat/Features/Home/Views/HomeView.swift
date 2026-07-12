@@ -582,7 +582,11 @@ struct HomeView: View {
                     dismissKeyboard()
                 },
                 onPinnedToBottomChange: { value in
-                    isChatPinnedToBottom = value
+                    // Колбэк может прилететь из scrollViewDidScroll во время layout внутри
+                    // SwiftUI-апдейта → откладываем запись @State на следующий тик, иначе
+                    // «Modifying state during view update». Лишние записи отсекаем.
+                    guard isChatPinnedToBottom != value else { return }
+                    DispatchQueue.main.async { isChatPinnedToBottom = value }
                 },
                 draft: $store.messageDraft,
                 isInputFocused: $isMessageFieldFocused,
