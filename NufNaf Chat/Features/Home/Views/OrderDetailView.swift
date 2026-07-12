@@ -1005,7 +1005,10 @@ private struct OrderDocumentItemsSection: View {
                     .font(.system(size: 17, weight: .semibold, design: .rounded))
 
                 if !items.isEmpty {
-                    Button(action: copyItems) {
+                    Menu {
+                        Button("Скопировать номенклатуру") { copyItems(withPrice: false) }
+                        Button("Скопировать с кол-вом и ценой") { copyItems(withPrice: true) }
+                    } label: {
                         Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(didCopy ? Color.green : Color.accentColor)
@@ -1083,12 +1086,15 @@ private struct OrderDocumentItemsSection: View {
         .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
-    private func copyItems() {
+    private func copyItems(withPrice: Bool) {
         var lines = items.map { item -> String in
-            let priceText = item.priceValue.map { formatOrderAmount($0) } ?? item.price
-            return "\(item.name) * \(item.quantityValue) шт. * \(priceText) \(item.currencyTitle)"
+            if withPrice {
+                let priceText = item.priceValue.map { formatOrderAmount($0) } ?? item.price
+                return "\(item.quantityValue) шт. *  \(item.name) *  \(priceText) \(item.currencyTitle)"
+            }
+            return "\(item.quantityValue) шт. *  \(item.name)"
         }
-        if !totalsByCurrency.isEmpty {
+        if withPrice && !totalsByCurrency.isEmpty {
             lines.append("")
             lines.append("Итого: \(totalSummaryText)")
         }
