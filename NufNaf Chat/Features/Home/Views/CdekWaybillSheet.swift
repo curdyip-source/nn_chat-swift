@@ -66,7 +66,10 @@ struct CdekWaybillSheet: View {
         self.accessToken = accessToken
         self.onCreated = onCreated
         let c = order.cdek
-        _recipientName = State(initialValue: c?.recipientName ?? order.orderCustomer)
+        // ВАЖНО: не подставляем orderCustomer — это внутреннее наименование клиента (часто с
+        // пометками), оно НЕ должно утекать в накладную СДЭК получателю. Только сохранённый
+        // ранее получатель СДЭК; иначе поле пустое и оператор вводит реальное ФИО.
+        _recipientName = State(initialValue: c?.recipientName ?? "")
         _recipientPhone = State(initialValue: c?.recipientPhone ?? "")
         _cityQuery = State(initialValue: c?.cityName ?? "")
         _cityCode = State(initialValue: c?.cityCode)
