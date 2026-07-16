@@ -293,6 +293,16 @@ struct HomeAPIClient {
         return response.item
     }
 
+    func updateOrderComment(accessToken: String, orderID: Int, commentID: Int, text: String, mentionedUserIDs: [Int] = []) async throws -> HomeOrderComment {
+        let response: HomeItemEnvelope<HomeOrderComment> = try await send(
+            path: "orders/\(orderID)/comments/\(commentID)",
+            method: "PUT",
+            body: HomeOrderCommentUpdateRequest(orderCommentText: text, mentionedUserIDs: mentionedUserIDs),
+            accessToken: accessToken
+        )
+        return response.item
+    }
+
     func deleteOrderComment(accessToken: String, orderID: Int, commentID: Int) async throws {
         let _: EmptyAPIResponse = try await send(
             path: "orders/\(orderID)/comments/\(commentID)",

@@ -721,6 +721,15 @@ final class HomeStore: ObservableObject {
         return comment
     }
 
+    func updateOrderComment(accessToken: String?, orderID: Int, commentID: Int, text: String, mentionedUserIDs: [Int] = []) async throws -> HomeOrderComment {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        let updated = try await client.updateOrderComment(accessToken: accessToken, orderID: orderID, commentID: commentID, text: text, mentionedUserIDs: mentionedUserIDs)
+        reloadMessagesInBackground(accessToken: accessToken)
+        return updated
+    }
+
     func deleteOrderComment(accessToken: String?, orderID: Int, commentID: Int) async throws {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")

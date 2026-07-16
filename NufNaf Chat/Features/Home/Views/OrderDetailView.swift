@@ -26,6 +26,7 @@ struct OrderDetailView: View {
     @State private var comments: [HomeOrderComment] = []
     @State private var commentDraft = ""
     @State private var commentReplyTarget: HomeOrderComment?
+    @State private var commentEditTarget: HomeOrderComment?
     @State private var isSendingComment = false
     @State private var isCommentAttachmentMenuPresented = false
     @State private var movementSelection: OrderItemMovementSelection?
@@ -281,6 +282,7 @@ struct OrderDetailView: View {
                             onOpenAttachment: openAttachment,
                             onRetryComment: retryFailedComment,
                             onReplyComment: startReplyToComment,
+                            onEditComment: startEditComment,
                             onCopyComment: copyComment,
                             onDeleteComment: deleteComment,
                             onBackgroundTap: {
@@ -319,8 +321,16 @@ struct OrderDetailView: View {
                 }
             }
 
-            if let commentReplyTarget {
-                OrderCommentReplyBanner(
+            if commentEditTarget != nil {
+                OrderCommentComposeBanner(
+                    title: "Редактирование",
+                    author: nil,
+                    snippet: commentDraft,
+                    onCancel: { cancelCommentEdit() }
+                )
+            } else if let commentReplyTarget {
+                OrderCommentComposeBanner(
+                    title: "Ответ",
                     author: commentReplyTarget.displayName,
                     snippet: commentReplyTarget.replyReferenceText,
                     onCancel: { self.commentReplyTarget = nil }
@@ -566,6 +576,22 @@ struct OrderDetailView: View {
         let trimmedText = commentDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
+        // Режим редактирования: обновляем существующий комментарий на сервере,
+        // сохраняя reply-префикс исходного сообщения.
+        if let editTarget = commentEditTarget {
+            let composedText = composedEditedCommentText(from: trimmedText, original: editTarget)
+            commentDraft = ""
+            commentEditTarget = nil
+            do {
+                let mentionedUserIDs = MentionEngine.mentionedUserIDs(in: composedText, participants: store.participants)
+                let updated = try await store.updateOrderComment(accessToken: session.currentAccessToken, orderID: orderID, commentID: editTarget.id, text: composedText, mentionedUserIDs: mentionedUserIDs)
+                replaceComment(localID: editTarget.id, with: updated)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+
         // Ответ на сообщение кодируем текстовым префиксом (как в основном чате):
         // «| Автор\n> цитата\nтело». Бэкенд про reply не знает.
         let composedText = composedCommentReplyText(from: trimmedText)
@@ -595,10 +621,30 @@ struct OrderDetailView: View {
     }
 
     private func startReplyToComment(_ comment: HomeOrderComment) {
+        commentEditTarget = nil
         commentReplyTarget = comment
         closeCommentAttachmentMenu()
         isCommentFieldFocused = true
         requestCommentScrollToBottom()
+    }
+
+    private func startEditComment(_ comment: HomeOrderComment) {
+        commentReplyTarget = nil
+        commentEditTarget = comment
+        commentDraft = comment.visibleText
+        closeCommentAttachmentMenu()
+        isCommentFieldFocused = true
+        requestCommentScrollToBottom()
+    }
+
+    private func cancelCommentEdit() {
+        commentEditTarget = nil
+        commentDraft = ""
+    }
+
+    private func composedEditedCommentText(from text: String, original: HomeOrderComment) -> String {
+        guard let reply = original.replyFragment else { return text }
+        return "| \(reply.author)\n> \(reply.message)\n\(text)"
     }
 
     private func copyComment(_ comment: HomeOrderComment) {
@@ -785,6 +831,9 @@ struct OrderDetailView: View {
     private func deleteComment(_ comment: HomeOrderComment) {
         if commentReplyTarget?.id == comment.id {
             commentReplyTarget = nil
+        }
+        if commentEditTarget?.id == comment.id {
+            cancelCommentEdit()
         }
 
         // Неотправленные (локальные) сообщения просто убираем — на сервере их ещё нет.
@@ -1192,6 +1241,7 @@ private struct OrderCommentsSection: View {
     let onOpenAttachment: (HomeOrderCommentAttachment) -> Void
     let onRetryComment: (HomeOrderComment) -> Void
     let onReplyComment: (HomeOrderComment) -> Void
+    let onEditComment: (HomeOrderComment) -> Void
     let onCopyComment: (HomeOrderComment) -> Void
     let onDeleteComment: (HomeOrderComment) -> Void
     let onBackgroundTap: () -> Void
@@ -1217,11 +1267,13 @@ private struct OrderCommentsSection: View {
                                     OrderCommentRow(
                                         comment: comment,
                                         isOwn: comment.ownerUserID == currentUserID,
+                                        canEdit: comment.ownerUserID == currentUserID,
                                         canDelete: comment.ownerUserID == currentUserID || currentUserIsAdmin,
                                         mentionNames: mentionNames,
                                         onOpenAttachment: onOpenAttachment,
                                         onRetryComment: onRetryComment,
                                         onReplyComment: onReplyComment,
+                                        onEditComment: onEditComment,
                                         onCopyComment: onCopyComment,
                                         onDeleteComment: onDeleteComment
                                     )
@@ -1258,13 +1310,20 @@ private struct OrderCommentsSection: View {
 private struct OrderCommentRow: View {
     let comment: HomeOrderComment
     let isOwn: Bool
+    var canEdit: Bool = false
     var canDelete: Bool = false
     var mentionNames: [String] = []
     let onOpenAttachment: (HomeOrderCommentAttachment) -> Void
     let onRetryComment: (HomeOrderComment) -> Void
     let onReplyComment: (HomeOrderComment) -> Void
+    let onEditComment: (HomeOrderComment) -> Void
     let onCopyComment: (HomeOrderComment) -> Void
     let onDeleteComment: (HomeOrderComment) -> Void
+
+    // Редактировать можно только своё текстовое сообщение без вложений (как в чате).
+    private var isEditable: Bool {
+        canEdit && !comment.isLocalOnly && comment.attachments.isEmpty && comment.hasCopyableText
+    }
 
     var body: some View {
         VStack(alignment: isOwn ? .trailing : .leading, spacing: 6) {
@@ -1310,6 +1369,14 @@ private struct OrderCommentRow: View {
                         onReplyComment(comment)
                     } label: {
                         Label("Ответить", systemImage: "arrowshape.turn.up.left")
+                    }
+                }
+
+                if isEditable {
+                    Button {
+                        onEditComment(comment)
+                    } label: {
+                        Label("Изменить", systemImage: "pencil")
                     }
                 }
 
@@ -1479,8 +1546,9 @@ private struct OrderCommentPhotoViewer: View {
     }
 }
 
-private struct OrderCommentReplyBanner: View {
-    let author: String
+private struct OrderCommentComposeBanner: View {
+    let title: String
+    var author: String?
     let snippet: String
     let onCancel: () -> Void
 
@@ -1492,13 +1560,15 @@ private struct OrderCommentReplyBanner: View {
                 .clipShape(Capsule())
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Ответ")
+                Text(title)
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(.secondary)
-                Text(author)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                if let author {
+                    Text(author)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
                 Text(snippet)
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)

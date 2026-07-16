@@ -1055,6 +1055,16 @@ struct HomeOrderCommentCreateRequest: Encodable {
     }
 }
 
+struct HomeOrderCommentUpdateRequest: Encodable {
+    let orderCommentText: String
+    var mentionedUserIDs: [Int] = []
+
+    enum CodingKeys: String, CodingKey {
+        case orderCommentText = "order_comment_text"
+        case mentionedUserIDs = "mentioned_user_ids"
+    }
+}
+
 extension HomeOrderComment {
     static func makeLocalTextComment(id: Int, orderID: Int, text: String, user: AuthUser, deliveryState: HomeMessageDeliveryState) -> HomeOrderComment {
         HomeOrderComment(
