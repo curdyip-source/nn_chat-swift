@@ -721,6 +721,16 @@ final class HomeStore: ObservableObject {
         return comment
     }
 
+    func deleteOrderComment(accessToken: String?, orderID: Int, commentID: Int) async throws {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        try await client.deleteOrderComment(accessToken: accessToken, orderID: orderID, commentID: commentID)
+        // Карточка заказа перечитается по SSE-дельте (notify_order_changed на бэке),
+        // но подстрахуемся фоновой пересинхронизацией — как в deleteMessage.
+        reloadMessagesInBackground(accessToken: accessToken)
+    }
+
     func uploadOrderCommentAttachment(accessToken: String?, data: Data, filename: String, mimeType: String, attachmentKind: String) async throws -> HomeUploadedMessageAttachment {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")

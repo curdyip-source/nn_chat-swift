@@ -583,7 +583,7 @@ struct HomeView: View {
                 },
                 onPinnedToBottomChange: { value in
                     // Колбэк может прилететь из scrollViewDidScroll во время layout внутри
-                    // SwiftUI-апдейта → откладываем запись @State на следующий тик, иначе
+                    // SwiftUI-апдейта → откладываем запуись @State на следующий тик, иначе
                     // «Modifying state during view update». Лишние записи отсекаем.
                     guard isChatPinnedToBottom != value else { return }
                     DispatchQueue.main.async { isChatPinnedToBottom = value }
@@ -830,6 +830,10 @@ struct HomeView: View {
                     editingMessage = messageActionsTarget
                     store.messageDraft = messageActionsTarget.visibleMessageText
                     isMessageFieldFocused = true
+                    self.messageActionsTarget = nil
+                },
+                onCopy: {
+                    UIPasteboard.general.string = messageActionsTarget.visibleMessageText
                     self.messageActionsTarget = nil
                 },
                 onDelete: {
@@ -1879,6 +1883,7 @@ private struct ChatMessageActionMenu: View {
     let isOwnMessage: Bool
     let onReply: () -> Void
     let onEdit: () -> Void
+    let onCopy: () -> Void
     let onDelete: () -> Void
 
     private var canReply: Bool {
@@ -1887,6 +1892,11 @@ private struct ChatMessageActionMenu: View {
 
     private var canEdit: Bool {
         message.documentKind == nil && message.attachments.isEmpty && message.messageType == "message" && message.deliveryState == .sent
+    }
+
+    private var canCopy: Bool {
+        // Только текст: без карточек-документов и без вложений, и есть что копировать.
+        message.documentKind == nil && message.attachments.isEmpty && !message.visibleMessageText.isEmpty
     }
 
     private var canDelete: Bool {
@@ -1906,8 +1916,15 @@ private struct ChatMessageActionMenu: View {
                 MessageActionButton(title: "Изменить", action: onEdit)
             }
 
-            if canDelete {
+            if canCopy {
                 if canReply || canEdit {
+                    menuDivider
+                }
+                MessageActionButton(title: "Скопировать", action: onCopy)
+            }
+
+            if canDelete {
+                if canReply || canEdit || canCopy {
                     menuDivider
                 }
                 MessageActionButton(title: "Удалить", isDestructive: true, action: onDelete)
@@ -1937,6 +1954,7 @@ private struct ChatMessageFocusOverlay: View {
     let isOwnMessage: Bool
     let onReply: () -> Void
     let onEdit: () -> Void
+    let onCopy: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -1953,6 +1971,7 @@ private struct ChatMessageFocusOverlay: View {
                     isOwnMessage: isOwnMessage,
                     onReply: onReply,
                     onEdit: onEdit,
+                    onCopy: onCopy,
                     onDelete: onDelete
                 )
             }

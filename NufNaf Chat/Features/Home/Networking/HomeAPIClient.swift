@@ -293,6 +293,15 @@ struct HomeAPIClient {
         return response.item
     }
 
+    func deleteOrderComment(accessToken: String, orderID: Int, commentID: Int) async throws {
+        let _: EmptyAPIResponse = try await send(
+            path: "orders/\(orderID)/comments/\(commentID)",
+            method: "DELETE",
+            body: Optional<String>.none,
+            accessToken: accessToken
+        )
+    }
+
     func createInventory(accessToken: String, request: HomeInventoryCreateRequest, idempotencyKey: String? = nil) async throws {
         let _: HomeItemEnvelope<InventoryCreateStub> = try await send(path: "inventories", method: "POST", body: request, accessToken: accessToken, idempotencyKey: idempotencyKey)
     }

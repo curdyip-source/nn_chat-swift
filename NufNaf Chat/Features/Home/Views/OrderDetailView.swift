@@ -25,6 +25,7 @@ struct OrderDetailView: View {
     @State private var isEditSheetPresented = false
     @State private var comments: [HomeOrderComment] = []
     @State private var commentDraft = ""
+    @State private var commentReplyTarget: HomeOrderComment?
     @State private var isSendingComment = false
     @State private var isCommentAttachmentMenuPresented = false
     @State private var movementSelection: OrderItemMovementSelection?
@@ -274,10 +275,13 @@ struct OrderDetailView: View {
                         OrderCommentsSection(
                             comments: comments,
                             currentUserID: session.currentUser?.userID,
+                            currentUserIsAdmin: session.currentUser?.userAdmin ?? false,
                             mentionNames: store.participants.map(\.displayName),
                             isComposerActive: isCommentFieldFocused || isCommentAttachmentMenuPresented,
                             onOpenAttachment: openAttachment,
                             onRetryComment: retryFailedComment,
+                            onReplyComment: startReplyToComment,
+                            onCopyComment: copyComment,
                             onDeleteComment: deleteComment,
                             onBackgroundTap: {
                                 dismissCommentKeyboard()
@@ -313,6 +317,14 @@ struct OrderDetailView: View {
                     commentDraft = MentionEngine.insertMention(participant, into: commentDraft)
                     isCommentFieldFocused = true
                 }
+            }
+
+            if let commentReplyTarget {
+                OrderCommentReplyBanner(
+                    author: commentReplyTarget.displayName,
+                    snippet: commentReplyTarget.replyReferenceText,
+                    onCancel: { self.commentReplyTarget = nil }
+                )
             }
 
             OrderCommentInputPanel(
@@ -554,22 +566,45 @@ struct OrderDetailView: View {
         let trimmedText = commentDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
 
+        // Ответ на сообщение кодируем текстовым префиксом (как в основном чате):
+        // «| Автор\n> цитата\nтело». Бэкенд про reply не знает.
+        let composedText = composedCommentReplyText(from: trimmedText)
+        commentReplyTarget = nil
+
         let localCommentID = nextLocalCommentID()
         let localComment = HomeOrderComment.makeLocalTextComment(
             id: localCommentID,
             orderID: orderID,
-            text: trimmedText,
+            text: composedText,
             user: currentUser,
             deliveryState: .pending
         )
-        pendingCommentPayloads[localCommentID] = .text(trimmedText)
+        pendingCommentPayloads[localCommentID] = .text(composedText)
         mergeComment(localComment)
         requestCommentScrollToBottom()
         commentDraft = ""
         errorMessage = nil
         isSendingComment = false
 
-        await finishSendingComment(localCommentID: localCommentID, payload: .text(trimmedText))
+        await finishSendingComment(localCommentID: localCommentID, payload: .text(composedText))
+    }
+
+    private func composedCommentReplyText(from text: String) -> String {
+        guard let commentReplyTarget else { return text }
+        return "| \(commentReplyTarget.displayName)\n> \(commentReplyTarget.replyReferenceText)\n\(text)"
+    }
+
+    private func startReplyToComment(_ comment: HomeOrderComment) {
+        commentReplyTarget = comment
+        closeCommentAttachmentMenu()
+        isCommentFieldFocused = true
+        requestCommentScrollToBottom()
+    }
+
+    private func copyComment(_ comment: HomeOrderComment) {
+        let text = comment.visibleText
+        guard !text.isEmpty else { return }
+        UIPasteboard.general.string = text
     }
 
     private func sortComments(_ comments: [HomeOrderComment]) -> [HomeOrderComment] {
@@ -748,9 +783,28 @@ struct OrderDetailView: View {
     }
 
     private func deleteComment(_ comment: HomeOrderComment) {
-        guard comment.isLocalOnly else { return }
+        if commentReplyTarget?.id == comment.id {
+            commentReplyTarget = nil
+        }
+
+        // Неотправленные (локальные) сообщения просто убираем — на сервере их ещё нет.
+        if comment.isLocalOnly {
+            comments.removeAll { $0.id == comment.id }
+            pendingCommentPayloads.removeValue(forKey: comment.id)
+            return
+        }
+
+        // Отправленные удаляем на сервере (для всех), как в основном чате. Оптимистично
+        // убираем из списка, при ошибке возвращаем обратно.
         comments.removeAll { $0.id == comment.id }
-        pendingCommentPayloads.removeValue(forKey: comment.id)
+        Task {
+            do {
+                try await store.deleteOrderComment(accessToken: session.currentAccessToken, orderID: orderID, commentID: comment.id)
+            } catch {
+                mergeComment(comment)
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func openAttachment(_ attachment: HomeOrderCommentAttachment) {
@@ -1132,10 +1186,13 @@ private struct OrderCompactMetricView: View {
 private struct OrderCommentsSection: View {
     let comments: [HomeOrderComment]
     let currentUserID: Int?
+    var currentUserIsAdmin: Bool = false
     var mentionNames: [String] = []
     let isComposerActive: Bool
     let onOpenAttachment: (HomeOrderCommentAttachment) -> Void
     let onRetryComment: (HomeOrderComment) -> Void
+    let onReplyComment: (HomeOrderComment) -> Void
+    let onCopyComment: (HomeOrderComment) -> Void
     let onDeleteComment: (HomeOrderComment) -> Void
     let onBackgroundTap: () -> Void
 
@@ -1160,9 +1217,12 @@ private struct OrderCommentsSection: View {
                                     OrderCommentRow(
                                         comment: comment,
                                         isOwn: comment.ownerUserID == currentUserID,
+                                        canDelete: comment.ownerUserID == currentUserID || currentUserIsAdmin,
                                         mentionNames: mentionNames,
                                         onOpenAttachment: onOpenAttachment,
                                         onRetryComment: onRetryComment,
+                                        onReplyComment: onReplyComment,
+                                        onCopyComment: onCopyComment,
                                         onDeleteComment: onDeleteComment
                                     )
                                     .id(comment.id)
@@ -1198,9 +1258,12 @@ private struct OrderCommentsSection: View {
 private struct OrderCommentRow: View {
     let comment: HomeOrderComment
     let isOwn: Bool
+    var canDelete: Bool = false
     var mentionNames: [String] = []
     let onOpenAttachment: (HomeOrderCommentAttachment) -> Void
     let onRetryComment: (HomeOrderComment) -> Void
+    let onReplyComment: (HomeOrderComment) -> Void
+    let onCopyComment: (HomeOrderComment) -> Void
     let onDeleteComment: (HomeOrderComment) -> Void
 
     var body: some View {
@@ -1211,6 +1274,10 @@ private struct OrderCommentRow: View {
                 .frame(maxWidth: .infinity, alignment: isOwn ? .trailing : .leading)
 
             VStack(alignment: .leading, spacing: 6) {
+                if let reply = comment.replyFragment {
+                    replyPreview(reply)
+                }
+
                 if !comment.visibleText.isEmpty {
                     Text(MentionEngine.attributedText(for: comment.visibleText, mentionNames: mentionNames, color: MentionEngine.mentionHighlightColor))
                         .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -1238,18 +1305,73 @@ private struct OrderCommentRow: View {
             )
             .frame(maxWidth: 320, alignment: isOwn ? .trailing : .leading)
             .contextMenu {
-                if comment.canRetryDelivery {
-                    Button("Отправить снова") {
-                        onRetryComment(comment)
+                if !comment.isLocalOnly {
+                    Button {
+                        onReplyComment(comment)
+                    } label: {
+                        Label("Ответить", systemImage: "arrowshape.turn.up.left")
                     }
+                }
 
-                    Button("Удалить", role: .destructive) {
+                if comment.canRetryDelivery {
+                    Button {
+                        onRetryComment(comment)
+                    } label: {
+                        Label("Отправить снова", systemImage: "arrow.clockwise")
+                    }
+                }
+
+                if comment.hasCopyableText {
+                    Button {
+                        onCopyComment(comment)
+                    } label: {
+                        Label("Скопировать", systemImage: "doc.on.doc")
+                    }
+                }
+
+                if canDelete || comment.isLocalOnly {
+                    Button(role: .destructive) {
                         onDeleteComment(comment)
+                    } label: {
+                        Label("Удалить", systemImage: "trash")
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: isOwn ? .trailing : .leading)
+    }
+
+    @ViewBuilder
+    private func replyPreview(_ reply: HomeReplyFragment) -> some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill((isOwn ? Color.white : Color.accentColor).opacity(isOwn ? 0.9 : 0.8))
+                .frame(width: 3)
+                .clipShape(Capsule())
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(reply.author)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(isOwn ? Color.white : Color.primary)
+                    .lineLimit(1)
+
+                if !reply.message.isEmpty {
+                    Text(reply.message)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle((isOwn ? Color.white : Color.secondary).opacity(0.82))
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            (isOwn ? Color.white.opacity(0.16) : Color.primary.opacity(0.06)),
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var deliveryMeta: some View {
@@ -1354,6 +1476,49 @@ private struct OrderCommentPhotoViewer: View {
 
     var body: some View {
         PhotoAttachmentViewer(mediaURL: attachment.mediaURL, onDismiss: onDismiss)
+    }
+}
+
+private struct OrderCommentReplyBanner: View {
+    let author: String
+    let snippet: String
+    let onCancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill(Color.accentColor.opacity(0.9))
+                .frame(width: 3, height: 30)
+                .clipShape(Capsule())
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Ответ")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Text(author)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(snippet)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22, height: 22)
+                    .background(Color(uiColor: .secondarySystemBackground), in: Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color(uiColor: .secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 

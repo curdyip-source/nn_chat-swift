@@ -964,8 +964,74 @@ struct HomeOrderComment: Codable, Identifiable, Hashable {
         HomeMessageDateParser.parse(createdAt)
     }
 
+    /// Reply в чате заказа — как в основном чате — кодируется префиксом в тексте:
+    /// «| Автор\n> цитата\nтело». Бэкенд про reply не знает, это чисто клиентская
+    /// конвенция (см. HomeMessage.replyFragment).
+    var replyFragment: HomeReplyFragment? {
+        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return nil
+        }
+
+        let parts = text.components(separatedBy: "\n")
+        guard let firstLine = parts.first?.trimmingCharacters(in: .whitespacesAndNewlines), firstLine.hasPrefix("| ") else {
+            return nil
+        }
+
+        let author = String(firstLine.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard parts.count > 1 else {
+            return HomeReplyFragment(author: author, message: "", body: nil)
+        }
+
+        let secondLine = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        let replyMessage: String
+        if secondLine.hasPrefix("> ") {
+            replyMessage = String(secondLine.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if secondLine.hasPrefix("| ") {
+            replyMessage = String(secondLine.dropFirst(2)).trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            return nil
+        }
+
+        let bodyLines = Array(parts.dropFirst(2))
+        let bodyText = bodyLines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        return HomeReplyFragment(author: author, message: replyMessage, body: bodyText.isEmpty ? nil : bodyText)
+    }
+
+    /// Видимый текст сообщения без reply-префикса (тело). Для обычных сообщений — весь текст.
     var visibleText: String {
-        (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if let replyFragment {
+            return replyFragment.body ?? ""
+        }
+        return (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Короткая цитата для reply-превью / нового ответа на этот комментарий.
+    var replyReferenceText: String {
+        let sourceText: String
+        if let replyFragment {
+            sourceText = replyFragment.body ?? replyFragment.message
+        } else if let attachment = attachments.first {
+            if attachment.isPhoto {
+                sourceText = attachments.count > 1 ? "Фото (\(attachments.count))" : "Фото"
+            } else {
+                sourceText = attachment.attachmentOriginalFilename
+            }
+        } else {
+            sourceText = text ?? ""
+        }
+
+        let collapsedText = sourceText
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return collapsedText.isEmpty ? "Сообщение" : collapsedText
+    }
+
+    /// Есть ли что копировать (текст, без учёта reply-префикса).
+    var hasCopyableText: Bool {
+        !visibleText.isEmpty
     }
 
     var isLocalOnly: Bool {
