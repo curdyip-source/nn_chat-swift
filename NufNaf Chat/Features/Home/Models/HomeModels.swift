@@ -121,6 +121,7 @@ struct HomeContact: Codable, Identifiable, Hashable {
     let contactOrderMethodID: Int?
     let contactOrderMethodName: String?
     let contactOrderSubMethod: String?
+    let contactContactMethod: String?
     let contactSalesChannel: String?
 
     enum CodingKeys: String, CodingKey {
@@ -133,6 +134,7 @@ struct HomeContact: Codable, Identifiable, Hashable {
         case contactOrderMethodID = "contact_order_method_id"
         case contactOrderMethodName = "contact_order_method_name"
         case contactOrderSubMethod = "contact_order_sub_method"
+        case contactContactMethod = "contact_contact_method"
         case contactSalesChannel = "contact_sales_channel"
     }
 }

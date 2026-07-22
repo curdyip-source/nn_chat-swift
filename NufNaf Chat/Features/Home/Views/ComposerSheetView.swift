@@ -1245,6 +1245,7 @@ struct ComposerSheetView: View {
                 selectedOrderMethodID = contactOrderMethodID
             }
             selectedOrderSubMethod = contact.contactOrderSubMethod
+            selectedOrderContactMethod = contact.contactContactMethod
             selectedSalesChannel = contact.contactSalesChannel
         }
 

@@ -611,43 +611,46 @@ private struct CRMOrderProductRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top, spacing: 12) {
                     Text(entry.item.orderItemName)
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Text("Заказ №\(entry.order.id) * \(salesChannelSegment)\(orderEstablishmentTitle) * \(Text("\(entry.item.orderItemQuantity) шт.").fontWeight(.bold).foregroundColor(.primary)) * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                    VStack(alignment: .trailing, spacing: 4) {
+                        CRMStatusMenu(
+                            title: itemStatusTitle,
+                            color: BusinessDocumentColors.statusColor(entry.item.orderItemStatusColor),
+                            statuses: itemStatuses,
+                            selectedStatusID: entry.item.orderItemStatusID,
+                            size: .compact,
+                            isDisabled: isSaving,
+                            onSelect: onSelectStatus
+                        )
 
-                VStack(alignment: .trailing, spacing: 4) {
-                    CRMStatusMenu(
-                        title: itemStatusTitle,
-                        color: BusinessDocumentColors.statusColor(entry.item.orderItemStatusColor),
-                        statuses: itemStatuses,
-                        selectedStatusID: entry.item.orderItemStatusID,
-                        size: .compact,
-                        isDisabled: isSaving,
-                        onSelect: onSelectStatus
-                    )
+                        if let statusSecondaryLine {
+                            Text(statusSecondaryLine)
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.trailing)
+                                .frame(maxWidth: 120, alignment: .trailing)
+                        }
+                    }
 
-                    if let statusSecondaryLine {
-                        Text(statusSecondaryLine)
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: 120, alignment: .trailing)
+                    if isSaving {
+                        ProgressView()
+                            .controlSize(.small)
                     }
                 }
 
-                if isSaving {
-                    ProgressView()
-                        .controlSize(.small)
-                }
+                // Подпись заказа — отдельной строкой на всю ширину, чтобы цену не
+                // ужимал блок статуса справа (иначе она обрезалась «Це…»).
+                Text("Заказ №\(entry.order.id) * \(salesChannelSegment)\(orderEstablishmentTitle) * \(Text("\(entry.item.orderItemQuantity) шт.").fontWeight(.bold).foregroundColor(.primary)) * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .contentShape(Rectangle())
             .onTapGesture(perform: onOpen)
@@ -924,13 +927,13 @@ private struct CRMShipmentCollectButton: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(buttonColor)
+            .foregroundStyle(foregroundColor)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(buttonColor.opacity(0.14), in: Capsule())
+            .background(backgroundColor, in: Capsule())
             .overlay(
                 Capsule()
-                    .stroke(buttonColor.opacity(0.26), lineWidth: 1)
+                    .stroke(borderColor, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -938,8 +941,20 @@ private struct CRMShipmentCollectButton: View {
         .opacity(isDisabled && !isCollected ? 0.6 : 1)
     }
 
-    private var buttonColor: Color {
-        isCollected ? Color(red: 0.06, green: 0.46, blue: 0.43) : Color(red: 0.39, green: 0.40, blue: 0.95)
+    // «Упаковать» — фиолетовый активный. «Упаковано» — серый неактивный (как у неактивной
+    // «Выполнить»), чтобы зелёный не создавал ложного ощущения, что на кнопку надо нажать.
+    private var accentColor: Color { Color(red: 0.39, green: 0.40, blue: 0.95) }
+
+    private var foregroundColor: Color {
+        isCollected ? Color(uiColor: .systemGray) : accentColor
+    }
+
+    private var backgroundColor: Color {
+        isCollected ? Color(uiColor: .systemGray5) : accentColor.opacity(0.14)
+    }
+
+    private var borderColor: Color {
+        isCollected ? Color(uiColor: .systemGray3) : accentColor.opacity(0.26)
     }
 }
 
