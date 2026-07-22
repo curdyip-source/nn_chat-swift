@@ -14,6 +14,7 @@ struct myclearprojectIOSApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var session = AppSession()
     @StateObject private var notificationRouter = NotificationRouter.shared
+    @StateObject private var alertCenter = AppAlertCenter.shared
 
     var body: some Scene {
         WindowGroup {
@@ -21,6 +22,7 @@ struct myclearprojectIOSApp: App {
                 .preferredColorScheme(.dark)
                 .environmentObject(session)
                 .environmentObject(notificationRouter)
+                .environmentObject(alertCenter)
                 .task {
                     await session.restoreSession()
                 }

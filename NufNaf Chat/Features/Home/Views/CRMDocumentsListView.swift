@@ -345,9 +345,9 @@ struct CRMDocumentsListView: View {
                 if lhsPriority != rhsPriority {
                     return lhsPriority < rhsPriority
                 }
-                if lhs.order.id != rhs.order.id {
-                    return lhs.order.id > rhs.order.id
-                }
+                // Внутри группы статуса — по дате добавления товара: order_item_id
+                // сквозной инкремент, поэтому самый свежий товар оказывается вверху
+                // независимо от возраста заказа, в который он добавлен.
                 return lhs.item.id > rhs.item.id
             }
     }
@@ -618,7 +618,7 @@ private struct CRMOrderProductRow: View {
                         .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Text("Заказ №\(entry.order.id) * \(orderEstablishmentTitle) * \(entry.item.orderItemQuantity) шт. * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
+                    Text("Заказ №\(entry.order.id) * \(orderEstablishmentTitle) * \(Text("\(entry.item.orderItemQuantity) шт.").fontWeight(.bold).foregroundColor(.primary)) * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -821,7 +821,7 @@ private struct CRMOrderCardView: View {
                                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                                Text("\(item.orderItemQuantity) шт. * \(item.orderItemPrice)\(currencyTitleProvider(item.orderItemCurrencyID))")
+                                Text("\(Text("\(item.orderItemQuantity) шт.").fontWeight(.bold).foregroundColor(.primary)) * \(item.orderItemPrice)\(currencyTitleProvider(item.orderItemCurrencyID))")
                                     .font(.system(size: 13, weight: .medium, design: .rounded))
                                     .foregroundStyle(.secondary)
                             }
@@ -910,7 +910,7 @@ private struct CRMShipmentCollectButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Text("Собран")
+                Text(isCollected ? "Упаковано" : "Упаковать")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.leading)
                     .lineLimit(2)
@@ -942,7 +942,7 @@ private struct CRMShipmentOrderCompleteButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Text("Выполнено")
+                Text("Выполнить")
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.leading)
                     .lineLimit(2)

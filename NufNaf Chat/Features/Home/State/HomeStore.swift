@@ -422,6 +422,9 @@ final class HomeStore: ObservableObject {
             reloadMessagesInBackground(accessToken: accessToken)
         } catch {
             updateLocalMessageState(messageID: localMessageID, deliveryState: .failed)
+            if error.isPermissionDenied {
+                AppAlertCenter.shared.showPermissionDenied()
+            }
         }
     }
 
@@ -463,6 +466,9 @@ final class HomeStore: ObservableObject {
             reloadMessagesInBackground(accessToken: accessToken)
         } catch {
             updateLocalMessageState(messageID: message.id, deliveryState: .failed)
+            if error.isPermissionDenied {
+                AppAlertCenter.shared.showPermissionDenied()
+            }
         }
     }
 
@@ -565,6 +571,9 @@ final class HomeStore: ObservableObject {
             scheduleConfirmationReloads(accessToken: accessToken, localMessageID: message.id)
         } catch {
             updateLocalMessageState(messageID: localMessageID, deliveryState: .failed)
+            if error.isPermissionDenied {
+                AppAlertCenter.shared.showPermissionDenied()
+            }
         }
     }
 
@@ -1129,7 +1138,17 @@ final class HomeStore: ObservableObject {
             updateLocalMessageState(messageID: localMessageID, deliveryState: .sent)
             scheduleConfirmationReloads(accessToken: accessToken, localMessageID: localMessageID)
         } catch {
-            updateLocalMessageState(messageID: localMessageID, deliveryState: .failed)
+            if error.isPermissionDenied {
+                // No rights to create this document — don't leave a "failed" card
+                // stuck in the chat; drop the optimistic card and show the global
+                // permission overlay instead.
+                if let message = messages.first(where: { $0.id == localMessageID }) {
+                    discardLocalMessage(message)
+                }
+                AppAlertCenter.shared.showPermissionDenied()
+            } else {
+                updateLocalMessageState(messageID: localMessageID, deliveryState: .failed)
+            }
         }
     }
 

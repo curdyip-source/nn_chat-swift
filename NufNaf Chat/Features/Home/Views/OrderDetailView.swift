@@ -434,7 +434,7 @@ struct OrderDetailView: View {
             comments = sortComments(loadedOrder.comments)
             markCommentsRead(loadedOrder.comments)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = resolveActionError(error)
         }
     }
 
@@ -470,9 +470,9 @@ struct OrderDetailView: View {
             } catch {
                 // Ошибку гейта «На сборку» показываем оверлейным алертом.
                 if targetName == "На сборку" {
-                    assemblyAlertMessage = error.localizedDescription
+                    assemblyAlertMessage = resolveActionError(error)
                 } else {
-                    errorMessage = error.localizedDescription
+                    errorMessage = resolveActionError(error)
                 }
             }
         }
@@ -492,7 +492,7 @@ struct OrderDetailView: View {
                 self.comments = sortComments(updatedOrder.comments)
                 markCommentsRead(updatedOrder.comments)
             } catch {
-                assemblyAlertMessage = error.localizedDescription
+                assemblyAlertMessage = resolveActionError(error)
             }
         }
     }
@@ -567,7 +567,7 @@ struct OrderDetailView: View {
                 self.comments = sortComments(updatedOrder.comments)
                 markCommentsRead(updatedOrder.comments)
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = resolveActionError(error)
             }
         }
     }
@@ -587,7 +587,7 @@ struct OrderDetailView: View {
                 let updated = try await store.updateOrderComment(accessToken: session.currentAccessToken, orderID: orderID, commentID: editTarget.id, text: composedText, mentionedUserIDs: mentionedUserIDs)
                 replaceComment(localID: editTarget.id, with: updated)
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = resolveActionError(error)
             }
             return
         }
@@ -777,7 +777,7 @@ struct OrderDetailView: View {
                 requestCommentScrollToBottom()
                 await finishSendingComment(localCommentID: localCommentID, payload: .attachment(attachment, localFileURL))
             } catch {
-                attachmentErrorMessage = error.localizedDescription
+                attachmentErrorMessage = resolveActionError(error)
             }
         }
     }
@@ -815,7 +815,7 @@ struct OrderDetailView: View {
             replaceComment(localID: localCommentID, with: createdComment)
         } catch {
             updateCommentState(commentID: localCommentID, deliveryState: .failed)
-            errorMessage = error.localizedDescription
+            errorMessage = resolveActionError(error)
         }
     }
 
@@ -851,7 +851,7 @@ struct OrderDetailView: View {
                 try await store.deleteOrderComment(accessToken: session.currentAccessToken, orderID: orderID, commentID: comment.id)
             } catch {
                 mergeComment(comment)
-                errorMessage = error.localizedDescription
+                errorMessage = resolveActionError(error)
             }
         }
     }
@@ -872,7 +872,7 @@ struct OrderDetailView: View {
                 let localURL = try await store.downloadOrderCommentAttachmentToTemporaryURL(attachment)
                 localFilePreview = LocalAttachmentPreview(url: localURL)
             } catch {
-                attachmentErrorMessage = error.localizedDescription
+                attachmentErrorMessage = resolveActionError(error)
             }
         }
     }

@@ -9,8 +9,18 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var session: AppSession
+    @EnvironmentObject private var alertCenter: AppAlertCenter
 
     var body: some View {
+        ZStack {
+            screenContent
+            AppAlertOverlay(center: alertCenter)
+                .zIndex(1000)
+        }
+    }
+
+    @ViewBuilder
+    private var screenContent: some View {
         switch session.screenState {
         case .loading:
             ZStack {
@@ -56,5 +66,6 @@ struct ContentView: View {
     ContentView()
         .environmentObject(AppSession())
         .environmentObject(NotificationRouter.shared)
+        .environmentObject(AppAlertCenter.shared)
 }
 

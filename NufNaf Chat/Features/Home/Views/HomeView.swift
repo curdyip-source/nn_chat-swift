@@ -949,7 +949,7 @@ struct HomeView: View {
             pendingAttachmentForConfirmation = nil
             scrollToBottomRequest += 1
         } catch {
-            attachmentErrorMessage = error.localizedDescription
+            attachmentErrorMessage = resolveActionError(error)
         }
     }
 
@@ -969,7 +969,7 @@ struct HomeView: View {
                 let localURL = try await store.downloadAttachmentToTemporaryURL(attachment)
                 localFilePreview = LocalAttachmentPreview(url: localURL)
             } catch {
-                attachmentErrorMessage = error.localizedDescription
+                attachmentErrorMessage = resolveActionError(error)
             }
         }
     }
@@ -1108,7 +1108,7 @@ struct HomeView: View {
         do {
             try await store.deleteMessage(accessToken: session.currentAccessToken, message: message)
         } catch {
-            messageActionErrorMessage = error.localizedDescription
+            messageActionErrorMessage = resolveActionError(error)
         }
     }
 
@@ -1134,7 +1134,7 @@ struct HomeView: View {
                 // Превью обновляем результатом; CRM-карточки — прилетят realtime по SSE.
                 if pending.isPreview { self.previewOrder = updated }
             } catch {
-                assemblyAlertMessage = error.localizedDescription
+                assemblyAlertMessage = resolveActionError(error)
             }
         }
     }
@@ -1161,9 +1161,9 @@ struct HomeView: View {
                 }
             } catch {
                 if isAssemblyOrderStatus(statusID) {
-                    assemblyAlertMessage = error.localizedDescription
+                    assemblyAlertMessage = resolveActionError(error)
                 } else {
-                    previewOrderErrorMessage = error.localizedDescription
+                    previewOrderErrorMessage = resolveActionError(error)
                 }
             }
         }
@@ -1204,7 +1204,7 @@ struct HomeView: View {
                     )
                 )
             } catch {
-                previewOrderErrorMessage = error.localizedDescription
+                previewOrderErrorMessage = resolveActionError(error)
             }
         }
     }
@@ -1230,9 +1230,9 @@ struct HomeView: View {
                 }
             } catch {
                 if isAssemblyOrderStatus(statusID) {
-                    assemblyAlertMessage = error.localizedDescription
+                    assemblyAlertMessage = resolveActionError(error)
                 } else {
-                    crmErrorMessage = error.localizedDescription
+                    crmErrorMessage = resolveActionError(error)
                 }
             }
         }
@@ -1295,7 +1295,7 @@ struct HomeView: View {
                     )
                 )
             } catch {
-                crmErrorMessage = error.localizedDescription
+                crmErrorMessage = resolveActionError(error)
             }
         }
     }
@@ -1353,7 +1353,7 @@ struct HomeView: View {
                     )
                 )
             } catch {
-                crmErrorMessage = error.localizedDescription
+                crmErrorMessage = resolveActionError(error)
             }
         }
     }
@@ -1425,7 +1425,7 @@ struct HomeView: View {
                     )
                 )
             } catch {
-                crmErrorMessage = error.localizedDescription
+                crmErrorMessage = resolveActionError(error)
             }
         }
     }
@@ -1441,7 +1441,7 @@ struct HomeView: View {
             do {
                 _ = try await store.updateInventoryStatus(accessToken: session.currentAccessToken, inventoryID: inventory.id, statusID: statusID)
             } catch {
-                crmErrorMessage = error.localizedDescription
+                crmErrorMessage = resolveActionError(error)
             }
         }
     }
@@ -1457,7 +1457,7 @@ struct HomeView: View {
             do {
                 _ = try await store.updateProductRegistrationStatus(accessToken: session.currentAccessToken, productRegistrationID: registration.id, statusID: statusID)
             } catch {
-                crmErrorMessage = error.localizedDescription
+                crmErrorMessage = resolveActionError(error)
             }
         }
     }

@@ -1283,7 +1283,7 @@ struct ComposerSheetView: View {
             clearCustomProductForm()
             dismissProductOverlays(clearSearch: true)
         } catch {
-            productFormErrorMessage = error.localizedDescription
+            productFormErrorMessage = resolveActionError(error)
         }
     }
 
@@ -1581,7 +1581,7 @@ struct ComposerSheetView: View {
                 onOrderUpdated?(updatedOrder)
                 onClose()
             } catch {
-                submitErrorMessage = error.localizedDescription
+                submitErrorMessage = resolveActionError(error)
             }
             return
         }
