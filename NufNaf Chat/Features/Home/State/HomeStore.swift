@@ -247,6 +247,7 @@ final class HomeStore: ObservableObject {
 
         do {
             referenceData = try await client.getReferenceData(accessToken: accessToken)
+            AppVersionGate.shared.update(minBuild: referenceData.minSupportedIosBuild)
         } catch {
         }
 

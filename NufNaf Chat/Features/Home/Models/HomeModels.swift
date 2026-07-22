@@ -17,6 +17,8 @@ struct HomeReferenceDataResponse: Decodable {
     let salesChannels: [HomeOrderSalesChannel]
     let statuses: [HomeStatus]
     let currencies: [HomeCurrency]
+    // Минимальный допустимый билд iOS (гейт форс-апдейта). 0 = выключен.
+    let minSupportedIosBuild: Int
 
     enum CodingKeys: String, CodingKey {
         case establishments
@@ -24,14 +26,16 @@ struct HomeReferenceDataResponse: Decodable {
         case salesChannels = "sales_channels"
         case statuses
         case currencies
+        case minSupportedIosBuild = "min_supported_ios_build"
     }
 
-    init(establishments: [HomeEstablishment], orderMethods: [HomeOrderMethod], salesChannels: [HomeOrderSalesChannel] = [], statuses: [HomeStatus], currencies: [HomeCurrency]) {
+    init(establishments: [HomeEstablishment], orderMethods: [HomeOrderMethod], salesChannels: [HomeOrderSalesChannel] = [], statuses: [HomeStatus], currencies: [HomeCurrency], minSupportedIosBuild: Int = 0) {
         self.establishments = establishments
         self.orderMethods = orderMethods
         self.salesChannels = salesChannels
         self.statuses = statuses
         self.currencies = currencies
+        self.minSupportedIosBuild = minSupportedIosBuild
     }
 
     init(from decoder: Decoder) throws {
@@ -42,6 +46,7 @@ struct HomeReferenceDataResponse: Decodable {
         salesChannels = try container.decodeIfPresent([HomeOrderSalesChannel].self, forKey: .salesChannels) ?? []
         statuses = try container.decode([HomeStatus].self, forKey: .statuses)
         currencies = try container.decode([HomeCurrency].self, forKey: .currencies)
+        minSupportedIosBuild = try container.decodeIfPresent(Int.self, forKey: .minSupportedIosBuild) ?? 0
     }
 }
 

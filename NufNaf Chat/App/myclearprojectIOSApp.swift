@@ -15,6 +15,7 @@ struct myclearprojectIOSApp: App {
     @StateObject private var session = AppSession()
     @StateObject private var notificationRouter = NotificationRouter.shared
     @StateObject private var alertCenter = AppAlertCenter.shared
+    @StateObject private var versionGate = AppVersionGate.shared
 
     var body: some Scene {
         WindowGroup {
@@ -23,6 +24,7 @@ struct myclearprojectIOSApp: App {
                 .environmentObject(session)
                 .environmentObject(notificationRouter)
                 .environmentObject(alertCenter)
+                .environmentObject(versionGate)
                 .task {
                     await session.restoreSession()
                 }

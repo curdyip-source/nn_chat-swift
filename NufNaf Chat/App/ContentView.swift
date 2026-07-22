@@ -10,13 +10,18 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var alertCenter: AppAlertCenter
+    @EnvironmentObject private var versionGate: AppVersionGate
 
     var body: some View {
         ZStack {
             screenContent
             AppAlertOverlay(center: alertCenter)
                 .zIndex(1000)
+            // Блокер форс-апдейта — поверх всего, включая оверлей ошибок.
+            AppUpdateGateOverlay(gate: versionGate)
+                .zIndex(2000)
         }
+        .animation(.easeInOut(duration: 0.2), value: versionGate.isBlocked)
     }
 
     @ViewBuilder
@@ -67,5 +72,6 @@ struct ContentView: View {
         .environmentObject(AppSession())
         .environmentObject(NotificationRouter.shared)
         .environmentObject(AppAlertCenter.shared)
+        .environmentObject(AppVersionGate.shared)
 }
 
