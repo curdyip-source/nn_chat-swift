@@ -50,11 +50,14 @@ struct MessageStreamEvent: Decodable {
     let messageID: Int?
     /// Для события `user_updated` — id пользователя, чьи права/разделы/статус изменились.
     let subjectUserID: Int?
+    /// Для события `app_config_updated` — новый минимальный допустимый билд iOS.
+    let minSupportedIosBuild: Int?
 
     enum CodingKeys: String, CodingKey {
         case type
         case message
         case messageID = "message_id"
         case subjectUserID = "user_id"
+        case minSupportedIosBuild = "min_supported_ios_build"
     }
 }

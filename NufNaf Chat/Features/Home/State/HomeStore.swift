@@ -338,6 +338,11 @@ final class HomeStore: ObservableObject {
             if let userID = event.subjectUserID {
                 onUserUpdated?(userID)
             }
+        case "app_config_updated":
+            // Реалтайм-смена порога форс-апдейта из «Админки» — применяем сразу.
+            if let minBuild = event.minSupportedIosBuild {
+                AppVersionGate.shared.update(minBuild: minBuild)
+            }
         default:
             break
         }
