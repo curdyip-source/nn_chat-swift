@@ -18,6 +18,7 @@ struct ComposerSheetView: View {
     @State private var selectedOrderMethodID: Int?
     @State private var selectedOrderSubMethod: String?
     @State private var selectedOrderContactMethod: String?
+    @State private var selectedSalesChannel: String?
     @State private var counterpartyName = ""
     @State private var info = ""
     @State private var counterpartyResults: [HomeContact] = []
@@ -88,6 +89,7 @@ struct ComposerSheetView: View {
         _selectedOrderMethodID = State(initialValue: editingOrder?.orderMethodID)
         _selectedOrderSubMethod = State(initialValue: editingOrder?.orderSubMethod)
         _selectedOrderContactMethod = State(initialValue: editingOrder?.orderContactMethod)
+        _selectedSalesChannel = State(initialValue: editingOrder?.orderSalesChannel)
         _counterpartyName = State(initialValue: editingOrder?.orderCustomer ?? "")
         _info = State(initialValue: editingOrder?.orderInfo ?? "")
         _selectedItems = State(initialValue: editingOrder?.items.map(HomeComposerItemDraft.init) ?? [])
@@ -220,6 +222,16 @@ struct ComposerSheetView: View {
                 .id("infoField")
             composerDivider
         } else if showsCounterpartyField {
+            composerDivider
+        }
+
+        if kind == .order, !store.referenceData.salesChannels.isEmpty {
+            composerSubMethodGroup(
+                title: nil,
+                options: store.referenceData.salesChannels.map { $0.orderSalesChannelName },
+                selectedValue: selectedSalesChannel,
+                onSelect: { selectedSalesChannel = ($0 == selectedSalesChannel) ? nil : $0 }
+            )
             composerDivider
         }
 
@@ -1233,6 +1245,7 @@ struct ComposerSheetView: View {
                 selectedOrderMethodID = contactOrderMethodID
             }
             selectedOrderSubMethod = contact.contactOrderSubMethod
+            selectedSalesChannel = contact.contactSalesChannel
         }
 
         counterpartyResults = []
@@ -1555,6 +1568,7 @@ struct ComposerSheetView: View {
                         orderMethodID: selectedOrderMethodID ?? editingOrder.orderMethodID,
                         orderSubMethod: selectedOrderSubMethod,
                         orderContactMethod: selectedOrderContactMethod,
+                        orderSalesChannel: selectedSalesChannel,
                         orderCustomer: normalized(counterpartyName) ?? "",
                         orderInfo: normalized(info) ?? "",
                         orderStatusID: editingOrder.orderStatusID,
@@ -1594,6 +1608,7 @@ struct ComposerSheetView: View {
             orderMethodID: selectedOrderMethodID,
             orderSubMethod: selectedOrderSubMethod,
             orderContactMethod: selectedOrderContactMethod,
+            orderSalesChannel: selectedSalesChannel,
             counterpartyName: counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines),
             info: info.trimmingCharacters(in: .whitespacesAndNewlines),
             saveContact: shouldSaveContact,

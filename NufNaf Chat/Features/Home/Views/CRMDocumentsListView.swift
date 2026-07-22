@@ -618,7 +618,7 @@ private struct CRMOrderProductRow: View {
                         .foregroundStyle(.primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Text("Заказ №\(entry.order.id) * \(orderEstablishmentTitle) * \(Text("\(entry.item.orderItemQuantity) шт.").fontWeight(.bold).foregroundColor(.primary)) * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
+                    Text("Заказ №\(entry.order.id) * \(salesChannelSegment)\(orderEstablishmentTitle) * \(Text("\(entry.item.orderItemQuantity) шт.").fontWeight(.bold).foregroundColor(.primary)) * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -699,6 +699,13 @@ private struct CRMOrderProductRow: View {
             return trimmedTitle
         }
         return "Без точки"
+    }
+
+    // «Канал * » для подписи Отгрузок; пусто, если канал не задан.
+    private var salesChannelSegment: String {
+        let trimmed = entry.order.orderSalesChannel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return "" }
+        return "\(trimmed) * "
     }
 
     private var statusSecondaryLine: String? {
@@ -849,7 +856,8 @@ private struct CRMOrderCardView: View {
     }
 
     private var orderSubtitle: String {
-        [order.orderEstablishmentName, methodTitle, order.orderCustomer]
+        // Порядок: канал * склад * метод * клиент.
+        [order.orderSalesChannel, order.orderEstablishmentName, methodTitle, order.orderCustomer]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
                 return value

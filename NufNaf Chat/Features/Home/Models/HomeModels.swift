@@ -14,14 +14,44 @@ struct HomeItemEnvelope<Item: Decodable>: Decodable {
 struct HomeReferenceDataResponse: Decodable {
     let establishments: [HomeEstablishment]
     let orderMethods: [HomeOrderMethod]
+    let salesChannels: [HomeOrderSalesChannel]
     let statuses: [HomeStatus]
     let currencies: [HomeCurrency]
 
     enum CodingKeys: String, CodingKey {
         case establishments
         case orderMethods = "order_methods"
+        case salesChannels = "sales_channels"
         case statuses
         case currencies
+    }
+
+    init(establishments: [HomeEstablishment], orderMethods: [HomeOrderMethod], salesChannels: [HomeOrderSalesChannel] = [], statuses: [HomeStatus], currencies: [HomeCurrency]) {
+        self.establishments = establishments
+        self.orderMethods = orderMethods
+        self.salesChannels = salesChannels
+        self.statuses = statuses
+        self.currencies = currencies
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        establishments = try container.decode([HomeEstablishment].self, forKey: .establishments)
+        orderMethods = try container.decode([HomeOrderMethod].self, forKey: .orderMethods)
+        // sales_channels может отсутствовать (старый бэкенд/кэш) — не роняем весь справочник.
+        salesChannels = try container.decodeIfPresent([HomeOrderSalesChannel].self, forKey: .salesChannels) ?? []
+        statuses = try container.decode([HomeStatus].self, forKey: .statuses)
+        currencies = try container.decode([HomeCurrency].self, forKey: .currencies)
+    }
+}
+
+struct HomeOrderSalesChannel: Codable, Identifiable, Hashable {
+    let id: Int
+    let orderSalesChannelName: String
+
+    enum CodingKeys: String, CodingKey {
+        case id = "order_sales_channel_id"
+        case orderSalesChannelName = "order_sales_channel_name"
     }
 }
 
@@ -91,6 +121,7 @@ struct HomeContact: Codable, Identifiable, Hashable {
     let contactOrderMethodID: Int?
     let contactOrderMethodName: String?
     let contactOrderSubMethod: String?
+    let contactSalesChannel: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "contact_id"
@@ -102,6 +133,7 @@ struct HomeContact: Codable, Identifiable, Hashable {
         case contactOrderMethodID = "contact_order_method_id"
         case contactOrderMethodName = "contact_order_method_name"
         case contactOrderSubMethod = "contact_order_sub_method"
+        case contactSalesChannel = "contact_sales_channel"
     }
 }
 
@@ -657,6 +689,7 @@ struct HomeOrderCreateRequest: Encodable {
     let orderMethodID: Int
     let orderSubMethod: String?
     let orderContactMethod: String?
+    let orderSalesChannel: String?
     let orderCustomer: String
     let orderInfo: String
     let orderStatusID: Int?
@@ -669,6 +702,7 @@ struct HomeOrderCreateRequest: Encodable {
         case orderMethodID = "order_method_id"
         case orderSubMethod = "order_sub_method"
         case orderContactMethod = "order_contact_method"
+        case orderSalesChannel = "order_sales_channel"
         case orderCustomer = "order_customer"
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
@@ -686,6 +720,7 @@ struct HomeOrder: Codable, Identifiable, Hashable {
     let orderMethodName: String?
     let orderSubMethod: String?
     let orderContactMethod: String?
+    let orderSalesChannel: String?
     let orderCustomer: String
     let orderInfo: String
     let orderStatusID: Int
@@ -707,6 +742,7 @@ struct HomeOrder: Codable, Identifiable, Hashable {
         case orderMethodName = "order_method_name"
         case orderSubMethod = "order_sub_method"
         case orderContactMethod = "order_contact_method"
+        case orderSalesChannel = "order_sales_channel"
         case orderCustomer = "order_customer"
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
@@ -1281,6 +1317,7 @@ struct HomeOrderUpdateRequest: Encodable {
     let orderMethodID: Int
     let orderSubMethod: String?
     let orderContactMethod: String?
+    let orderSalesChannel: String?
     let orderCustomer: String
     let orderInfo: String
     let orderStatusID: Int
@@ -1291,6 +1328,7 @@ struct HomeOrderUpdateRequest: Encodable {
         case orderMethodID = "order_method_id"
         case orderSubMethod = "order_sub_method"
         case orderContactMethod = "order_contact_method"
+        case orderSalesChannel = "order_sales_channel"
         case orderCustomer = "order_customer"
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"

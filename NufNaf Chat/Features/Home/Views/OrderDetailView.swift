@@ -548,6 +548,7 @@ struct OrderDetailView: View {
                         orderMethodID: order.orderMethodID,
                         orderSubMethod: order.orderSubMethod,
                         orderContactMethod: order.orderContactMethod,
+                        orderSalesChannel: order.orderSalesChannel,
                         orderCustomer: order.orderCustomer,
                         orderInfo: order.orderInfo,
                         orderStatusID: order.orderStatusID,
@@ -1016,6 +1017,9 @@ struct OrderDetailView: View {
             BusinessDocumentInfoRowModel(title: "Комментарий", value: normalizedValue(order.orderInfo)),
             BusinessDocumentInfoRowModel(title: "Метод", value: methodTitle(for: order))
         ]
+        if let salesChannel = order.orderSalesChannel, !salesChannel.isEmpty {
+            rows.append(BusinessDocumentInfoRowModel(title: "Канал", value: salesChannel))
+        }
         if let contactMethod = order.orderContactMethod, !contactMethod.isEmpty {
             rows.append(BusinessDocumentInfoRowModel(title: "Способ связи", value: contactMethod))
         }
