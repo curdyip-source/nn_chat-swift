@@ -1,16 +1,33 @@
 import SwiftUI
 
-/// Экран «Прайс»: живой поиск по всем прайс-листам (CL + поставщики) с ценой,
-/// плюс настройка «в каких прайс-листах искать». Данные — через chat-прокси в nn_vla.
+/// Экран «Прайс»: поиск по прайс-листам с двумя режимами (переключаются в настройке):
+/// «По прайсам» — широкий нечёткий поиск nn_vla по всем прайс-листам (CL + поставщики)
+/// с выбором источников; «Точный» — как при создании заказа (узкий токен-поиск по каталогу).
 struct PriceSearchView: View {
     @EnvironmentObject private var session: AppSession
     private let client = HomeAPIClient()
 
+    enum SearchMode: String, CaseIterable {
+        case priceLists   // как сейчас — по всем прайс-листам (nn_vla search_all)
+        case catalog      // как в композере заказа — точный поиск по каталогу
+    }
+
+    /// Единая строка результата для обоих режимов.
+    private struct DisplayRow: Identifiable {
+        let id: String
+        let name: String
+        let code: String?
+        let price: String?
+        let sourceLabel: String
+        let accented: Bool   // зелёная метка источника (CL/каталог)
+    }
+
     @State private var query = ""
-    @State private var results: [PriceSearchResult] = []
+    @State private var rows: [DisplayRow] = []
     @State private var isSearching = false
     @State private var suppliers: [PriceSupplier] = []
     @State private var selectedSources: Set<String> = []
+    @State private var mode: SearchMode = .priceLists
     @State private var showSettings = false
     @State private var didSearch = false
     @State private var searchTask: Task<Void, Never>?
@@ -39,15 +56,11 @@ struct PriceSearchView: View {
                 .foregroundStyle(.white)
             Spacer()
             Button { showSettings = true } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "slider.horizontal.3")
-                    Text(sourcesSummary)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                }
-                .foregroundStyle(.white.opacity(0.85))
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(0.10), in: Capsule())
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .frame(width: 40, height: 40)
+                    .background(Color.white.opacity(0.10), in: Circle())
             }
             .buttonStyle(.plain)
         }
@@ -56,38 +69,32 @@ struct PriceSearchView: View {
         .padding(.bottom, 12)
     }
 
-    private var sourcesSummary: String {
-        if allSources.isEmpty { return "Источники" }
-        if allSelected { return "Все прайсы" }
-        return "\(selectedSources.count)/\(allSources.count)"
-    }
-
     // MARK: - Search bar
 
     private var searchBar: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.white.opacity(0.5))
+            Image(systemName: "magnifyingglass").foregroundStyle(.black.opacity(0.4))
             TextField("Артикул или название", text: $query)
-                .foregroundStyle(.white)
+                .foregroundStyle(.black)
+                .tint(.black)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
             if !query.isEmpty {
                 Button {
                     query = ""
-                    results = []
+                    rows = []
                     didSearch = false
                 } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.white.opacity(0.4))
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.black.opacity(0.3))
                 }
                 .buttonStyle(.plain)
             }
             if isSearching {
-                ProgressView().tint(.white).controlSize(.small)
+                ProgressView().tint(.black).controlSize(.small)
             }
         }
         .padding(14)
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.10), lineWidth: 1))
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .padding(.horizontal, 20)
         .padding(.bottom, 12)
         .onChange(of: query) { _, _ in scheduleSearch() }
@@ -96,16 +103,16 @@ struct PriceSearchView: View {
     // MARK: - Content
 
     @ViewBuilder private var content: some View {
-        if isSearching && results.isEmpty {
+        if isSearching && rows.isEmpty {
             Spacer()
             ProgressView().tint(.white)
             Spacer()
-        } else if results.isEmpty {
+        } else if rows.isEmpty {
             emptyState
         } else {
             ScrollView {
                 LazyVStack(spacing: 8) {
-                    ForEach(results, id: \.rowID) { resultRow($0) }
+                    ForEach(rows) { resultRow($0) }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
@@ -119,7 +126,7 @@ struct PriceSearchView: View {
             Image(systemName: didSearch ? "magnifyingglass" : "tag")
                 .font(.system(size: 34))
                 .foregroundStyle(.white.opacity(0.22))
-            Text(didSearch ? "Ничего не найдено" : "Поиск по всем прайс-листам с ценой")
+            Text(didSearch ? "Ничего не найдено" : "Поиск по прайс-листам с ценой")
                 .font(.system(size: 15, weight: .medium, design: .rounded))
                 .foregroundStyle(.white.opacity(0.5))
                 .multilineTextAlignment(.center)
@@ -129,37 +136,32 @@ struct PriceSearchView: View {
         .padding(.horizontal, 32)
     }
 
-    private func resultRow(_ row: PriceSearchResult) -> some View {
+    private func resultRow(_ row: DisplayRow) -> some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(row.name)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.black)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
-                    Text(sourceLabel(row))
+                    Text(row.sourceLabel)
                         .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(row.isCL ? Color(red: 0.48, green: 0.84, blue: 0.60) : .white.opacity(0.55))
+                        .foregroundStyle(row.accented ? Color(red: 0.09, green: 0.52, blue: 0.30) : .black.opacity(0.5))
                     if let code = row.code, !code.isEmpty {
                         Text("· \(code)")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.4))
+                            .foregroundStyle(.black.opacity(0.4))
                     }
                 }
             }
             Spacer(minLength: 8)
             Text(priceText(row.price))
                 .font(.system(size: 15, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(.black)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.07), lineWidth: 1))
-    }
-
-    private func sourceLabel(_ row: PriceSearchResult) -> String {
-        row.isCL ? "CL · мой прайс" : (row.supplier ?? row.source)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private static let priceFormatter: NumberFormatter = {
@@ -172,8 +174,6 @@ struct PriceSearchView: View {
     }()
 
     private func priceText(_ price: String?) -> String {
-        // В прайс-данных валюты нет — показываем просто число (группировка разрядов),
-        // без значка валюты.
         guard let price, !price.isEmpty else { return "—" }
         if let value = Decimal(string: price) {
             return Self.priceFormatter.string(from: value as NSDecimalNumber) ?? price
@@ -187,33 +187,49 @@ struct PriceSearchView: View {
         NavigationStack {
             List {
                 Section {
-                    ForEach(allSources, id: \.self) { src in
-                        Button {
-                            toggleSource(src)
-                        } label: {
-                            HStack {
-                                Text(src == "CL" ? "CL (мой прайс)" : src)
-                                    .foregroundStyle(.primary)
-                                Spacer()
-                                if selectedSources.contains(src) {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.35))
+                    Picker("Режим", selection: $mode) {
+                        Text("По прайсам").tag(SearchMode.priceLists)
+                        Text("Точный").tag(SearchMode.catalog)
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Text("Режим поиска")
+                } footer: {
+                    Text(mode == .priceLists
+                         ? "Широкий поиск по всем прайс-листам (CL + поставщики), с ценой из каждого."
+                         : "Точный поиск по каталогу — как при создании заказа (находит меньше и точнее).")
+                }
+
+                if mode == .priceLists {
+                    Section {
+                        ForEach(allSources, id: \.self) { src in
+                            Button {
+                                toggleSource(src)
+                            } label: {
+                                HStack {
+                                    Text(src == "CL" ? "CL (мой прайс)" : src)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                    if selectedSources.contains(src) {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Color(red: 0.09, green: 0.64, blue: 0.35))
+                                    }
                                 }
                             }
                         }
+                    } header: {
+                        Text("В каких прайс-листах искать")
                     }
-                } header: {
-                    Text("В каких прайс-листах искать")
-                } footer: {
-                    Text("Отмечены все — поиск по всем. Поставщики со свежими прайсами обновляются автоматически.")
                 }
             }
-            .navigationTitle("Источники")
+            .navigationTitle("Настройки поиска")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button(allSelected ? "Снять все" : "Выбрать все") {
-                        selectedSources = allSelected ? [] : Set(allSources)
+                if mode == .priceLists {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(allSelected ? "Снять все" : "Выбрать все") {
+                            selectedSources = allSelected ? [] : Set(allSources)
+                        }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
@@ -240,7 +256,7 @@ struct PriceSearchView: View {
         do {
             let list = try await client.priceSuppliers(accessToken: token)
             suppliers = list
-            selectedSources = Set(["CL"] + list.map(\.email)) // по умолчанию — все
+            selectedSources = Set(["CL"] + list.map(\.email))
         } catch {
             suppliers = []
             selectedSources = ["CL"]
@@ -251,7 +267,7 @@ struct PriceSearchView: View {
         searchTask?.cancel()
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard q.count >= 2 else {
-            results = []
+            rows = []
             isSearching = false
             didSearch = false
             return
@@ -268,23 +284,43 @@ struct PriceSearchView: View {
     @MainActor
     private func runSearch(_ q: String) async {
         guard let token = session.currentAccessToken else { return }
-        // Пустой выбор источников — показываем пусто, в сеть не ходим.
-        guard !selectedSources.isEmpty else {
-            results = []
-            didSearch = true
-            return
-        }
         isSearching = true
         defer { isSearching = false }
-        let emails = allSelected ? [] : Array(selectedSources)
         do {
-            let res = try await client.priceSearch(accessToken: token, query: q, emails: emails)
-            if Task.isCancelled { return }
-            results = res
+            switch mode {
+            case .priceLists:
+                guard !selectedSources.isEmpty else { rows = []; didSearch = true; return }
+                let emails = allSelected ? [] : Array(selectedSources)
+                let res = try await client.priceSearch(accessToken: token, query: q, emails: emails)
+                if Task.isCancelled { return }
+                rows = res.map { r in
+                    DisplayRow(
+                        id: r.rowID,
+                        name: r.name,
+                        code: r.code,
+                        price: r.price,
+                        sourceLabel: r.isCL ? "CL · мой прайс" : (r.supplier ?? r.source),
+                        accented: r.isCL
+                    )
+                }
+            case .catalog:
+                let products = try await client.searchProducts(accessToken: token, query: q)
+                if Task.isCancelled { return }
+                rows = products.map { p in
+                    DisplayRow(
+                        id: "cat-\(p.id)",
+                        name: p.productName,
+                        code: p.productArticle,
+                        price: p.productCostUSD,
+                        sourceLabel: "Каталог",
+                        accented: true
+                    )
+                }
+            }
             didSearch = true
         } catch {
             if Task.isCancelled { return }
-            results = []
+            rows = []
             didSearch = true
         }
     }
