@@ -70,13 +70,6 @@ struct PriceSearchView: View {
                 ProgressView().tint(.white).controlSize(.small)
             }
 
-            Button { showSettings = true } label: {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.78))
-            }
-            .buttonStyle(.plain)
-
             if !query.isEmpty {
                 Button {
                     query = ""
@@ -89,6 +82,13 @@ struct PriceSearchView: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            Button { showSettings = true } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.78))
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 14)
         .frame(height: 40)
