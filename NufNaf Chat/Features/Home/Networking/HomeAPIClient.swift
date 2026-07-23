@@ -150,11 +150,14 @@ struct HomeAPIClient {
 
     /// Живой поиск по прайс-листам. `emails` — фильтр источников («CL»/email-ы);
     /// пусто = искать по всем.
-    func priceSearch(accessToken: String, query: String, emails: [String]) async throws -> [PriceSearchResult] {
+    func priceSearch(accessToken: String, query: String, emails: [String], strict: Bool = false) async throws -> [PriceSearchResult] {
         var queryItems = [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "limit", value: "50"),
         ]
+        if strict {
+            queryItems.append(URLQueryItem(name: "strict", value: "true"))
+        }
         for email in emails {
             queryItems.append(URLQueryItem(name: "emails", value: email))
         }
