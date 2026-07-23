@@ -816,8 +816,10 @@ final class HomeStore: ObservableObject {
         "home.order-comments.last-read.\(userID).\(orderID)"
     }
 
-    func updateOrderStatus(accessToken: String?, order: HomeOrder, statusID: Int) async throws -> HomeOrder {
-        try await updateOrder(
+    func updateOrderStatus(accessToken: String?, order: HomeOrder, statusID: Int, cancelAllItems: Bool = false) async throws -> HomeOrder {
+        // При отмене заказа с cancelAllItems=true всем товарам проставляем статус «Отменен».
+        let cancelledItemStatusID = cancelAllItems ? cancelledOrderItemStatusID() : nil
+        return try await updateOrder(
             accessToken: accessToken,
             orderID: order.id,
             request: HomeOrderUpdateRequest(
@@ -836,7 +838,7 @@ final class HomeStore: ObservableObject {
                         productName: $0.orderItemName,
                         orderItemQuantity: $0.orderItemQuantity,
                         orderItemPrice: $0.orderItemPrice,
-                        orderItemStatusID: $0.orderItemStatusID,
+                        orderItemStatusID: cancelledItemStatusID ?? $0.orderItemStatusID,
                         orderItemNote: $0.orderItemNote,
                         orderItemSourceEstablishmentID: $0.orderItemSourceEstablishmentID,
                         orderItemDestinationEstablishmentID: $0.orderItemDestinationEstablishmentID,
@@ -847,6 +849,23 @@ final class HomeStore: ObservableObject {
                 }
             )
         )
+    }
+
+    /// id статуса товара «Отменен» (order_products), если есть в справочнике.
+    func cancelledOrderItemStatusID() -> Int? {
+        referenceData.statuses.first { $0.statusType == "order_products" && $0.statusStatus == "Отменен" }?.id
+    }
+
+    /// Имя статуса ЗАКАЗА по id (orders).
+    func orderStatusName(_ statusID: Int?) -> String? {
+        guard let statusID else { return nil }
+        return referenceData.statuses.first { $0.statusType == "orders" && $0.id == statusID }?.statusStatus
+    }
+
+    /// true, если в заказе есть хотя бы один товар не в статусе «Отменен» (значит есть что
+    /// отменять — показываем диалог при переводе заказа в «Отменен»).
+    func orderHasNonCancelledItems(_ order: HomeOrder) -> Bool {
+        order.items.contains { orderItemStatusName($0.orderItemStatusID) != "Отменен" }
     }
 
     // MARK: - Сборка/отгрузка: отменённые позиции и перевод заказа в «На сборку»

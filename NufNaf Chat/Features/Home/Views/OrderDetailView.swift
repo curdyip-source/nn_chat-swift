@@ -38,6 +38,7 @@ struct OrderDetailView: View {
     @State private var activePhotoAttachment: HomeOrderCommentAttachment?
     @State private var pendingCommentPayloads: [Int: PendingOrderCommentPayload] = [:]
     @State private var assemblySplitStatusID: Int?
+    @State private var pendingCancelStatusID: Int?
     @State private var assemblyAlertMessage: String?
     @State private var commentScrollRequest = 0
     @State private var cdekSheetOrder: HomeOrder?
@@ -119,6 +120,21 @@ struct OrderDetailView: View {
             Button("Отмена", role: .cancel) { assemblySplitStatusID = nil }
         } message: {
             Text("Товары «В наличии» уйдут на сборку, остальные — в новый заказ (дубль).")
+        }
+        .confirmationDialog(
+            "Отменить заказ",
+            isPresented: Binding(get: { pendingCancelStatusID != nil }, set: { if !$0 { pendingCancelStatusID = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Отменить и все товары", role: .destructive) {
+                if let statusID = pendingCancelStatusID { pendingCancelStatusID = nil; performOrderCancel(statusID: statusID, cancelAllItems: true) }
+            }
+            Button("Оставить статусы товаров") {
+                if let statusID = pendingCancelStatusID { pendingCancelStatusID = nil; performOrderCancel(statusID: statusID, cancelAllItems: false) }
+            }
+            Button("Отмена", role: .cancel) { pendingCancelStatusID = nil }
+        } message: {
+            Text("Перевести все товары заказа в статус «Отменен» тоже, или оставить их текущие статусы?")
         }
         .alert(
             "Нельзя перевести в «На сборку»",
@@ -451,6 +467,12 @@ struct OrderDetailView: View {
             return
         }
 
+        // Отмена заказа — предлагаем отменить и все товары.
+        if targetName == "Отменен", store.orderHasNonCancelledItems(order) {
+            pendingCancelStatusID = statusID
+            return
+        }
+
         Task {
             isSaving = true
             errorMessage = nil
@@ -493,6 +515,24 @@ struct OrderDetailView: View {
                 markCommentsRead(updatedOrder.comments)
             } catch {
                 assemblyAlertMessage = resolveActionError(error)
+            }
+        }
+    }
+
+    private func performOrderCancel(statusID: Int, cancelAllItems: Bool) {
+        guard let order else { return }
+        Task {
+            isSaving = true
+            errorMessage = nil
+            defer { isSaving = false }
+
+            do {
+                let updatedOrder = try await store.updateOrderStatus(accessToken: session.currentAccessToken, order: order, statusID: statusID, cancelAllItems: cancelAllItems)
+                self.order = updatedOrder
+                self.comments = sortComments(updatedOrder.comments)
+                markCommentsRead(updatedOrder.comments)
+            } catch {
+                errorMessage = resolveActionError(error)
             }
         }
     }
