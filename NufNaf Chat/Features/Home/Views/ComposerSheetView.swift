@@ -971,19 +971,35 @@ struct ComposerSheetView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(searchResults, id: \.id) { product in
-                            Button {
-                                appendProductToBasket(product)
-                                dismissProductOverlays(clearSearch: true)
-                            } label: {
-                                Text(product.productName)
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(12)
-                                .background(Color.black.opacity(0.04))
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            HStack(spacing: 8) {
+                                Button {
+                                    appendProductToBasket(product)
+                                    dismissProductOverlays(clearSearch: true)
+                                } label: {
+                                    Text(product.productName)
+                                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+
+                                // Подставить полное наименование в поиск — чтобы доредактировать
+                                // (дописать «10 мл») и создать вариант, не перепечатывая всё.
+                                Button {
+                                    searchQuery = product.productName
+                                    focusedField = .search
+                                } label: {
+                                    Image(systemName: "square.and.pencil")
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 36, height: 36)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
+                            .padding(12)
+                            .background(Color.black.opacity(0.04))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         }
                     }
                 }
