@@ -22,21 +22,23 @@ private struct AssemblySplitDialogModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .confirmationDialog(
-                "В заказе есть товары не в наличии. Разделить заказ?",
-                isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
-                titleVisibility: .visible
-            ) {
-                Button("Разделить и на сборку") {
-                    if let value = pending {
-                        pending = nil
-                        onConfirm(value)
-                    }
+            .overlay {
+                if let value = pending {
+                    AppConfirmCard(
+                        title: "Разделить заказ?",
+                        message: "В заказе есть товары не в наличии. «В наличии» уйдут на сборку, остальные — в новый заказ (дубль).",
+                        buttons: [
+                            AppConfirmButton(label: "Разделить и на сборку", style: .primary) {
+                                pending = nil
+                                onConfirm(value)
+                            },
+                            AppConfirmButton(label: "Отмена", style: .cancel) { pending = nil },
+                        ]
+                    )
+                    .transition(.opacity)
                 }
-                Button("Отмена", role: .cancel) { pending = nil }
-            } message: {
-                Text("Товары «В наличии» уйдут на сборку, остальные — в новый заказ (дубль).")
             }
+            .animation(.easeInOut(duration: 0.18), value: pending?.id)
             .alert(
                 "Нельзя перевести в «На сборку»",
                 isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })
@@ -62,21 +64,27 @@ private struct OrderCancelDialogModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .confirmationDialog(
-                "Отменить заказ",
-                isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }),
-                titleVisibility: .visible
-            ) {
-                Button("Отменить и все товары", role: .destructive) {
-                    if let value = pending { pending = nil; onChoose(value, true) }
+            .overlay {
+                if let value = pending {
+                    AppConfirmCard(
+                        title: "Отменить заказ",
+                        message: "Отменить и все товары заказа, или оставить их текущие статусы?",
+                        buttons: [
+                            AppConfirmButton(label: "Отменить и все товары", style: .destructive) {
+                                pending = nil
+                                onChoose(value, true)
+                            },
+                            AppConfirmButton(label: "Оставить статусы товаров", style: .primary) {
+                                pending = nil
+                                onChoose(value, false)
+                            },
+                            AppConfirmButton(label: "Отмена", style: .cancel) { pending = nil },
+                        ]
+                    )
+                    .transition(.opacity)
                 }
-                Button("Оставить статусы товаров") {
-                    if let value = pending { pending = nil; onChoose(value, false) }
-                }
-                Button("Отмена", role: .cancel) { pending = nil }
-            } message: {
-                Text("Перевести все товары заказа в статус «Отменен» тоже, или оставить их текущие статусы?")
             }
+            .animation(.easeInOut(duration: 0.18), value: pending?.id)
     }
 }
 

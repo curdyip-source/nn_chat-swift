@@ -108,34 +108,6 @@ struct OrderDetailView: View {
         } message: {
             Text("Текущая накладная будет удалена в СДЭК. Данные получателя сохранятся — форма откроется заново.")
         }
-        .confirmationDialog(
-            "В заказе есть товары не в наличии. Разделить заказ?",
-            isPresented: Binding(get: { assemblySplitStatusID != nil }, set: { if !$0 { assemblySplitStatusID = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Разделить и на сборку") {
-                assemblySplitStatusID = nil
-                performAssemblySplit()
-            }
-            Button("Отмена", role: .cancel) { assemblySplitStatusID = nil }
-        } message: {
-            Text("Товары «В наличии» уйдут на сборку, остальные — в новый заказ (дубль).")
-        }
-        .confirmationDialog(
-            "Отменить заказ",
-            isPresented: Binding(get: { pendingCancelStatusID != nil }, set: { if !$0 { pendingCancelStatusID = nil } }),
-            titleVisibility: .visible
-        ) {
-            Button("Отменить и все товары", role: .destructive) {
-                if let statusID = pendingCancelStatusID { pendingCancelStatusID = nil; performOrderCancel(statusID: statusID, cancelAllItems: true) }
-            }
-            Button("Оставить статусы товаров") {
-                if let statusID = pendingCancelStatusID { pendingCancelStatusID = nil; performOrderCancel(statusID: statusID, cancelAllItems: false) }
-            }
-            Button("Отмена", role: .cancel) { pendingCancelStatusID = nil }
-        } message: {
-            Text("Перевести все товары заказа в статус «Отменен» тоже, или оставить их текущие статусы?")
-        }
         .alert(
             "Нельзя перевести в «На сборку»",
             isPresented: Binding(get: { assemblyAlertMessage != nil }, set: { if !$0 { assemblyAlertMessage = nil } })
@@ -160,6 +132,42 @@ struct OrderDetailView: View {
             }
         }
         .animation(.easeInOut(duration: 0.22), value: isEditSheetPresented)
+        // Подтверждения (сплит на сборку / отмена заказа) — карточкой поверх всего.
+        .overlay {
+            if assemblySplitStatusID != nil {
+                AppConfirmCard(
+                    title: "Разделить заказ?",
+                    message: "В заказе есть товары не в наличии. «В наличии» уйдут на сборку, остальные — в новый заказ (дубль).",
+                    buttons: [
+                        AppConfirmButton(label: "Разделить и на сборку", style: .primary) {
+                            assemblySplitStatusID = nil
+                            performAssemblySplit()
+                        },
+                        AppConfirmButton(label: "Отмена", style: .cancel) { assemblySplitStatusID = nil },
+                    ]
+                )
+                .transition(.opacity)
+            } else if let statusID = pendingCancelStatusID {
+                AppConfirmCard(
+                    title: "Отменить заказ",
+                    message: "Отменить и все товары заказа, или оставить их текущие статусы?",
+                    buttons: [
+                        AppConfirmButton(label: "Отменить и все товары", style: .destructive) {
+                            pendingCancelStatusID = nil
+                            performOrderCancel(statusID: statusID, cancelAllItems: true)
+                        },
+                        AppConfirmButton(label: "Оставить статусы товаров", style: .primary) {
+                            pendingCancelStatusID = nil
+                            performOrderCancel(statusID: statusID, cancelAllItems: false)
+                        },
+                        AppConfirmButton(label: "Отмена", style: .cancel) { pendingCancelStatusID = nil },
+                    ]
+                )
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: assemblySplitStatusID)
+        .animation(.easeInOut(duration: 0.18), value: pendingCancelStatusID)
         .onChange(of: isEditSheetPresented) { _, isPresented in
             if isPresented {
                 closeCommentAttachmentMenu()
