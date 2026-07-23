@@ -162,11 +162,23 @@ struct PriceSearchView: View {
         row.isCL ? "CL · мой прайс" : (row.supplier ?? row.source)
     }
 
+    private static let priceFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.maximumFractionDigits = 2
+        formatter.minimumFractionDigits = 0
+        return formatter
+    }()
+
     private func priceText(_ price: String?) -> String {
+        // В прайс-данных валюты нет — показываем просто число (группировка разрядов),
+        // без значка валюты.
         guard let price, !price.isEmpty else { return "—" }
-        var value = price
-        if value.hasSuffix(".00") { value = String(value.dropLast(3)) }
-        return "\(value) ₽"
+        if let value = Decimal(string: price) {
+            return Self.priceFormatter.string(from: value as NSDecimalNumber) ?? price
+        }
+        return price
     }
 
     // MARK: - Settings sheet
