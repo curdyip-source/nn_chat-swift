@@ -102,7 +102,7 @@ struct CRMDocumentsListView: View {
                                             onSelectOrderStatus(order, statusID)
                                         },
                                         onSelectItemStatus: { itemID, statusID in
-                                            handleOrderItemStatusSelection(order: order, itemID: itemID, statusID: statusID)
+                                            handleOrderItemStatusSelection(order: order, itemID: itemID, statusID: statusID, promptForSupplier: true)
                                         },
                                         onCollectShipmentItem: { itemID in
                                             onCollectShipmentItem(order, itemID)
