@@ -139,6 +139,35 @@ struct HomeAPIClient {
         try await send(path: "reference-data", method: "GET", body: Optional<String>.none, accessToken: accessToken)
     }
 
+    // MARK: - Прайс (прокси к nn_vla)
+
+    func priceSuppliers(accessToken: String) async throws -> [PriceSupplier] {
+        let response: PriceSuppliersResponse = try await send(
+            path: "price/suppliers", method: "GET", body: Optional<String>.none, accessToken: accessToken
+        )
+        return response.items
+    }
+
+    /// Живой поиск по прайс-листам. `emails` — фильтр источников («CL»/email-ы);
+    /// пусто = искать по всем.
+    func priceSearch(accessToken: String, query: String, emails: [String]) async throws -> [PriceSearchResult] {
+        var queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "limit", value: "50"),
+        ]
+        for email in emails {
+            queryItems.append(URLQueryItem(name: "emails", value: email))
+        }
+        let response: PriceSearchResponse = try await send(
+            path: "price/search",
+            queryItems: queryItems,
+            method: "GET",
+            body: Optional<String>.none,
+            accessToken: accessToken
+        )
+        return response.results
+    }
+
     func searchProducts(accessToken: String, query: String) async throws -> [HomeProduct] {
         let response: HomeProductResponse = try await send(
             path: "products",

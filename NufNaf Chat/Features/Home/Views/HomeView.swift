@@ -471,9 +471,7 @@ struct HomeView: View {
             case .crm:
                 crmContent
             case .price:
-                Color.black
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea()
+                PriceSearchView()
             }
         }
     }
