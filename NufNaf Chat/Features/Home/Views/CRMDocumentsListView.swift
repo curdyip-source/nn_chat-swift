@@ -838,7 +838,7 @@ private struct CRMOrderCardView: View {
                         HStack(alignment: .top, spacing: 10) {
                             if isShipmentMode {
                                 CRMShipmentCollectButton(
-                                    isCollected: itemStatusTitle(for: item) == "Собрано",
+                                    isPacked: itemStatusTitle(for: item) == "Упаковано",
                                     isDisabled: isSaving,
                                     action: {
                                         onCollectShipmentItem(item.id)
@@ -940,7 +940,7 @@ private struct CRMOrderCardView: View {
         guard (order.orderStatus ?? "") != "Выполнен" else { return false }
         let activeItems = order.items.filter { !isCancelledItem($0) }
         guard !activeItems.isEmpty else { return false }
-        return activeItems.allSatisfy { itemStatusTitle(for: $0) == "Собрано" }
+        return activeItems.allSatisfy { itemStatusTitle(for: $0) == "Упаковано" }
     }
 
     private func itemStatusTitle(for item: HomeOrderItem) -> String {
@@ -951,42 +951,52 @@ private struct CRMOrderCardView: View {
     }
 }
 
-/// Кнопка сборки в «Отгрузках». Всегда «Упаковать» и всегда активная — и для
-/// товара «В наличии», и для уже собранного: сборщик проходит по списку, не
-/// разбираясь, что уже отмечено. Нажатие на собранный товар ничего не меняет
-/// (лишний запрос не шлём), просто отрабатывает нажатие.
+/// Кнопка сборки в «Отгрузках»: «Упаковать» активна для товара «В наличии» и
+/// «Собрано», нажатие переводит его в «Упаковано» — тогда кнопка становится
+/// нажатой (серой). Вернуть товар в работу можно сменой статуса в «Все заказы».
 private struct CRMShipmentCollectButton: View {
-    let isCollected: Bool
+    let isPacked: Bool
     let isDisabled: Bool
     let action: () -> Void
 
     var body: some View {
-        Button {
-            guard !isCollected else { return }
-            action()
-        } label: {
+        Button(action: action) {
             HStack(spacing: 6) {
-                Text("Упаковать")
+                Text(isPacked ? "Упаковано" : "Упаковать")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.leading)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(accentColor)
+            .foregroundStyle(foregroundColor)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(accentColor.opacity(0.14), in: Capsule())
+            .background(backgroundColor, in: Capsule())
             .overlay(
                 Capsule()
-                    .stroke(accentColor.opacity(0.26), lineWidth: 1)
+                    .stroke(borderColor, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .opacity(isDisabled ? 0.6 : 1)
+        .disabled(isDisabled || isPacked)
+        .opacity(isDisabled && !isPacked ? 0.6 : 1)
     }
 
+    // «Упаковать» — фиолетовый активный. «Упаковано» — серый нажатый (как неактивная
+    // «Выполнить»), чтобы зелёный не создавал ложного ощущения, что надо нажать.
     private var accentColor: Color { Color(red: 0.39, green: 0.40, blue: 0.95) }
+
+    private var foregroundColor: Color {
+        isPacked ? Color(uiColor: .systemGray) : accentColor
+    }
+
+    private var backgroundColor: Color {
+        isPacked ? Color(uiColor: .systemGray5) : accentColor.opacity(0.14)
+    }
+
+    private var borderColor: Color {
+        isPacked ? Color(uiColor: .systemGray3) : accentColor.opacity(0.26)
+    }
 }
 
 private struct CRMShipmentOrderCompleteButton: View {

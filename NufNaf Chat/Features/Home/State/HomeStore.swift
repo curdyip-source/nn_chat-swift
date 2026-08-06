@@ -886,10 +886,10 @@ final class HomeStore: ObservableObject {
     /// статус заказа (не показываются в отгрузке, но остаются в карточке заказа).
     static let cancelledItemStatusNames: Set<String> = ["Отменен", "Не будет"]
     /// Статусы позиции, которая реально уходит в отгрузку сейчас: «В наличии» — надо
-    /// собрать, «Собрано» — склад уже собрал (в «Отгрузках» позиция сразу отмечена).
-    static let collectableItemStatusNames: Set<String> = ["В наличии", "Собрано"]
+    /// собрать, «Собрано» — склад уже собрал, «Упаковано» — сборщик уже упаковал.
+    static let collectableItemStatusNames: Set<String> = ["В наличии", "Собрано", "Упаковано"]
     /// Статусы товара, при которых заказ можно перевести в «На сборку».
-    private static let assemblyReadyItemStatusNames: Set<String> = ["В наличии", "Собрано", "Отменен", "Не будет"]
+    private static let assemblyReadyItemStatusNames: Set<String> = ["В наличии", "Собрано", "Упаковано", "Отменен", "Не будет"]
 
     func orderItemStatusName(_ statusID: Int?) -> String? {
         guard let statusID else { return nil }

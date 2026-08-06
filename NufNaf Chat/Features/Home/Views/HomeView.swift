@@ -746,7 +746,7 @@ struct HomeView: View {
                         )
                     },
                     onCollectShipmentItem: { order, itemID in
-                        updateCRMShipmentItemCollected(order: order, itemID: itemID)
+                        updateCRMShipmentItemPacked(order: order, itemID: itemID)
                     },
                     onCompleteShipmentOrder: { order in
                         updateCRMShipmentOrderCompleted(order: order)
@@ -1336,11 +1336,13 @@ struct HomeView: View {
         }
     }
 
-    private func updateCRMShipmentItemCollected(order: HomeOrder, itemID: Int) {
+    private func updateCRMShipmentItemPacked(order: HomeOrder, itemID: Int) {
+        // Кнопка «Упаковать» в отгрузках переводит позицию в «Упаковано» — финальный
+        // шаг сборки: по нему видно, что именно сборщик уже отложил.
         guard let collectedItemStatusID = store.referenceData.statuses.first(where: {
-            $0.statusType == "order_products" && $0.statusStatus == "Собрано"
+            $0.statusType == "order_products" && $0.statusStatus == "Упаковано"
         })?.id else {
-            crmErrorMessage = "Не найден статус товара Собрано"
+            crmErrorMessage = "Не найден статус товара Упаковано"
             return
         }
 
@@ -1355,7 +1357,7 @@ struct HomeView: View {
         guard currentItem.orderItemStatusID != collectedItemStatusID else { return }
 
         // Отменённые позиции («Отменен»/«Не будет») не участвуют в сборке — заказ
-        // считается собранным, когда собраны все НЕотменённые товары.
+        // считается собранным, когда упакованы все НЕотменённые товары.
         let allItemsWillBeCollected = order.items.allSatisfy { item in
             store.isCancelledOrderItem(item) || item.id == itemID || item.orderItemStatusID == collectedItemStatusID
         }
