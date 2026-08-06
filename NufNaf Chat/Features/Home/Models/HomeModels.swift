@@ -693,7 +693,7 @@ struct HomeOrderCdekRequest: Encodable {
 
 struct HomeOrderCreateRequest: Encodable {
     let orderEstablishmentID: Int
-    let orderMethodID: Int
+    let orderMethodID: Int?
     let orderSubMethod: String?
     let orderContactMethod: String?
     let orderSalesChannel: String?
@@ -723,7 +723,8 @@ struct HomeOrder: Codable, Identifiable, Hashable {
     let id: Int
     let orderEstablishmentID: Int
     let orderEstablishmentName: String?
-    let orderMethodID: Int
+    // Способ заказа может быть не выбран: заказы с сайта приходят без него.
+    let orderMethodID: Int?
     let orderMethodName: String?
     let orderSubMethod: String?
     let orderContactMethod: String?
@@ -1349,7 +1350,7 @@ struct HomeOrderItemCreateRequest: Encodable {
 
 struct HomeOrderUpdateRequest: Encodable {
     let orderEstablishmentID: Int
-    let orderMethodID: Int
+    let orderMethodID: Int?
     let orderSubMethod: String?
     let orderContactMethod: String?
     let orderSalesChannel: String?

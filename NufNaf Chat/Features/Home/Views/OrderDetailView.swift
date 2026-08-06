@@ -1093,6 +1093,9 @@ struct OrderDetailView: View {
     }
 
     private func methodTitle(for order: HomeOrder) -> String {
+        // Способ может быть не выбран (заказ с сайта) — показываем прочерк, как у
+        // любого незаполненного параметра, а не подставляем что-то своё.
+        guard order.orderMethodID != nil || order.orderMethodName != nil else { return "-" }
         let baseTitle = order.orderMethodName ?? store.referenceData.orderMethods.first(where: { $0.id == order.orderMethodID })?.orderMethodName ?? "Метод"
         guard let orderSubMethod = order.orderSubMethod, !orderSubMethod.isEmpty else {
             return baseTitle
