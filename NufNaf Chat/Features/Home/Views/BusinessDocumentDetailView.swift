@@ -670,7 +670,7 @@ struct BusinessDocumentItemsSection: View {
 
                         HStack(spacing: 10) {
                             BusinessDocumentMetricChip(title: "Кол-во", value: "\(item.quantity)")
-                            BusinessDocumentMetricChip(title: "Цена", value: "\(item.cost) \(item.currencyTitle)")
+                            BusinessDocumentMetricChip(title: "Цена", value: "\(AppAmount.grouped(item.cost)) \(item.currencyTitle)")
                         }
                     }
                     .padding(16)
@@ -723,7 +723,7 @@ struct BusinessDocumentItemViewModel: Identifiable {
     var totalTitle: String {
         let normalizedCost = cost.replacingOccurrences(of: ",", with: ".")
         let total = (Double(normalizedCost) ?? 0) * Double(quantity)
-        return "Итого: \(total.formatted(.number.precision(.fractionLength(2)))) \(currencyTitle)"
+        return "Итого: \(AppAmount.grouped(String(format: "%.2f", total))) \(currencyTitle)"
     }
 }
 

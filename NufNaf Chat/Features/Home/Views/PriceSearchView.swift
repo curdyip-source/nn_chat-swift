@@ -164,21 +164,13 @@ struct PriceSearchView: View {
         .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private static let priceFormatter: NumberFormatter = {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.maximumFractionDigits = 2
-        formatter.minimumFractionDigits = 0
-        return formatter
-    }()
-
     private func priceText(_ price: String?) -> String {
         guard let price, !price.isEmpty else { return "—" }
         if let value = Decimal(string: price) {
-            return Self.priceFormatter.string(from: value as NSDecimalNumber) ?? price
+            // Единый формат сумм приложения: разряды тысяч через пробел.
+            return AppAmount.grouped(value)
         }
-        return price
+        return AppAmount.grouped(price)
     }
 
     // MARK: - Settings sheet

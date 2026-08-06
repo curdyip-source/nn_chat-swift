@@ -106,7 +106,7 @@ struct ChatOrderPreviewSheet: View {
 
                             HStack(spacing: 8) {
                                 previewChip(title: "Кол-во", value: "\(item.orderItemQuantity)")
-                                previewChip(title: "Цена", value: item.orderItemPrice)
+                                previewChip(title: "Цена", value: AppAmount.grouped(item.orderItemPrice))
                                 previewChip(title: "Валюта", value: currencyTitleProvider(item.orderItemCurrencyID))
                             }
                         }

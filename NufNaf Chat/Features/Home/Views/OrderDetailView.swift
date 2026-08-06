@@ -1071,11 +1071,25 @@ struct OrderDetailView: View {
         if let contactMethod = order.orderContactMethod, !contactMethod.isEmpty {
             rows.append(BusinessDocumentInfoRowModel(title: "Способ связи", value: contactMethod))
         }
+        rows.append(BusinessDocumentInfoRowModel(title: "Оплата", value: paymentValue(for: order)))
         rows.append(BusinessDocumentInfoRowModel(title: "Создана", value: formattedDate(order.orderCreatedAt)))
         if let owner = order.orderOwnerDisplayName {
             rows.append(BusinessDocumentInfoRowModel(title: "Кем создана", value: owner))
         }
         return rows
+    }
+
+    /// Строка «Оплата» в параметрах: когда и кто отметил (кнопка — в карточке СРМ).
+    private func paymentValue(for order: HomeOrder) -> String {
+        guard order.isPaid else { return "Не оплачено" }
+        var parts = ["Оплачено"]
+        if let paidAt = order.orderPaidAt, !paidAt.isEmpty {
+            parts.append(formattedDate(paidAt))
+        }
+        if let paidBy = order.orderPaidByDisplayName {
+            parts.append(paidBy)
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func methodTitle(for order: HomeOrder) -> String {
@@ -1149,7 +1163,7 @@ private struct OrderDocumentItemsSection: View {
 
     private var totalSummaryText: String {
         totalsByCurrency
-            .map { "\(formatOrderAmount($0.total)) \($0.currency)" }
+            .map { "\(AppAmount.grouped(formatOrderAmount($0.total))) \($0.currency)" }
             .joined(separator: " + ")
     }
 
@@ -1204,11 +1218,11 @@ private struct OrderDocumentItemsSection: View {
 
                         HStack(spacing: 8) {
                             OrderCompactMetricView(title: "Кол-во", value: item.quantity)
-                            OrderCompactMetricView(title: "Цена", value: item.price)
+                            OrderCompactMetricView(title: "Цена", value: AppAmount.grouped(item.price))
                             OrderCompactMetricView(title: "Валюта", value: item.currencyTitle)
                             OrderCompactMetricView(
                                 title: "Сумма",
-                                value: item.lineTotal.map { "\(formatOrderAmount($0)) \(item.currencyTitle)" } ?? "—"
+                                value: item.lineTotal.map { "\(AppAmount.grouped(formatOrderAmount($0))) \(item.currencyTitle)" } ?? "—"
                             )
                         }
                     }

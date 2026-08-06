@@ -737,6 +737,13 @@ struct HomeOrder: Codable, Identifiable, Hashable {
     let orderOwnerUserLogin: String?
     let orderOwnerFirstName: String?
     let orderOwnerSecondName: String?
+    // Оплата: отметка с кнопки «Оплатить» в карточке заказа. Поля опциональные —
+    // в кэше сообщений могут лежать карточки, снятые до появления оплаты.
+    let orderPaid: Bool?
+    let orderPaidAt: String?
+    let orderPaidByUserLogin: String?
+    let orderPaidByFirstName: String?
+    let orderPaidBySecondName: String?
     let items: [HomeOrderItem]
     let comments: [HomeOrderComment]
     let cdek: HomeOrderCdek?
@@ -759,9 +766,30 @@ struct HomeOrder: Codable, Identifiable, Hashable {
         case orderOwnerUserLogin = "order_owner_user_login"
         case orderOwnerFirstName = "order_owner_first_name"
         case orderOwnerSecondName = "order_owner_second_name"
+        case orderPaid = "order_paid"
+        case orderPaidAt = "order_paid_at"
+        case orderPaidByUserLogin = "order_paid_by_user_login"
+        case orderPaidByFirstName = "order_paid_by_first_name"
+        case orderPaidBySecondName = "order_paid_by_second_name"
         case items
         case comments
         case cdek
+    }
+
+    /// Заказ отмечен оплаченным.
+    var isPaid: Bool { orderPaid ?? false }
+
+    /// Кто отметил оплату: ФИО (Фамилия Имя), иначе логин.
+    var orderPaidByDisplayName: String? {
+        let fullName = [orderPaidBySecondName, orderPaidByFirstName]
+            .compactMap { value -> String? in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " ")
+        if !fullName.isEmpty { return fullName }
+        if let login = orderPaidByUserLogin, !login.isEmpty { return login }
+        return nil
     }
 
     /// ФИО создателя заказа (Фамилия Имя), иначе логин. Для строки «Кем создана».
@@ -1408,6 +1436,15 @@ struct HomeInventoryItem: Codable, Identifiable, Hashable {
         case inventoryItemQuantity = "inventory_item_quantity"
         case inventoryItemCost = "inventory_item_cost"
         case inventoryItemCurrencyID = "inventory_item_currency_id"
+    }
+}
+
+/// Отметка об оплате заказа: true — «Оплачено», false — снять отметку.
+struct HomeOrderPaymentUpdateRequest: Encodable {
+    let orderPaid: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case orderPaid = "order_paid"
     }
 }
 

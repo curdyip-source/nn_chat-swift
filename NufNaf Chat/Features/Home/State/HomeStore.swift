@@ -851,6 +851,18 @@ final class HomeStore: ObservableObject {
         )
     }
 
+    /// Отметить заказ оплаченным (или снять отметку) — кнопка у «Итого» в карточке.
+    func updateOrderPayment(accessToken: String?, order: HomeOrder, paid: Bool) async throws -> HomeOrder {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        let updated = try await client.updateOrderPayment(accessToken: accessToken, orderID: order.id, paid: paid)
+        // Карточка перечитается по SSE-дельте (notify_order_changed на бэке);
+        // пересинхронизация — чтобы список обновился сразу, как при смене статуса.
+        await reloadMessages(accessToken: accessToken)
+        return updated
+    }
+
     /// id статуса товара «Отменен» (order_products), если есть в справочнике.
     func cancelledOrderItemStatusID() -> Int? {
         referenceData.statuses.first { $0.statusType == "order_products" && $0.statusStatus == "Отменен" }?.id

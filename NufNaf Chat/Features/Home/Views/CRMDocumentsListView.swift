@@ -17,6 +17,8 @@ struct CRMDocumentsListView: View {
     let onSelectOrderItemStatus: (HomeOrder, Int, Int, Int?, Int?, String?) -> Void
     let onCollectShipmentItem: (HomeOrder, Int) -> Void
     let onCompleteShipmentOrder: (HomeOrder) -> Void
+    /// Отметить заказ оплаченным / снять отметку (подтверждение уже показано).
+    let onToggleOrderPayment: (HomeOrder, Bool) -> Void
     let onUpdateOrderItemNote: (HomeOrder, Int, String?) -> Void
     let onSearchSupplierContacts: (String) async -> [HomeContact]
     let onSelectInventoryStatus: (HomeInventory, Int) -> Void
@@ -25,6 +27,7 @@ struct CRMDocumentsListView: View {
     @State private var movementSelection: CRMMovementSelection?
     @State private var supplierSelection: CRMSupplierSelection?
     @State private var shipmentCompletionConfirmation: CRMShipmentOrderCompletionConfirmation?
+    @State private var paymentConfirmation: CRMOrderPaymentConfirmation?
     @State private var supplierQuery = ""
     @State private var supplierResults: [HomeContact] = []
     @State private var isSearchingSuppliers = false
@@ -109,6 +112,9 @@ struct CRMDocumentsListView: View {
                                         },
                                         onCompleteShipmentOrder: {
                                             shipmentCompletionConfirmation = CRMShipmentOrderCompletionConfirmation(order: order)
+                                        },
+                                        onTogglePayment: {
+                                            paymentConfirmation = CRMOrderPaymentConfirmation(order: order)
                                         }
                                     )
                                     .environment(\.colorScheme, .light)
@@ -242,7 +248,32 @@ struct CRMDocumentsListView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .offset(y: geo.safeAreaInsets.bottom)
             }
+
+            // Подтверждение оплаты — последним в ZStack, чтобы затемнение легло и на
+            // меню разделов, а не только на список.
+            if let paymentConfirmation {
+                AppConfirmCard(
+                    title: paymentConfirmation.isPaid ? "Отменить оплату?" : "Подтвердите оплату",
+                    message: paymentConfirmation.isPaid
+                        ? "Снять с заказа №\(paymentConfirmation.order.id) отметку «Оплачено»?"
+                        : "Отметить заказ №\(paymentConfirmation.order.id) как оплаченный?",
+                    buttons: [
+                        AppConfirmButton(
+                            label: paymentConfirmation.isPaid ? "Отменить оплату" : "Оплачено",
+                            style: paymentConfirmation.isPaid ? .destructive : .primary
+                        ) {
+                            self.paymentConfirmation = nil
+                            onToggleOrderPayment(paymentConfirmation.order, !paymentConfirmation.isPaid)
+                        },
+                        AppConfirmButton(label: "Отмена", style: .cancel) {
+                            self.paymentConfirmation = nil
+                        },
+                    ]
+                )
+                .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.18), value: paymentConfirmation?.id)
         .alert(item: $shipmentCompletionConfirmation) { confirmation in
             Alert(
                 title: Text("Подтвердите выполнение"),
@@ -646,7 +677,7 @@ private struct CRMOrderProductRow: View {
 
                 // Подпись заказа — отдельной строкой на всю ширину, чтобы цену не
                 // ужимал блок статуса справа (иначе она обрезалась «Це…»).
-                Text("Заказ №\(entry.order.id) * \(salesChannelSegment)\(orderEstablishmentTitle) * \(Text("\(entry.item.orderItemQuantity) шт.").fontWeight(.bold).foregroundColor(.primary)) * \(entry.item.orderItemPrice)\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
+                Text("Заказ №\(entry.order.id) * \(salesChannelSegment)\(orderEstablishmentTitle) * \(Text("\(entry.item.orderItemQuantity) шт.").fontWeight(.bold).foregroundColor(.primary)) * \(AppAmount.grouped(entry.item.orderItemPrice))\(currencyTitleProvider(entry.item.orderItemCurrencyID))")
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -754,6 +785,7 @@ private struct CRMOrderCardView: View {
     let onSelectItemStatus: (Int, Int) -> Void
     let onCollectShipmentItem: (Int) -> Void
     let onCompleteShipmentOrder: () -> Void
+    let onTogglePayment: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -831,7 +863,7 @@ private struct CRMOrderCardView: View {
                                     .font(.system(size: 14, weight: .semibold, design: .rounded))
                                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                                Text("\(Text("\(item.orderItemQuantity) шт.").fontWeight(.bold).foregroundColor(.primary)) * \(item.orderItemPrice)\(currencyTitleProvider(item.orderItemCurrencyID))")
+                                Text("\(Text("\(item.orderItemQuantity) шт.").fontWeight(.bold).foregroundColor(.primary)) * \(AppAmount.grouped(item.orderItemPrice))\(currencyTitleProvider(item.orderItemCurrencyID))")
                                     .font(.system(size: 13, weight: .medium, design: .rounded))
                                     .foregroundStyle(.secondary)
                             }
@@ -840,12 +872,18 @@ private struct CRMOrderCardView: View {
                 }
             }
 
-            HStack {
+            HStack(spacing: 8) {
                 Spacer()
 
                 Text(orderTotalLine)
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
+
+                CRMOrderPaymentButton(
+                    isPaid: order.isPaid,
+                    isDisabled: isSaving,
+                    action: onTogglePayment
+                )
             }
         }
         .padding(16)
@@ -1001,6 +1039,46 @@ private struct CRMShipmentOrderCompletionConfirmation: Identifiable {
     let order: HomeOrder
 
     var id: Int { order.id }
+}
+
+/// Оплата у строки «Итого»: «(Оплатить)» → после подтверждения «(Оплачено)».
+/// Повторное нажатие по «(Оплачено)» предлагает отменить оплату.
+///
+/// Намеренно без «бабла»: в карточке уже есть баблы статуса заказа и статусов
+/// товаров — ещё один спорил бы с ними. Обычный текст в скобках, цветом.
+private struct CRMOrderPaymentButton: View {
+    let isPaid: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(isPaid ? "(Оплачено)" : "(Оплатить)")
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .foregroundStyle(foregroundColor)
+                // Небольшой запас по краям — чтобы в надпись было легко попасть пальцем.
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.6 : 1)
+    }
+
+    // «Оплачено» — зелёным (деньги пришли, видно с одного взгляда по списку),
+    // «Оплатить» — нейтральный серый, пока ничего не произошло.
+    private var foregroundColor: Color {
+        isPaid ? Color(red: 0.09, green: 0.64, blue: 0.35) : Color(uiColor: .systemGray)
+    }
+}
+
+private struct CRMOrderPaymentConfirmation: Identifiable {
+    let order: HomeOrder
+
+    var id: Int { order.id }
+    var isPaid: Bool { order.isPaid }
 }
 
 private struct CRMFlatDocumentCard: View {
@@ -1526,16 +1604,9 @@ private func summarizedTotal(entries: [(price: String, quantity: Int, currency: 
         totals[entry.currency, default: .zero] += value * Decimal(entry.quantity)
     }
 
-    let formatter = NumberFormatter()
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.numberStyle = .decimal
-    formatter.minimumFractionDigits = 0
-    formatter.maximumFractionDigits = 2
-
     return order.compactMap { currency -> String? in
         guard let sum = totals[currency] else { return nil }
-        let number = NSDecimalNumber(decimal: sum)
-        let amount = formatter.string(from: number) ?? number.stringValue
-        return "\(amount)\(currency)"
+        // Разряды тысяч через пробел: «17 308.00₽» (AppAmount — единый формат сумм).
+        return "\(AppAmount.grouped(sum))\(currency)"
     }.joined(separator: " + ")
 }

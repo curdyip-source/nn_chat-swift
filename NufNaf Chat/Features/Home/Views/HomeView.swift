@@ -751,6 +751,9 @@ struct HomeView: View {
                     onCompleteShipmentOrder: { order in
                         updateCRMShipmentOrderCompleted(order: order)
                     },
+                    onToggleOrderPayment: { order, paid in
+                        updateCRMOrderPayment(order: order, paid: paid)
+                    },
                     onUpdateOrderItemNote: { order, itemID, note in
                         updateCRMOrderItem(order: order, itemID: itemID, note: note, noteWasProvided: true)
                     },
@@ -1314,6 +1317,21 @@ struct HomeView: View {
                 } else {
                     crmErrorMessage = resolveActionError(error)
                 }
+            }
+        }
+    }
+
+    /// Отметка «Оплачено» с кнопки у «Итого» (подтверждение показывает список).
+    private func updateCRMOrderPayment(order: HomeOrder, paid: Bool) {
+        Task {
+            crmUpdatingDocumentKey = documentKey(kind: "order", id: order.id)
+            crmErrorMessage = nil
+            defer { crmUpdatingDocumentKey = nil }
+
+            do {
+                _ = try await store.updateOrderPayment(accessToken: session.currentAccessToken, order: order, paid: paid)
+            } catch {
+                crmErrorMessage = resolveActionError(error)
             }
         }
     }

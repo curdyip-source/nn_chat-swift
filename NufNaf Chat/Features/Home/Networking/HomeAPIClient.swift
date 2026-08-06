@@ -310,6 +310,16 @@ struct HomeAPIClient {
         return response.item
     }
 
+    func updateOrderPayment(accessToken: String, orderID: Int, paid: Bool) async throws -> HomeOrder {
+        let response: HomeItemEnvelope<HomeOrder> = try await send(
+            path: "orders/\(orderID)/payment",
+            method: "PUT",
+            body: HomeOrderPaymentUpdateRequest(orderPaid: paid),
+            accessToken: accessToken
+        )
+        return response.item
+    }
+
     func splitOrder(accessToken: String, orderID: Int) async throws -> HomeOrderSplitResponse {
         return try await send(path: "orders/\(orderID)/split", method: "POST", body: Optional<String>.none, accessToken: accessToken)
     }
