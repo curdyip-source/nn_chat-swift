@@ -951,49 +951,42 @@ private struct CRMOrderCardView: View {
     }
 }
 
+/// Кнопка сборки в «Отгрузках». Всегда «Упаковать» и всегда активная — и для
+/// товара «В наличии», и для уже собранного: сборщик проходит по списку, не
+/// разбираясь, что уже отмечено. Нажатие на собранный товар ничего не меняет
+/// (лишний запрос не шлём), просто отрабатывает нажатие.
 private struct CRMShipmentCollectButton: View {
     let isCollected: Bool
     let isDisabled: Bool
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            guard !isCollected else { return }
+            action()
+        } label: {
             HStack(spacing: 6) {
-                Text(isCollected ? "Упаковано" : "Упаковать")
+                Text("Упаковать")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.leading)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(foregroundColor)
+            .foregroundStyle(accentColor)
             .padding(.horizontal, 9)
             .padding(.vertical, 5)
-            .background(backgroundColor, in: Capsule())
+            .background(accentColor.opacity(0.14), in: Capsule())
             .overlay(
                 Capsule()
-                    .stroke(borderColor, lineWidth: 1)
+                    .stroke(accentColor.opacity(0.26), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled || isCollected)
-        .opacity(isDisabled && !isCollected ? 0.6 : 1)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.6 : 1)
     }
 
-    // «Упаковать» — фиолетовый активный. «Упаковано» — серый неактивный (как у неактивной
-    // «Выполнить»), чтобы зелёный не создавал ложного ощущения, что на кнопку надо нажать.
     private var accentColor: Color { Color(red: 0.39, green: 0.40, blue: 0.95) }
-
-    private var foregroundColor: Color {
-        isCollected ? Color(uiColor: .systemGray) : accentColor
-    }
-
-    private var backgroundColor: Color {
-        isCollected ? Color(uiColor: .systemGray5) : accentColor.opacity(0.14)
-    }
-
-    private var borderColor: Color {
-        isCollected ? Color(uiColor: .systemGray3) : accentColor.opacity(0.26)
-    }
 }
 
 private struct CRMShipmentOrderCompleteButton: View {
