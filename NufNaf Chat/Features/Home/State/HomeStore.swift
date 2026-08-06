@@ -10,7 +10,13 @@ import Foundation
 
 @MainActor
 final class HomeStore: ObservableObject {
-    @Published var messages: [HomeMessage] = []
+    @Published var messages: [HomeMessage] = [] {
+        didSet { messagesRevision &+= 1 }
+    }
+    /// Счётчик изменений ленты. Производные списки во вью (фильтр чата, карточки СРМ)
+    /// пересчитываются по нему: сравнивать сами массивы на каждом проходе тела дорого —
+    /// сообщений сотни, а тело перевычисляется в том числе на каждом кадре свайпа.
+    @Published private(set) var messagesRevision: Int = 0
     @Published var messageDraft = ""
     @Published var isLoading = false
     @Published var isSendingMessage = false

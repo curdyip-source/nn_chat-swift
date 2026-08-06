@@ -411,14 +411,21 @@ struct CRMDocumentsListView: View {
         ["не обработан", "перемещение", "заказ поставщику", "заказано"]
     }
 
+    // Набор статусов — статикой: функция зовётся на каждый заказ при каждом проходе
+    // тела (а их сотни), литерал массива аллоцировался бы каждый раз.
+    private static let shipmentOrderStatuses: Set<String> = ["На сборку", "Собран"]
+
     private func isShipmentOrder(_ order: HomeOrder) -> Bool {
         guard let title = normalizedOrderStatusTitle(for: order) else { return false }
-        return ["На сборку", "Собран"].contains(title)
+        return Self.shipmentOrderStatuses.contains(title)
     }
 
     private func normalizedOrderStatusTitle(for order: HomeOrder) -> String? {
-        if let status = order.orderStatus?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
-            return status
+        if let status = order.orderStatus, !status.isEmpty {
+            // Тримим только если реально есть что тримить — иначе лишняя строка на заказ.
+            let needsTrim = status.first?.isWhitespace == true || status.last?.isWhitespace == true
+            let normalized = needsTrim ? status.trimmingCharacters(in: .whitespacesAndNewlines) : status
+            if !normalized.isEmpty { return normalized }
         }
         return referenceData.statuses.first(where: { $0.id == order.orderStatusID })?.statusStatus
     }

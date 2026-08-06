@@ -88,6 +88,24 @@ private struct OrderCancelDialogModifier: ViewModifier {
     }
 }
 
+/// Пересчёт производных списков ленты по дешёвым ключам (счётчик изменений ленты,
+/// фильтр, строка поиска) — отдельным модификатором, чтобы не удлинять и без того
+/// длинную цепочку модификаторов тела HomeView.
+private struct DerivedMessagesTrigger: ViewModifier {
+    let revision: Int
+    let filter: HomeChatFilterState
+    let search: String
+    let rebuild: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: rebuild)
+            .onChange(of: revision) { _, _ in rebuild() }
+            .onChange(of: filter) { _, _ in rebuild() }
+            .onChange(of: search) { _, _ in rebuild() }
+    }
+}
+
 struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var session: AppSession
@@ -125,14 +143,45 @@ struct HomeView: View {
 
     let user: AuthUser
 
-    private var filteredMessages: [HomeMessage] {
-        store.messages.filter(matchesActiveFilter)
+    // Идентификаторы .task вынесены из тела: длинные интерполяции прямо в модификаторах
+    // раздували выражение тела так, что компилятор переставал его тайпчекать.
+    private var sessionTaskID: String {
+        "\(user.userID)-\(session.currentAccessToken ?? "no-token")"
     }
 
-    private var crmDocumentMessages: [HomeMessage] {
+    private var chatStreamTaskID: String {
+        "chat-stream-\(sessionTaskID)-\(scenePhase == .active)"
+    }
+
+    private var chatRefreshTaskID: String {
+        "chat-refresh-\(sessionTaskID)-\(scenePhase == .active)"
+    }
+
+    /// Кэш производных списков (см. rebuildDerivedMessages).
+    @State private var derivedFilteredMessages: [HomeMessage] = []
+    @State private var derivedCRMDocumentMessages: [HomeMessage] = []
+
+    // Отфильтрованная лента и карточки СРМ считаются ОДИН раз на изменение данных
+    // (лента, фильтр, поиск), а не в теле вью. Тело перевычисляется в том числе на
+    // каждом кадре свайпа между режимами, а обе выборки — полный проход по всей
+    // истории (сотни сообщений, у карточек ещё дедуп и поиск по позициям). Именно
+    // это подлагивало при снятой галочке «скрыть выполненные», когда в выборку
+    // попадает вся история, а не десяток активных заказов.
+    private var filteredMessages: [HomeMessage] { derivedFilteredMessages }
+
+    private var crmDocumentMessages: [HomeMessage] { derivedCRMDocumentMessages }
+
+    /// Пересчёт производных списков. Вызывается по изменению ленты/фильтра/поиска.
+    private func rebuildDerivedMessages() {
+        let filtered = store.messages.filter(matchesActiveFilter)
+        derivedFilteredMessages = filtered
+        derivedCRMDocumentMessages = crmDocuments(from: filtered)
+    }
+
+    private func crmDocuments(from messages: [HomeMessage]) -> [HomeMessage] {
         var seenKeys = Set<String>()
 
-        return filteredMessages.reversed().compactMap { message in
+        return messages.reversed().compactMap { message in
             guard let kind = message.documentKind, let id = message.documentID else {
                 return nil
             }
@@ -171,6 +220,12 @@ struct HomeView: View {
         GeometryReader { proxy in
             ZStack {
                 swipeableMainContent(containerWidth: proxy.size.width)
+                    .modifier(DerivedMessagesTrigger(
+                        revision: store.messagesRevision,
+                        filter: session.chatFilterState,
+                        search: session.crmSearchQuery,
+                        rebuild: rebuildDerivedMessages
+                    ))
                     .blur(radius: messageActionsTarget != nil ? 18 : 0)
                     .scaleEffect(messageActionsTarget != nil ? 0.985 : 1)
 
@@ -386,12 +441,12 @@ struct HomeView: View {
             pending: $pendingOrderCancel,
             onChoose: { performOrderCancel($0, cancelAllItems: $1) }
         ))
-        .task(id: "\(user.userID)-\(session.currentAccessToken ?? "no-token")") {
+        .task(id: sessionTaskID) {
             // Гейтинг при запуске/смене пользователя: недоступный сохранённый режим → Чат.
             gateInaccessibleMode()
             await store.load(accessToken: session.currentAccessToken, userID: user.userID)
         }
-        .task(id: "chat-stream-\(user.userID)-\(session.currentAccessToken ?? "no-token")-\(scenePhase == .active)") {
+        .task(id: chatStreamTaskID) {
             // Realtime: SSE pushes live changes; the loop also delta-syncs on (re)connect.
             guard scenePhase == .active else { return }
             // Реалтайм-права: при SSE-событии `user_updated` про текущего пользователя
@@ -410,7 +465,7 @@ struct HomeView: View {
             }
             await store.runRealtime(accessToken: session.currentAccessToken)
         }
-        .task(id: "chat-refresh-\(user.userID)-\(session.currentAccessToken ?? "no-token")-\(scenePhase == .active)") {
+        .task(id: chatRefreshTaskID) {
             // Fallback poll (cheap delta sync) in case the SSE stream is unavailable. Kept tight
             // so the app stays near-realtime even if SSE can't connect on a given network.
             guard scenePhase == .active else { return }
