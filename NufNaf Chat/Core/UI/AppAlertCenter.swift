@@ -19,6 +19,7 @@ final class AppAlertCenter: ObservableObject {
         let id = UUID()
         let title: String
         let message: String
+        var icon: String = "exclamationmark.triangle.fill"
     }
 
     @Published var current: Alert?
@@ -32,8 +33,15 @@ final class AppAlertCenter: ObservableObject {
         guard current == nil else { return }
         current = Alert(
             title: "Недостаточно прав",
-            message: "У вас недостаточно прав для этого действия."
+            message: "У вас недостаточно прав для этого действия.",
+            icon: "lock.fill"
         )
+    }
+
+    /// Any other blocking message that has no inline surface to live in — e.g. a
+    /// context-menu action that was refused (limit reached, action failed).
+    func show(title: String, message: String, icon: String = "exclamationmark.triangle.fill") {
+        current = Alert(title: title, message: message, icon: icon)
     }
 
     func dismiss() {
@@ -88,7 +96,7 @@ struct AppAlertOverlay: View {
 
     private func card(for alert: AppAlertCenter.Alert) -> some View {
         VStack(spacing: 14) {
-            Image(systemName: "lock.fill")
+            Image(systemName: alert.icon)
                 .font(.system(size: 30, weight: .semibold))
                 .foregroundStyle(Color.red.opacity(0.9))
                 .padding(.top, 4)

@@ -408,7 +408,7 @@ struct CRMDocumentsListView: View {
     }
 
     private var visibleProductStatuses: Set<String> {
-        ["не обработан", "перемещение", "заказ поставщику", "заказано"]
+        ["не обработан", "перемещение", "заказ поставщику", "заказано", "собрано"]
     }
 
     // Набор статусов — статикой: функция зовётся на каждый заказ при каждом проходе
@@ -447,8 +447,11 @@ struct CRMDocumentsListView: View {
             return 2
         case "перемещение":
             return 3
-        default:
+        // «Собрано» — уже отработанная позиция, держим её в самом низу списка.
+        case "собрано":
             return 4
+        default:
+            return 5
         }
     }
 
@@ -839,6 +842,23 @@ private struct CRMOrderCardView: View {
                 .fill(Color.white.opacity(0.34))
                 .frame(height: 1)
 
+            // Закреплённые сообщения чата заказа — отдельной полосой между шапкой и
+            // товарами. Только текст: автор и вложения в карточке не нужны.
+            if !pinnedComments.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(pinnedComments.enumerated()), id: \.offset) { _, text in
+                        Text(text)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.34))
+                    .frame(height: 1)
+            }
+
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(visibleItems) { item in
                     VStack(alignment: .leading, spacing: 8) {
@@ -924,6 +944,10 @@ private struct CRMOrderCardView: View {
 
     private var normalizedComment: String {
         order.orderInfo.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var pinnedComments: [String] {
+        order.pinnedCommentTexts
     }
 
     private var orderTotalLine: String {

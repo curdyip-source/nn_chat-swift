@@ -449,10 +449,13 @@ enum HomeChatFilterKind: String, CaseIterable, Codable, Hashable, Identifiable {
     }
 }
 
+/// Экраны приложения в порядке листания слева направо: Прайс → Чат → СРМ → Задачи.
+/// Стартовый экран при запуске — Чат (см. HomeChatFilterState.default).
 enum HomeDisplayMode: String, CaseIterable, Codable, Hashable, Identifiable {
+    case price
     case chat
     case crm
-    case price
+    case todo
 
     var id: String { rawValue }
 
@@ -464,6 +467,8 @@ enum HomeDisplayMode: String, CaseIterable, Codable, Hashable, Identifiable {
             return "CRM"
         case .price:
             return "Прайс"
+        case .todo:
+            return "Задачи"
         }
     }
 }
@@ -780,6 +785,16 @@ struct HomeOrder: Codable, Identifiable, Hashable {
     /// Заказ отмечен оплаченным.
     var isPaid: Bool { orderPaid ?? false }
 
+    /// Тексты закреплённых сообщений чата заказа — в порядке отправки, для карточки
+    /// заказа в списках СРМ. Без автора и вложений: в карточке нужен только текст.
+    var pinnedCommentTexts: [String] {
+        comments
+            .filter(\.isPinned)
+            .sorted { $0.id < $1.id }
+            .map(\.visibleText)
+            .filter { !$0.isEmpty }
+    }
+
     /// Кто отметил оплату: ФИО (Фамилия Имя), иначе логин.
     var orderPaidByDisplayName: String? {
         let fullName = [orderPaidBySecondName, orderPaidByFirstName]
@@ -1006,6 +1021,9 @@ struct HomeOrderComment: Codable, Identifiable, Hashable {
     let ownerProfilePhoto: String?
     let createdAt: String?
     let attachments: [HomeOrderCommentAttachment]
+    // Опционально — как order_paid у заказа: закешированные payload'ы старых версий поля
+    // не содержат, а обязательный Bool сломал бы им декодирование.
+    var pinned: Bool? = nil
     var deliveryState: HomeMessageDeliveryState = .sent
 
     enum CodingKeys: String, CodingKey {
@@ -1018,8 +1036,12 @@ struct HomeOrderComment: Codable, Identifiable, Hashable {
         case ownerSecondName = "order_comment_owner_second_name"
         case ownerProfilePhoto = "order_comment_owner_profile_photo"
         case createdAt = "order_comment_created_at"
+        case pinned = "order_comment_is_pinned"
         case attachments
     }
+
+    /// Закреплённое сообщение: его текст выводится в карточке заказа в списках СРМ.
+    var isPinned: Bool { pinned ?? false }
 
     var displayName: String {
         let fullName = [ownerSecondName, ownerFirstName]
@@ -1134,6 +1156,14 @@ struct HomeOrderCommentUpdateRequest: Encodable {
     enum CodingKeys: String, CodingKey {
         case orderCommentText = "order_comment_text"
         case mentionedUserIDs = "mentioned_user_ids"
+    }
+}
+
+struct HomeOrderCommentPinRequest: Encodable {
+    let orderCommentIsPinned: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case orderCommentIsPinned = "order_comment_is_pinned"
     }
 }
 

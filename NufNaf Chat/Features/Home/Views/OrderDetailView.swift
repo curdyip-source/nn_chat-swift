@@ -309,6 +309,7 @@ struct OrderDetailView: View {
                             onEditComment: startEditComment,
                             onCopyComment: copyComment,
                             onDeleteComment: deleteComment,
+                            onTogglePinComment: togglePinComment,
                             onBackgroundTap: {
                                 dismissCommentKeyboard()
                                 closeCommentAttachmentMenu()
@@ -905,6 +906,52 @@ struct OrderDetailView: View {
         }
     }
 
+    /// Столько же закреплённых принимает бэкенд (MAX_PINNED_ORDER_COMMENTS) — проверяем
+    /// и на клиенте, чтобы отказ был мгновенным, без запроса.
+    private static let maxPinnedComments = 3
+
+    private func togglePinComment(_ comment: HomeOrderComment) {
+        let shouldPin = !comment.isPinned
+        if shouldPin, comments.filter(\.isPinned).count >= Self.maxPinnedComments {
+            // Действие пришло из контекстного меню — инлайновую красную строку под
+            // карточкой там не видно, поэтому говорим через общий оверлей-алерт.
+            AppAlertCenter.shared.show(
+                title: "Закреплено максимум",
+                message: "В карточке заказа помещается не больше \(Self.maxPinnedComments) закреплённых сообщений. Открепите лишнее и попробуйте снова.",
+                icon: "pin.slash.fill"
+            )
+            return
+        }
+
+        // Оптимистично: скрепка появляется сразу, при ошибке возвращаем как было.
+        setCommentPinned(commentID: comment.id, pinned: shouldPin)
+        Task {
+            do {
+                _ = try await store.setOrderCommentPinned(
+                    accessToken: session.currentAccessToken,
+                    orderID: orderID,
+                    commentID: comment.id,
+                    pinned: shouldPin
+                )
+            } catch {
+                setCommentPinned(commentID: comment.id, pinned: !shouldPin)
+                // 403 уедет в свой оверлей «нет прав», остальное (напр. лимит с сервера,
+                // если закрепляли с двух устройств разом) — в тот же общий алерт.
+                if let message = resolveActionError(error) {
+                    AppAlertCenter.shared.show(
+                        title: shouldPin ? "Не удалось закрепить" : "Не удалось открепить",
+                        message: message
+                    )
+                }
+            }
+        }
+    }
+
+    private func setCommentPinned(commentID: Int, pinned: Bool) {
+        guard let index = comments.firstIndex(where: { $0.id == commentID }) else { return }
+        comments[index].pinned = pinned
+    }
+
     private func openAttachment(_ attachment: HomeOrderCommentAttachment) {
         if attachment.isPhoto {
             activePhotoAttachment = attachment
@@ -1313,6 +1360,7 @@ private struct OrderCommentsSection: View {
     let onEditComment: (HomeOrderComment) -> Void
     let onCopyComment: (HomeOrderComment) -> Void
     let onDeleteComment: (HomeOrderComment) -> Void
+    let onTogglePinComment: (HomeOrderComment) -> Void
     let onBackgroundTap: () -> Void
 
     var body: some View {
@@ -1344,7 +1392,8 @@ private struct OrderCommentsSection: View {
                                         onReplyComment: onReplyComment,
                                         onEditComment: onEditComment,
                                         onCopyComment: onCopyComment,
-                                        onDeleteComment: onDeleteComment
+                                        onDeleteComment: onDeleteComment,
+                                        onTogglePinComment: onTogglePinComment
                                     )
                                     .id(comment.id)
                                 }
@@ -1388,18 +1437,33 @@ private struct OrderCommentRow: View {
     let onEditComment: (HomeOrderComment) -> Void
     let onCopyComment: (HomeOrderComment) -> Void
     let onDeleteComment: (HomeOrderComment) -> Void
+    let onTogglePinComment: (HomeOrderComment) -> Void
 
     // Редактировать можно только своё текстовое сообщение без вложений (как в чате).
     private var isEditable: Bool {
         canEdit && !comment.isLocalOnly && comment.attachments.isEmpty && comment.hasCopyableText
     }
 
+    // Закреплять можно любое отправленное сообщение с текстом — своё и чужое.
+    private var isPinnable: Bool {
+        !comment.isLocalOnly && comment.hasCopyableText
+    }
+
     var body: some View {
         VStack(alignment: isOwn ? .trailing : .leading, spacing: 6) {
-            Text(comment.displayName)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: isOwn ? .trailing : .leading)
+            HStack(spacing: 4) {
+                // Закреплённое видно сразу, без открытия меню: скрепка у имени автора.
+                if comment.isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(comment.displayName)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: isOwn ? .trailing : .leading)
 
             VStack(alignment: .leading, spacing: 6) {
                 if let reply = comment.replyFragment {
@@ -1433,6 +1497,17 @@ private struct OrderCommentRow: View {
             )
             .frame(maxWidth: 320, alignment: isOwn ? .trailing : .leading)
             .contextMenu {
+                // Первым пунктом — закрепление: текст закреплённого сообщения выводится
+                // в карточке заказа в списках СРМ, поэтому вложения без текста закрепить
+                // нечем (в карточке они не показываются).
+                if isPinnable {
+                    Button {
+                        onTogglePinComment(comment)
+                    } label: {
+                        Label(comment.isPinned ? "Открепить" : "Закрепить", systemImage: comment.isPinned ? "pin.slash" : "pin")
+                    }
+                }
+
                 if !comment.isLocalOnly {
                     Button {
                         onReplyComment(comment)
