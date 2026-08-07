@@ -751,6 +751,17 @@ final class HomeStore: ObservableObject {
         return updated
     }
 
+    func setOrderCommentPinned(accessToken: String?, orderID: Int, commentID: Int, pinned: Bool) async throws -> HomeOrderComment {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        let updated = try await client.setOrderCommentPinned(accessToken: accessToken, orderID: orderID, commentID: commentID, pinned: pinned)
+        // Закреплённое сообщение видно в карточке заказа в списках СРМ — обновляем ленту,
+        // как после правки комментария.
+        reloadMessagesInBackground(accessToken: accessToken)
+        return updated
+    }
+
     func deleteOrderComment(accessToken: String?, orderID: Int, commentID: Int) async throws {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")

@@ -122,6 +122,9 @@ struct HomeView: View {
     @State private var editingMessage: HomeMessage?
     @State private var deletingMessage: HomeMessage?
     @State private var messageActionsTarget: HomeMessage?
+    /// Лента разделов «Задач» сейчас едет — на это время листание экранов выключаем,
+    /// иначе на краю ленты остаток жеста уходит пейджеру и экран дёргается.
+    @State private var isTodoSectionBarScrolling = false
     @State private var previewOrder: HomeOrder?
     @State private var previewOrderErrorMessage: String?
     @State private var isUpdatingPreviewOrder = false
@@ -506,6 +509,8 @@ struct HomeView: View {
             showChat: showChatPage,
             showCrm: hasCrmAccess,
             showPrice: hasPriceAccess,
+            showTodo: hasTodoAccess,
+            isPagingDisabled: isTodoSectionBarScrolling,
             chatPage: {
                 contentView(for: .chat)
             },
@@ -514,6 +519,9 @@ struct HomeView: View {
             },
             pricePage: {
                 contentView(for: .price)
+            },
+            todoPage: {
+                contentView(for: .todo)
             }
         )
     }
@@ -527,6 +535,8 @@ struct HomeView: View {
                 crmContent
             case .price:
                 PriceSearchView()
+            case .todo:
+                TodoBoardView(isSectionBarScrolling: $isTodoSectionBarScrolling)
             }
         }
     }
@@ -561,6 +571,15 @@ struct HomeView: View {
         return CRMSection.allCases.filter { sections.contains($0.sectionKey) }
     }
 
+    // Режим «Задачи» (тудулист) доступен: админ, разделы не заданы (null = все),
+    // либо есть 'todo'.
+    private var hasTodoAccess: Bool {
+        guard let user = session.currentUser else { return false }
+        if user.userAdmin { return true }
+        guard let sections = user.userSections else { return true }
+        return sections.contains("todo")
+    }
+
     // Режим «Чат» доступен: админ, разделы не заданы (null = все), либо есть 'chat'.
     private var hasChatAccess: Bool {
         guard let user = session.currentUser else { return false }
@@ -572,7 +591,7 @@ struct HomeView: View {
     // Показывать страницу чата: если раздел выдан — да; сейф-нет — если не выдано ничего
     // (ни СРМ, ни Прайс), всё равно показываем чат, чтобы приложение не осталось пустым.
     private var showChatPage: Bool {
-        hasChatAccess || (!hasCrmAccess && !hasPriceAccess)
+        hasChatAccess || (!hasCrmAccess && !hasPriceAccess && !hasTodoAccess)
     }
 
     // Первый доступный режим — куда «падать», если текущий стал недоступен.
@@ -580,6 +599,7 @@ struct HomeView: View {
         if showChatPage { return .chat }
         if hasCrmAccess { return .crm }
         if hasPriceAccess { return .price }
+        if hasTodoAccess { return .todo }
         return .chat
     }
 
@@ -591,6 +611,7 @@ struct HomeView: View {
         case .chat: accessible = showChatPage
         case .crm: accessible = hasCrmAccess
         case .price: accessible = hasPriceAccess
+        case .todo: accessible = hasTodoAccess
         }
         if !accessible {
             session.setHomeDisplayMode(firstAvailableMode)
@@ -1823,29 +1844,40 @@ struct HomeView: View {
     }
 }
 
-private struct HomePagingContainer<ChatPage: View, CRMPage: View, PricePage: View>: View {
+private struct HomePagingContainer<ChatPage: View, CRMPage: View, PricePage: View, TodoPage: View>: View {
     let currentPage: HomeDisplayMode
     let onSettledPage: (HomeDisplayMode) -> Void
     var onInteractionBegan: () -> Void = {}
     let showChat: Bool
     let showCrm: Bool
     let showPrice: Bool
+    let showTodo: Bool
+    /// Временный запрет листания: страница просит не перехватывать её жест.
+    var isPagingDisabled: Bool = false
     @ViewBuilder let chatPage: () -> ChatPage
     @ViewBuilder let crmPage: () -> CRMPage
     @ViewBuilder let pricePage: () -> PricePage
+    @ViewBuilder let todoPage: () -> TodoPage
 
     @State private var activePage: HomeDisplayMode?
     @State private var pendingPage: HomeDisplayMode?
 
     // Сигнатура набора видимых страниц: меняется при выдаче/отзыве раздела.
-    private var pageSignature: String { "\(showChat)-\(showCrm)-\(showPrice)" }
+    private var pageSignature: String { "\(showChat)-\(showCrm)-\(showPrice)-\(showTodo)" }
 
     var body: some View {
         GeometryReader { proxy in
             let width = max(proxy.size.width, 1)
 
             ScrollView(.horizontal) {
+                // Порядок страниц: Прайс → Чат → СРМ → Задачи.
                 HStack(spacing: 0) {
+                    if showPrice {
+                        pricePage()
+                            .frame(width: width)
+                            .id(HomeDisplayMode.price)
+                    }
+
                     if showChat {
                         chatPage()
                             .frame(width: width)
@@ -1858,10 +1890,10 @@ private struct HomePagingContainer<ChatPage: View, CRMPage: View, PricePage: Vie
                             .id(HomeDisplayMode.crm)
                     }
 
-                    if showPrice {
-                        pricePage()
+                    if showTodo {
+                        todoPage()
                             .frame(width: width)
-                            .id(HomeDisplayMode.price)
+                            .id(HomeDisplayMode.todo)
                     }
                 }
                 .scrollTargetLayout()
@@ -1873,6 +1905,7 @@ private struct HomePagingContainer<ChatPage: View, CRMPage: View, PricePage: Vie
             }
             .scrollIndicators(.hidden)
             .scrollTargetBehavior(.paging)
+            .scrollDisabled(isPagingDisabled)
             .scrollPosition(id: $activePage)
             .onScrollPhaseChange { _, newPhase in
                 // Как только распознано боковое движение пальца — закрываем клавиатуру,

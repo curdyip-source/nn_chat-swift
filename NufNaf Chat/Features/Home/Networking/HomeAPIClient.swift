@@ -345,6 +345,16 @@ struct HomeAPIClient {
         return response.item
     }
 
+    func setOrderCommentPinned(accessToken: String, orderID: Int, commentID: Int, pinned: Bool) async throws -> HomeOrderComment {
+        let response: HomeItemEnvelope<HomeOrderComment> = try await send(
+            path: "orders/\(orderID)/comments/\(commentID)/pin",
+            method: "PUT",
+            body: HomeOrderCommentPinRequest(orderCommentIsPinned: pinned),
+            accessToken: accessToken
+        )
+        return response.item
+    }
+
     func deleteOrderComment(accessToken: String, orderID: Int, commentID: Int) async throws {
         let _: EmptyAPIResponse = try await send(
             path: "orders/\(orderID)/comments/\(commentID)",
@@ -352,6 +362,80 @@ struct HomeAPIClient {
             body: Optional<String>.none,
             accessToken: accessToken
         )
+    }
+
+    // MARK: - Тудулист
+
+    func getTodoBoard(accessToken: String) async throws -> TodoBoardResponse {
+        try await send(path: "todos", method: "GET", body: Optional<String>.none, accessToken: accessToken)
+    }
+
+    func createTodo(accessToken: String, title: String, listID: Int?) async throws -> TodoItem {
+        let response: HomeItemEnvelope<TodoItem> = try await send(
+            path: "todos",
+            method: "POST",
+            body: TodoCreateRequest(title: title, listID: listID),
+            accessToken: accessToken
+        )
+        return response.item
+    }
+
+    func updateTodo(accessToken: String, todoID: Int, request: TodoUpdateRequest) async throws -> TodoItem {
+        let response: HomeItemEnvelope<TodoItem> = try await send(path: "todos/\(todoID)", method: "PUT", body: request, accessToken: accessToken)
+        return response.item
+    }
+
+    func setTodoCompleted(accessToken: String, todoID: Int, completed: Bool) async throws -> TodoItem {
+        let response: HomeItemEnvelope<TodoItem> = try await send(
+            path: "todos/\(todoID)",
+            method: "PUT",
+            body: TodoCompletionRequest(completed: completed),
+            accessToken: accessToken
+        )
+        return response.item
+    }
+
+    func setTodoArchived(accessToken: String, todoID: Int, archived: Bool) async throws -> TodoItem {
+        let response: HomeItemEnvelope<TodoItem> = try await send(
+            path: "todos/\(todoID)",
+            method: "PUT",
+            body: TodoArchiveRequest(archived: archived),
+            accessToken: accessToken
+        )
+        return response.item
+    }
+
+    func deleteTodo(accessToken: String, todoID: Int) async throws {
+        let _: EmptyAPIResponse = try await send(path: "todos/\(todoID)", method: "DELETE", body: Optional<String>.none, accessToken: accessToken)
+    }
+
+    func reorderTodos(accessToken: String, order: [Int]) async throws -> TodoBoardResponse {
+        let items = order.enumerated().map { TodoReorderRequest.Item(id: $0.element, position: $0.offset) }
+        return try await send(path: "todos/reorder", method: "PUT", body: TodoReorderRequest(items: items), accessToken: accessToken)
+    }
+
+    func createTodoList(accessToken: String, name: String) async throws -> TodoListItem {
+        let response: HomeItemEnvelope<TodoListItem> = try await send(
+            path: "todo-lists",
+            method: "POST",
+            body: TodoListNameRequest(name: name),
+            accessToken: accessToken
+        )
+        return response.item
+    }
+
+    func renameTodoList(accessToken: String, listID: Int, name: String) async throws -> TodoListItem {
+        let response: HomeItemEnvelope<TodoListItem> = try await send(
+            path: "todo-lists/\(listID)",
+            method: "PUT",
+            body: TodoListNameRequest(name: name),
+            accessToken: accessToken
+        )
+        return response.item
+    }
+
+    func deleteTodoList(accessToken: String, listID: Int) async throws {
+        let _: EmptyAPIResponse = try await send(path: "todo-lists/\(listID)", method: "DELETE", body: Optional<String>.none, accessToken: accessToken)
     }
 
     func createInventory(accessToken: String, request: HomeInventoryCreateRequest, idempotencyKey: String? = nil) async throws {
