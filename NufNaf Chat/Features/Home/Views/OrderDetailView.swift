@@ -46,6 +46,9 @@ struct OrderDetailView: View {
     @State private var didCopyTrack = false
     @State private var cdekRecreating = false
     @State private var cdekRecreateConfirm = false
+    // Задачи заказа: и создание, и правка идут через одну форму-оверлей.
+    @State private var isSavingTodo = false
+    @State private var todoSheet: OrderTodoSheetTarget?
     // Mirrors the detail container's slide offset so the comment dock (a safeAreaInset, outside the
     // container) slides out together with the card on close instead of lingering.
     @State private var dockOffsetX: CGFloat = 0
@@ -216,6 +219,24 @@ struct OrderDetailView: View {
         .sheet(item: $localFilePreview) { preview in
             LocalFileQuickLookPreview(fileURL: preview.url)
         }
+        .sheet(item: $todoSheet) { target in
+            switch target {
+            case let .create(orderID):
+                OrderTodoSheet(
+                    todo: TodoCreateRequest.draft(orderID: orderID),
+                    isNew: true,
+                    participants: store.participants,
+                    onSave: { draft in createTodo(draft, orderID: orderID) }
+                )
+            case let .edit(todo):
+                OrderTodoSheet(
+                    todo: todo,
+                    participants: store.participants,
+                    onSave: { updated in saveTodo(updated) },
+                    onDelete: { deleteTodo(todo) }
+                )
+            }
+        }
         .sheet(item: $cdekSheetOrder) { snapshot in
             CdekWaybillSheet(order: snapshot, store: store, accessToken: session.currentAccessToken, onCreated: afterCdekWaybillCreated)
         }
@@ -232,6 +253,12 @@ struct OrderDetailView: View {
         } message: {
             Text(attachmentErrorMessage ?? "Неизвестная ошибка")
         }
+    }
+
+    /// Поверх заказа открыт лист (задача, накладная, редактирование) — страница
+    /// под ним должна стоять на месте.
+    private var isModalSheetPresented: Bool {
+        todoSheet != nil || cdekSheetOrder != nil || isEditSheetPresented
     }
 
     private var contentView: some View {
@@ -251,6 +278,7 @@ struct OrderDetailView: View {
             prefersDarkHeader: true,
             scrollTargetID: "order-comments-section",
             scrollRequest: commentScrollRequest,
+            ignoresKeyboardScroll: isModalSheetPresented,
             contentHorizontalPadding: 0,
             headerContent: {
                 if let order {
@@ -271,6 +299,12 @@ struct OrderDetailView: View {
                             rows: infoRows(for: order),
                             labelWidth: 108
                         )
+
+                        // Задачи — отдельный раздел приложения: нет доступа к экрану
+                        // «Задачи» — нет и блока в заказе.
+                        if session.hasSectionAccess("todo") {
+                            todosBlock(order: order)
+                        }
 
                         if isCdekOrder(order) {
                             cdekBlock(order: order)
@@ -1001,6 +1035,141 @@ struct OrderDetailView: View {
         guard let statusID else { return false }
         guard let status = orderItemStatuses.first(where: { $0.id == statusID }) else { return false }
         return ["Заказ поставщику", "Перемещение"].contains(status.statusStatus)
+    }
+
+    // MARK: - Задачи заказа
+
+    /// Блок «Задачи» между «Параметрами» и СДЭК. Задачи общие: их видит каждый, кому
+    /// виден заказ, и они же попадают в раздел «Заказы» тудулиста.
+    @ViewBuilder
+    private func todosBlock(order: HomeOrder) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Text("Задачи").font(.system(size: 17, weight: .semibold, design: .rounded))
+                if !order.todos.isEmpty {
+                    Text("\(order.todos.count - openTodoCount(order))/\(order.todos.count)")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if isSavingTodo {
+                    ProgressView().controlSize(.small)
+                }
+            }
+
+            ForEach(order.todos) { todo in
+                orderTodoRow(todo)
+            }
+
+            Button {
+                todoSheet = .create(orderID: order.id)
+            } label: {
+                Label("Создать задачу", systemImage: "checklist").font(.subheadline.weight(.semibold))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func openTodoCount(_ order: HomeOrder) -> Int {
+        order.todos.filter { !$0.completed && !$0.archived }.count
+    }
+
+    @ViewBuilder
+    private func orderTodoRow(_ todo: TodoItem) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                toggleTodoCompleted(todo)
+            } label: {
+                Image(systemName: todo.completed ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(todo.completed ? Color.green : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(isSavingTodo)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(todo.title)
+                    .font(.subheadline)
+                    .strikethrough(todo.completed, color: .secondary)
+                    .foregroundStyle(todo.completed ? Color.secondary : Color.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if !todoSubtitle(todo).isEmpty {
+                    Text(todoSubtitle(todo))
+                        .font(.caption)
+                        .foregroundStyle(todo.isDeadlineOverdue ? Color.red : Color.secondary)
+                }
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { todoSheet = .edit(todo) }
+    }
+
+    private func todoSubtitle(_ todo: TodoItem) -> String {
+        var parts: [String] = []
+        if let deadline = todo.deadlineMoment {
+            parts.append("до \(TodoDay.shortTitle(for: deadline))")
+        } else if let doMoment = todo.doMoment {
+            parts.append(TodoDay.shortTitle(for: doMoment))
+        }
+        if !todo.assignees.isEmpty {
+            parts.append(todo.assignees.map(\.shortName).joined(separator: ", "))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func createTodo(_ draft: TodoItem, orderID: Int) {
+        guard !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        runTodoTask { try await store.createOrderTodo(accessToken: session.currentAccessToken, orderID: orderID, draft: draft) }
+    }
+
+    private func toggleTodoCompleted(_ todo: TodoItem) {
+        let completed = !todo.completed
+        runTodoTask { try await store.setTodoCompleted(accessToken: session.currentAccessToken, todoID: todo.id, completed: completed) }
+        guard completed else { return }
+
+        // Правило одно на всё приложение: выполненная задача пару секунд ещё висит
+        // зачёркнутой и уезжает в архив — неважно, закрыли её в тудулисте или здесь.
+        // В карточке заказа она остаётся видна: архив прячет её только в тудулисте.
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let fresh = order?.todos.first(where: { $0.id == todo.id }), fresh.completed, !fresh.archived else { return }
+            do {
+                try await store.archiveTodo(accessToken: session.currentAccessToken, todoID: todo.id)
+                await loadOrder()
+            } catch {
+                errorMessage = resolveActionError(error)
+            }
+        }
+    }
+
+    private func saveTodo(_ todo: TodoItem) {
+        runTodoTask { try await store.saveTodo(accessToken: session.currentAccessToken, item: todo) }
+    }
+
+    private func deleteTodo(_ todo: TodoItem) {
+        runTodoTask { try await store.deleteTodo(accessToken: session.currentAccessToken, todoID: todo.id) }
+    }
+
+    /// Любое изменение задачи меняет карточку заказа (в т.ч. бабл в СРМ) — после
+    /// запроса перечитываем заказ.
+    private func runTodoTask(_ operation: @escaping () async throws -> Void) {
+        isSavingTodo = true
+        Task {
+            do {
+                try await operation()
+                await loadOrder()
+            } catch {
+                errorMessage = resolveActionError(error)
+            }
+            isSavingTodo = false
+        }
     }
 
     private func isCdekOrder(_ order: HomeOrder) -> Bool {

@@ -20,6 +20,9 @@ final class TodoStore: ObservableObject {
 
     private let client: HomeAPIClient
     private var hasLoadedOnce = false
+    /// Нужен, чтобы отделить «мои» задачи (автор или ответственный) от чужих заказных:
+    /// первые живут в умных списках, вторые — в разделе «Заказы».
+    var currentUserID: Int?
 
     // Клиент создаём в теле init, а не значением по умолчанию: дефолтное выражение
     // вычисляется в контексте вызывающего, а инициализатор HomeAPIClient изолирован
@@ -32,6 +35,13 @@ final class TodoStore: ObservableObject {
 
     func loadIfNeeded(accessToken: String?) async {
         guard !hasLoadedOnce else { return }
+        await load(accessToken: accessToken)
+    }
+
+    /// Перечитать доску, если она уже была загружена: задачу могли завести в другом
+    /// месте приложения (например, в карточке заказа).
+    func refreshIfLoaded(accessToken: String?) async {
+        guard hasLoadedOnce else { return }
         await load(accessToken: accessToken)
     }
 
@@ -52,22 +62,34 @@ final class TodoStore: ObservableObject {
     // MARK: - Выборки
 
     func items(in section: TodoSection) -> [TodoItem] {
-        items.filter { (item: TodoItem) -> Bool in
+        let userID = currentUserID
+        let visible = items.filter { (item: TodoItem) -> Bool in
+            // Умные списки — про мою работу: чужие задачи с чужих заказов там не нужны.
+            let mine = item.isMine(currentUserID: userID)
             switch section {
+            case .smart(.orders):
+                return !item.archived && item.orderID != nil
             case .smart(.archive):
-                return item.archived
+                return item.archived && mine
             case .smart(.inbox):
-                return !item.archived && item.listID == nil && item.doAt == nil && !item.someday
+                return mine && !item.archived && item.listID == nil && item.doAt == nil && !item.someday && item.orderID == nil
             case .smart(.today):
-                return !item.archived && item.isToday
+                return mine && !item.archived && item.isToday
             case .smart(.planned):
-                return !item.archived && item.isPlanned
+                return mine && !item.archived && item.isPlanned
             case .smart(.someday):
-                return !item.archived && item.someday
+                return mine && !item.archived && item.someday
             case let .list(listID):
-                return !item.archived && item.listID == listID
+                return mine && !item.archived && item.listID == listID
             }
         }
+
+        // В «Заказах» ручного порядка нет — это общая лента команды, и свежие задачи
+        // нужны сверху. Остальные разделы держат порядок, заданный перетаскиванием.
+        if case .smart(.orders) = section {
+            return visible.sorted { $0.id > $1.id }
+        }
+        return visible
     }
 
     func openCount(in section: TodoSection) -> Int {
@@ -80,11 +102,11 @@ final class TodoStore: ObservableObject {
 
     // MARK: - Задачи
 
-    func createTask(accessToken: String?, title: String, section: TodoSection) async {
+    func createTask(accessToken: String?, title: String, section: TodoSection, orderID: Int? = nil) async {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let accessToken else { return }
         do {
-            let created = try await client.createTodo(accessToken: accessToken, title: trimmed, listID: section.listID)
+            let created = try await client.createTodo(accessToken: accessToken, title: trimmed, listID: section.listID, orderID: orderID)
             var item = created
             // Новая задача сразу попадает в тот раздел, где её завели: для «Сегодня» это
             // дата на сегодня, для «Когда-нибудь» — соответствующий флаг.
@@ -103,6 +125,8 @@ final class TodoStore: ObservableObject {
         let request = TodoUpdateRequest(
             title: item.title.trimmingCharacters(in: .whitespacesAndNewlines),
             listID: item.listID,
+            orderID: item.orderID,
+            assigneeUserIDs: item.assignees.map(\.id),
             note: item.note,
             doAt: item.doAt,
             deadlineAt: item.deadlineAt,
@@ -244,12 +268,14 @@ final class TodoStore: ObservableObject {
             doAt = TodoDay.string(from: TodoDay.defaultMoment(hour: 9))
         case .someday:
             someday = true
-        case .inbox, .planned, .archive:
+        case .inbox, .planned, .orders, .archive:
             return nil
         }
         let request = TodoUpdateRequest(
             title: item.title,
             listID: item.listID,
+            orderID: item.orderID,
+            assigneeUserIDs: item.assignees.map(\.id),
             note: item.note,
             doAt: doAt,
             deadlineAt: item.deadlineAt,

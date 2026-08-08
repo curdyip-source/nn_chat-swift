@@ -12,10 +12,19 @@ struct CRMDocumentsListView: View {
     /// Разделы СРМ, доступные пользователю по правам (гейтинг вкладок). Пустой список
     /// трактуем как «все» (сейф-нет, чтобы не оставить экран без вкладок).
     let allowedSections: [CRMSection]
+    /// Непрочитанные сообщения чата заказа — для бабла у номера заказа (красный,
+    /// пока есть непрочитанные, дальше серый). Ревизия нужна, чтобы бабл гас сразу
+    /// после прочтения, без перезагрузки списка.
+    var unreadCommentsCount: (HomeOrder) -> Int = { _ in 0 }
+    var commentReadRevision: Int = 0
+    /// Задачи — отдельный раздел приложения: без доступа к нему бабл не показываем.
+    var showsTodoBadge: Bool = true
     let onOpenDocument: (String, Int) -> Void
     let onSelectOrderStatus: (HomeOrder, Int) -> Void
     let onSelectOrderItemStatus: (HomeOrder, Int, Int, Int?, Int?, String?) -> Void
     let onCollectShipmentItem: (HomeOrder, Int) -> Void
+    /// «Упаковать все» из удержания на кнопке сборки.
+    var onCollectAllShipmentItems: (HomeOrder) -> Void = { _ in }
     let onCompleteShipmentOrder: (HomeOrder) -> Void
     /// Отметить заказ оплаченным / снять отметку (подтверждение уже показано).
     let onToggleOrderPayment: (HomeOrder, Bool) -> Void
@@ -88,6 +97,9 @@ struct CRMDocumentsListView: View {
                                     CRMOrderCardView(
                                         order: order,
                                         isShipmentMode: selectedSection == .shipments,
+                                        unreadCommentsCount: unreadCommentsCount(order),
+                                        commentReadRevision: commentReadRevision,
+                                        showsTodoBadge: showsTodoBadge,
                                         orderMethods: referenceData.orderMethods,
                                         itemStatuses: orderItemStatuses,
                                         // «Собран»/«Выполнен» ставит только флоу отгрузки — убираем
@@ -109,6 +121,9 @@ struct CRMDocumentsListView: View {
                                         },
                                         onCollectShipmentItem: { itemID in
                                             onCollectShipmentItem(order, itemID)
+                                        },
+                                        onCollectAllShipmentItems: {
+                                            onCollectAllShipmentItems(order)
                                         },
                                         onCompleteShipmentOrder: {
                                             shipmentCompletionConfirmation = CRMShipmentOrderCompletionConfirmation(order: order)
@@ -782,9 +797,35 @@ private struct CRMOrderProductRow: View {
     }
 }
 
+/// Цвета баблов у номера заказа: те же, что у бабла сообщений на карточке в чате.
+private enum CRMBadgeColors {
+    static let unread = Color(red: 0.86, green: 0.18, blue: 0.18)
+    static let muted = Color(red: 0.45, green: 0.47, blue: 0.52)
+    static let todo = Color(red: 0.15, green: 0.45, blue: 0.90)
+}
+
+/// Круглый счётчик у номера заказа: сообщения и задачи.
+private struct CRMOrderCountBadge: View {
+    let count: Int
+    let color: Color
+
+    var body: some View {
+        Text(count > 99 ? "99+" : "\(count)")
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 20, minHeight: 20)
+            .background(color, in: Capsule())
+    }
+}
+
 private struct CRMOrderCardView: View {
     let order: HomeOrder
     let isShipmentMode: Bool
+    var unreadCommentsCount: Int = 0
+    var commentReadRevision: Int = 0
+    /// Задачи — отдельный раздел приложения: без доступа к нему бабл не показываем.
+    var showsTodoBadge: Bool = true
     let orderMethods: [HomeOrderMethod]
     let itemStatuses: [HomeStatus]
     let statuses: [HomeStatus]
@@ -794,6 +835,7 @@ private struct CRMOrderCardView: View {
     let onSelectStatus: (Int) -> Void
     let onSelectItemStatus: (Int, Int) -> Void
     let onCollectShipmentItem: (Int) -> Void
+    var onCollectAllShipmentItems: () -> Void = {}
     let onCompleteShipmentOrder: () -> Void
     let onTogglePayment: () -> Void
 
@@ -801,8 +843,28 @@ private struct CRMOrderCardView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Заказ №\(order.id)")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                    HStack(spacing: 6) {
+                        Text("Заказ №\(order.id)")
+                            .font(.system(size: 18, weight: .bold, design: .rounded))
+
+                        // Бабл сообщений: как в чате — число всех сообщений, красный
+                        // пока есть непрочитанные, иначе серый.
+                        if !order.comments.isEmpty {
+                            CRMOrderCountBadge(
+                                count: order.comments.count,
+                                color: unreadCommentsCount > 0 ? CRMBadgeColors.unread : CRMBadgeColors.muted
+                            )
+                            .id(commentReadRevision)
+                        }
+
+                        // Бабл задач: число всех задач заказа, синий пока есть открытые.
+                        if showsTodoBadge, !order.todos.isEmpty {
+                            CRMOrderCountBadge(
+                                count: order.todos.count,
+                                color: order.openTodoCount > 0 ? CRMBadgeColors.todo : CRMBadgeColors.muted
+                            )
+                        }
+                    }
                     Text(orderSubtitle)
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
@@ -869,7 +931,8 @@ private struct CRMOrderCardView: View {
                                     isDisabled: isSaving,
                                     action: {
                                         onCollectShipmentItem(item.id)
-                                    }
+                                    },
+                                    onPackAll: onCollectAllShipmentItems
                                 )
                             } else {
                                 CRMStatusMenu(
@@ -989,6 +1052,9 @@ private struct CRMShipmentCollectButton: View {
     let isPacked: Bool
     let isDisabled: Bool
     let action: () -> Void
+    /// Удержание на активной кнопке — «Упаковать все»: сборщику не приходится тыкать
+    /// каждую позицию заказа по очереди.
+    var onPackAll: () -> Void = {}
 
     var body: some View {
         Button(action: action) {
@@ -1011,6 +1077,15 @@ private struct CRMShipmentCollectButton: View {
         .buttonStyle(.plain)
         .disabled(isDisabled || isPacked)
         .opacity(isDisabled && !isPacked ? 0.6 : 1)
+        .contextMenu {
+            if !isPacked && !isDisabled {
+                Button {
+                    onPackAll()
+                } label: {
+                    Label("Упаковать все", systemImage: "shippingbox.fill")
+                }
+            }
+        }
     }
 
     // «Упаковать» — фиолетовый активный. «Упаковано» — серый нажатый (как неактивная

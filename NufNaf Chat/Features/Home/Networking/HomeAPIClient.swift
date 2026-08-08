@@ -370,14 +370,13 @@ struct HomeAPIClient {
         try await send(path: "todos", method: "GET", body: Optional<String>.none, accessToken: accessToken)
     }
 
-    func createTodo(accessToken: String, title: String, listID: Int?) async throws -> TodoItem {
-        let response: HomeItemEnvelope<TodoItem> = try await send(
-            path: "todos",
-            method: "POST",
-            body: TodoCreateRequest(title: title, listID: listID),
-            accessToken: accessToken
-        )
+    func createTodo(accessToken: String, request: TodoCreateRequest) async throws -> TodoItem {
+        let response: HomeItemEnvelope<TodoItem> = try await send(path: "todos", method: "POST", body: request, accessToken: accessToken)
         return response.item
+    }
+
+    func createTodo(accessToken: String, title: String, listID: Int?, orderID: Int? = nil) async throws -> TodoItem {
+        try await createTodo(accessToken: accessToken, request: TodoCreateRequest(title: title, listID: listID, orderID: orderID))
     }
 
     func updateTodo(accessToken: String, todoID: Int, request: TodoUpdateRequest) async throws -> TodoItem {

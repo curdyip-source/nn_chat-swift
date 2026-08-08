@@ -130,7 +130,6 @@ struct HomeView: View {
     @State private var isUpdatingPreviewOrder = false
     @State private var crmErrorMessage: String?
     @State private var crmUpdatingDocumentKey: String?
-    @State private var crmSelectedSection: CRMSection = .orders
     @State private var pendingAssemblySplit: PendingAssemblySplit?
     @State private var pendingOrderCancel: PendingOrderCancel?
     @State private var assemblyAlertMessage: String?
@@ -311,6 +310,10 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.22), value: previewOrder?.id)
         .animation(.easeInOut(duration: 0.22), value: session.isChatFilterPresented)
         .animation(.spring(response: 0.26, dampingFraction: 0.88), value: messageActionsTarget?.id)
+        .onChange(of: session.orderComposerRequest) { _, _ in
+            // «+» в шапке СРМ открывает ту же форму заказа, что и вложение в чате.
+            presentComposer(.order)
+        }
         .onChange(of: session.isProfileOpen) { _, isProfileOpen in
             if isProfileOpen {
                 dismissKeyboard()
@@ -536,27 +539,26 @@ struct HomeView: View {
             case .price:
                 PriceSearchView()
             case .todo:
-                TodoBoardView(isSectionBarScrolling: $isTodoSectionBarScrolling)
+                TodoBoardView(
+                    isSectionBarScrolling: $isTodoSectionBarScrolling,
+                    // Заказы для привязки берём из той же ленты, что и СРМ: она уже
+                    // отфильтрована правами пользователя.
+                    orders: crmDocumentMessages.compactMap(\.order),
+                    participants: store.participants,
+                    externalTodoRevision: store.todoRevision,
+                    isVisible: currentDisplayMode == .todo,
+                    feedRevision: store.messagesRevision
+                )
             }
         }
     }
 
     // Режим «Прайс» доступен, если пользователь админ, разделы не заданы (null = все),
     // либо в разделах есть 'price'.
-    private var hasPriceAccess: Bool {
-        guard let user = session.currentUser else { return false }
-        if user.userAdmin { return true }
-        guard let sections = user.userSections else { return true }
-        return sections.contains("price")
-    }
+    private var hasPriceAccess: Bool { session.hasSectionAccess("price") }
 
     // Режим «СРМ» доступен: админ, разделы не заданы (null = все), либо есть 'crm'.
-    private var hasCrmAccess: Bool {
-        guard let user = session.currentUser else { return false }
-        if user.userAdmin { return true }
-        guard let sections = user.userSections else { return true }
-        return sections.contains("crm")
-    }
+    private var hasCrmAccess: Bool { session.hasSectionAccess("crm") }
 
     // Доступные вкладки СРМ (Все заказы / Товары / Отгрузки) по правам.
     // Админ и null-разделы → все. Если ни один app-ключ не задан в разделах — считаем,
@@ -573,20 +575,10 @@ struct HomeView: View {
 
     // Режим «Задачи» (тудулист) доступен: админ, разделы не заданы (null = все),
     // либо есть 'todo'.
-    private var hasTodoAccess: Bool {
-        guard let user = session.currentUser else { return false }
-        if user.userAdmin { return true }
-        guard let sections = user.userSections else { return true }
-        return sections.contains("todo")
-    }
+    private var hasTodoAccess: Bool { session.hasSectionAccess("todo") }
 
     // Режим «Чат» доступен: админ, разделы не заданы (null = все), либо есть 'chat'.
-    private var hasChatAccess: Bool {
-        guard let user = session.currentUser else { return false }
-        if user.userAdmin { return true }
-        guard let sections = user.userSections else { return true }
-        return sections.contains("chat")
-    }
+    private var hasChatAccess: Bool { session.hasSectionAccess("chat") }
 
     // Показывать страницу чата: если раздел выдан — да; сейф-нет — если не выдано ничего
     // (ни СРМ, ни Прайс), всё равно показываем чат, чтобы приложение не осталось пустым.
@@ -801,8 +793,14 @@ struct HomeView: View {
                     isLoading: store.isLoading,
                     errorMessage: crmErrorMessage ?? store.loadErrorMessage,
                     updatingDocumentKey: crmUpdatingDocumentKey,
-                    selectedSection: $crmSelectedSection,
+                    selectedSection: $session.crmSection,
                     allowedSections: allowedCrmSections,
+                    unreadCommentsCount: { order in
+                        guard let userID = session.currentUser?.userID else { return 0 }
+                        return store.unreadOrderCommentCount(for: order, currentUserID: userID)
+                    },
+                    commentReadRevision: store.orderCommentReadRevision,
+                    showsTodoBadge: hasTodoAccess,
                     onOpenDocument: { kind, id in
                         session.closeChatFilterPanel()
                         previewOrder = nil
@@ -823,6 +821,9 @@ struct HomeView: View {
                     },
                     onCollectShipmentItem: { order, itemID in
                         updateCRMShipmentItemPacked(order: order, itemID: itemID)
+                    },
+                    onCollectAllShipmentItems: { order in
+                        updateCRMShipmentAllItemsPacked(order: order)
                     },
                     onCompleteShipmentOrder: { order in
                         updateCRMShipmentOrderCompleted(order: order)
@@ -1413,6 +1414,28 @@ struct HomeView: View {
     }
 
     private func updateCRMShipmentItemPacked(order: HomeOrder, itemID: Int) {
+        updateCRMShipmentItemsPacked(order: order, itemIDs: [itemID])
+    }
+
+    /// «Упаковать все» из удержания на кнопке: пакуем все видимые в отгрузке позиции
+    /// (отменённые в сборке не участвуют и уже упакованные трогать незачем).
+    private func updateCRMShipmentAllItemsPacked(order: HomeOrder) {
+        guard let packedItemStatusID = store.referenceData.statuses.first(where: {
+            $0.statusType == "order_products" && $0.statusStatus == "Упаковано"
+        })?.id else {
+            crmErrorMessage = "Не найден статус товара Упаковано"
+            return
+        }
+        let itemIDs = Set(
+            order.items
+                .filter { !store.isCancelledOrderItem($0) && $0.orderItemStatusID != packedItemStatusID }
+                .map(\.id)
+        )
+        guard !itemIDs.isEmpty else { return }
+        updateCRMShipmentItemsPacked(order: order, itemIDs: itemIDs)
+    }
+
+    private func updateCRMShipmentItemsPacked(order: HomeOrder, itemIDs: Set<Int>) {
         // Кнопка «Упаковать» в отгрузках переводит позицию в «Упаковано» — финальный
         // шаг сборки: по нему видно, что именно сборщик уже отложил.
         guard let collectedItemStatusID = store.referenceData.statuses.first(where: {
@@ -1429,13 +1452,13 @@ struct HomeView: View {
             return
         }
 
-        guard let currentItem = order.items.first(where: { $0.id == itemID }) else { return }
-        guard currentItem.orderItemStatusID != collectedItemStatusID else { return }
+        let targetIDs = Set(order.items.filter { itemIDs.contains($0.id) && $0.orderItemStatusID != collectedItemStatusID }.map(\.id))
+        guard !targetIDs.isEmpty else { return }
 
         // Отменённые позиции («Отменен»/«Не будет») не участвуют в сборке — заказ
         // считается собранным, когда упакованы все НЕотменённые товары.
         let allItemsWillBeCollected = order.items.allSatisfy { item in
-            store.isCancelledOrderItem(item) || item.id == itemID || item.orderItemStatusID == collectedItemStatusID
+            store.isCancelledOrderItem(item) || targetIDs.contains(item.id) || item.orderItemStatusID == collectedItemStatusID
         }
         let nextOrderStatusID = allItemsWillBeCollected ? collectedOrderStatusID : order.orderStatusID
 
@@ -1460,7 +1483,7 @@ struct HomeView: View {
                         items: order.items.map { item in
                             makeOrderItemRequest(
                                 item: item,
-                                statusID: item.id == itemID ? collectedItemStatusID : item.orderItemStatusID,
+                                statusID: targetIDs.contains(item.id) ? collectedItemStatusID : item.orderItemStatusID,
                                 supplierName: item.orderItemSupplier,
                                 note: item.orderItemNote,
                                 sourceEstablishmentID: item.orderItemSourceEstablishmentID,

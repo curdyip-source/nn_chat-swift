@@ -243,6 +243,10 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
     let prefersDarkHeader: Bool
     let scrollTargetID: String?
     let scrollRequest: Int
+    /// Над документом открыт модальный лист (форма задачи, накладная СДЭК и т.п.).
+    /// Тогда автоскролл к блоку над клавиатурой не нужен: клавиатуру поднимает лист,
+    /// а не поле документа, и страница под ним уезжала бы в чужое место.
+    let ignoresKeyboardScroll: Bool
     let headerHorizontalPadding: CGFloat
     let contentHorizontalPadding: CGFloat
     @ViewBuilder let headerContent: () -> HeaderContent
@@ -265,6 +269,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         prefersDarkHeader: Bool = false,
         scrollTargetID: String? = nil,
         scrollRequest: Int = 0,
+        ignoresKeyboardScroll: Bool = false,
         headerHorizontalPadding: CGFloat = 16,
         contentHorizontalPadding: CGFloat = 16,
         @ViewBuilder headerContent: @escaping () -> HeaderContent,
@@ -282,6 +287,7 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         self.prefersDarkHeader = prefersDarkHeader
         self.scrollTargetID = scrollTargetID
         self.scrollRequest = scrollRequest
+        self.ignoresKeyboardScroll = ignoresKeyboardScroll
         self.headerHorizontalPadding = headerHorizontalPadding
         self.contentHorizontalPadding = contentHorizontalPadding
         self.headerContent = headerContent
@@ -397,7 +403,8 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                                 let screenHeight = UIApplication.shared.connectedScenes
                                     .compactMap { $0 as? UIWindowScene }
                                     .first?.screen.bounds.height ?? 0
-                                guard let scrollTargetID,
+                                guard !ignoresKeyboardScroll,
+                                      let scrollTargetID,
                                       let endFrame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue,
                                       endFrame.minY < screenHeight - 1 else { return }
                                 withAnimation(.easeOut(duration: 0.16)) {
