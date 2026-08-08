@@ -15,11 +15,23 @@ struct GeneralTitle: View {
     let topInset: CGFloat
 
     private var showsFilterButton: Bool {
-        session.currentUser != nil && !session.isProfileOpen && session.activeDocument == nil
+        // Фильтр относится к ленте (чат и СРМ) — на экране «Задачи» фильтровать нечего.
+        guard session.chatFilterState.displayMode != .todo else { return false }
+        return session.currentUser != nil && !session.isProfileOpen && session.activeDocument == nil
     }
 
     private var isCRMMode: Bool {
         session.chatFilterState.displayMode == .crm
+    }
+
+    /// Чек-лист нужен только в «Товарах» — он про сборку позиций. В «Заказах» и
+    /// «Отгрузках» на этом месте создание заказа.
+    private var showsChecklistButton: Bool {
+        isCRMMode && session.crmSection == .products
+    }
+
+    private var showsCreateOrderButton: Bool {
+        isCRMMode && session.crmSection != .products
     }
 
     // Активные (не дефолтные) критерии фильтра подсвечиваем зелёным, чтобы не забыть
@@ -31,6 +43,24 @@ struct GeneralTitle: View {
         return session.chatFilterState.hasActiveCriteria
             ? Color(red: 0.30, green: 0.82, blue: 0.46)
             : .white
+    }
+
+    private var trailingIconName: String {
+        if showsCreateOrderButton { return "plus" }
+        if showsChecklistButton { return "checklist" }
+        return "person.crop.circle"
+    }
+
+    private var isTrailingButtonActive: Bool {
+        if showsCreateOrderButton { return false }
+        if showsChecklistButton { return session.isChecklistOpen }
+        return session.isProfileOpen
+    }
+
+    private var trailingAccessibilityLabel: String {
+        if showsCreateOrderButton { return "Создать заказ" }
+        if showsChecklistButton { return "Чек-лист" }
+        return "Профиль"
     }
 
     var body: some View {
@@ -74,21 +104,23 @@ struct GeneralTitle: View {
 
                 if session.currentUser != nil {
                     Button {
-                        if isCRMMode {
+                        if showsCreateOrderButton {
+                            session.requestOrderComposer()
+                        } else if showsChecklistButton {
                             session.toggleChecklist()
                         } else {
                             session.toggleProfile()
                         }
                     } label: {
-                        Image(systemName: isCRMMode ? "checklist" : "person.crop.circle")
+                        Image(systemName: trailingIconName)
                             .font(.system(size: 19, weight: .medium))
-                            .foregroundStyle((isCRMMode ? session.isChecklistOpen : session.isProfileOpen) ? Color.black : Color.white)
+                            .foregroundStyle(isTrailingButtonActive ? Color.black : Color.white)
                             .frame(width: 36, height: 36)
-                            .background((isCRMMode ? session.isChecklistOpen : session.isProfileOpen) ? Color.white : Color.white.opacity(0.08))
+                            .background(isTrailingButtonActive ? Color.white : Color.white.opacity(0.08))
                             .clipShape(Circle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(isCRMMode ? "Чек-лист" : "Профиль")
+                    .accessibilityLabel(trailingAccessibilityLabel)
                 } else {
                     Color.clear
                         .frame(width: 36, height: 36)

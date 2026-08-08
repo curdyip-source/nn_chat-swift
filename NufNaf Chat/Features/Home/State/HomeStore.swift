@@ -17,6 +17,10 @@ final class HomeStore: ObservableObject {
     /// пересчитываются по нему: сравнивать сами массивы на каждом проходе тела дорого —
     /// сообщений сотни, а тело перевычисляется в том числе на каждом кадре свайпа.
     @Published private(set) var messagesRevision: Int = 0
+    /// Счётчик изменений задач, сделанных ВНЕ экрана «Задачи» (из карточки заказа).
+    /// Экран задач слушает его и перечитывает доску — иначе задача появлялась бы там
+    /// только после перезахода.
+    @Published private(set) var todoRevision: Int = 0
     @Published var messageDraft = ""
     @Published var isLoading = false
     @Published var isSendingMessage = false
@@ -769,6 +773,78 @@ final class HomeStore: ObservableObject {
         try await client.deleteOrderComment(accessToken: accessToken, orderID: orderID, commentID: commentID)
         // Карточка заказа перечитается по SSE-дельте (notify_order_changed на бэке),
         // но подстрахуемся фоновой пересинхронизацией — как в deleteMessage.
+        reloadMessagesInBackground(accessToken: accessToken)
+    }
+
+    // MARK: - Задачи заказа
+    // Тудулист живёт своим стором, но карточка заказа умеет вести свои задачи сама:
+    // после каждой операции заказ перечитывается, а лента обновляется в фоне.
+
+    /// Создать задачу заказа целиком из формы: название, заметка, сроки и
+    /// ответственные уходят одним запросом.
+    func createOrderTodo(accessToken: String?, orderID: Int, draft: TodoItem) async throws {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        let request = TodoCreateRequest(
+            title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
+            listID: draft.listID,
+            orderID: orderID,
+            assigneeUserIDs: draft.assignees.map(\.id),
+            note: draft.note,
+            doAt: draft.doAt,
+            deadlineAt: draft.deadlineAt
+        )
+        _ = try await client.createTodo(accessToken: accessToken, request: request)
+        todoRevision &+= 1
+        reloadMessagesInBackground(accessToken: accessToken)
+    }
+
+    func setTodoCompleted(accessToken: String?, todoID: Int, completed: Bool) async throws {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        _ = try await client.setTodoCompleted(accessToken: accessToken, todoID: todoID, completed: completed)
+        todoRevision &+= 1
+        reloadMessagesInBackground(accessToken: accessToken)
+    }
+
+    func archiveTodo(accessToken: String?, todoID: Int) async throws {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        _ = try await client.setTodoArchived(accessToken: accessToken, todoID: todoID, archived: true)
+        todoRevision &+= 1
+        reloadMessagesInBackground(accessToken: accessToken)
+    }
+
+    func saveTodo(accessToken: String?, item: TodoItem) async throws {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        let request = TodoUpdateRequest(
+            title: item.title.trimmingCharacters(in: .whitespacesAndNewlines),
+            listID: item.listID,
+            orderID: item.orderID,
+            assigneeUserIDs: item.assignees.map(\.id),
+            note: item.note,
+            doAt: item.doAt,
+            deadlineAt: item.deadlineAt,
+            someday: item.someday,
+            tags: item.tags,
+            subtasks: item.subtasks.map { TodoSubtaskRequest(title: $0.title, done: $0.done) }
+        )
+        _ = try await client.updateTodo(accessToken: accessToken, todoID: item.id, request: request)
+        todoRevision &+= 1
+        reloadMessagesInBackground(accessToken: accessToken)
+    }
+
+    func deleteTodo(accessToken: String?, todoID: Int) async throws {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        try await client.deleteTodo(accessToken: accessToken, todoID: todoID)
+        todoRevision &+= 1
         reloadMessagesInBackground(accessToken: accessToken)
     }
 

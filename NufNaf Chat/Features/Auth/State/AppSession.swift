@@ -26,6 +26,12 @@ final class AppSession: ObservableObject {
     @Published private(set) var chatFilterState = HomeChatFilterState.default()
     @Published var isChatFilterPresented = false
     @Published var crmSearchQuery = ""
+    /// Открытая вкладка СРМ. Живёт в сессии, потому что от неё зависит кнопка в шапке:
+    /// в «Товарах» это чек-лист, в «Заказах» и «Отгрузках» — создание заказа.
+    @Published var crmSection: CRMSection = .orders
+    /// Тик «шапка попросила открыть форму заказа» — HomeView слушает и открывает
+    /// тот же композер, что и вложение «Заказ» в чате.
+    @Published private(set) var orderComposerRequest = 0
 
     private let client: AuthAPIClient
     private let defaults: UserDefaults
@@ -287,6 +293,22 @@ final class AppSession: ObservableObject {
 
     func closeProfile() {
         isProfileOpen = false
+    }
+
+    /// Есть ли доступ к разделу приложения по ключу `user_sections`. Правило общее:
+    /// админ видит всё, незаданные разделы (null) = всё, иначе строго по ключам.
+    func hasSectionAccess(_ key: String) -> Bool {
+        guard let user = currentUser else { return false }
+        if user.userAdmin { return true }
+        guard let sections = user.userSections else { return true }
+        return sections.contains(key)
+    }
+
+    /// Кнопка «+» в шапке СРМ: просим HomeView открыть форму создания заказа.
+    func requestOrderComposer() {
+        isProfileOpen = false
+        isChecklistOpen = false
+        orderComposerRequest += 1
     }
 
     func openChecklist() {

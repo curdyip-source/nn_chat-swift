@@ -15,6 +15,20 @@ struct TodoBoardView: View {
     /// край, лента передаёт остаток жеста ему (scroll chaining) и экран дёргается
     /// в сторону соседней страницы.
     @Binding var isSectionBarScrolling: Bool
+    /// Заказы, доступные пользователю (из ленты) — для привязки задачи к заказу.
+    var orders: [HomeOrder] = []
+    /// Кого можно назначить ответственным — участники чата, включая системных.
+    var participants: [ChatParticipant] = []
+    /// Тик изменений задач из карточки заказа: по нему доска перечитывается сразу,
+    /// не дожидаясь перезахода в приложение.
+    var externalTodoRevision: Int = 0
+    /// Экран сейчас открыт (пейджер стоит на «Задачах») — на входе освежаем доску,
+    /// чтобы увидеть задачи, заведённые с другого устройства.
+    var isVisible: Bool = false
+    /// Ревизия ленты чата: по ней видно, что с сервера что-то приехало. Пока экран
+    /// открыт, доска подтягивается по этому сигналу — так задачи, заведённые
+    /// коллегой, появляются без ухода с экрана.
+    var feedRevision: Int = 0
 
     @EnvironmentObject private var session: AppSession
     @StateObject private var store = TodoStore()
@@ -34,6 +48,9 @@ struct TodoBoardView: View {
     @State private var dragOffset: CGFloat = 0
     @State private var dragBaseline: CGFloat = 0
     @State private var rowHeights: [Int: CGFloat] = [:]
+    /// Лента дёргает ревизию на каждой синхронизации — доску перечитываем не чаще
+    /// раза в 10 секунд, чтобы не ходить в сеть впустую.
+    @State private var lastFeedRefreshAt = Date.distantPast
 
     private let rowSpacing: CGFloat = 10
 
@@ -55,7 +72,9 @@ struct TodoBoardView: View {
             }
             .padding(.top, 12)
 
-            addButton
+            if canQuickAdd {
+                addButton
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.ignoresSafeArea())
@@ -78,7 +97,26 @@ struct TodoBoardView: View {
                 }
             }
         }
-        .task { await store.loadIfNeeded(accessToken: session.currentAccessToken) }
+        .task {
+            store.currentUserID = session.currentUser?.userID
+            await store.loadIfNeeded(accessToken: session.currentAccessToken)
+        }
+        .onChange(of: session.currentUser?.userID) { _, userID in
+            store.currentUserID = userID
+        }
+        .onChange(of: externalTodoRevision) { _, _ in
+            Task { await store.refreshIfLoaded(accessToken: session.currentAccessToken) }
+        }
+        .onChange(of: isVisible) { _, visible in
+            guard visible else { return }
+            lastFeedRefreshAt = Date()
+            Task { await store.refreshIfLoaded(accessToken: session.currentAccessToken) }
+        }
+        .onChange(of: feedRevision) { _, _ in
+            guard isVisible, Date().timeIntervalSince(lastFeedRefreshAt) > 10 else { return }
+            lastFeedRefreshAt = Date()
+            Task { await store.refreshIfLoaded(accessToken: session.currentAccessToken) }
+        }
         .onChange(of: selectedSection) { _, _ in
             dismissKeyboard()
             collapseCard()
@@ -155,6 +193,8 @@ struct TodoBoardView: View {
                 TodoTaskCard(
                     item: binding,
                     lists: store.lists,
+                    orders: orders,
+                    participants: participants,
                     onToggleCompleted: { toggleCompleted(item) },
                     onDelete: {
                         collapseCard(save: false)
@@ -166,11 +206,12 @@ struct TodoBoardView: View {
                     item: item,
                     listName: item.listID.flatMap { store.listName(for: $0) },
                     showsListName: selectedSection.listID == nil,
+                    showsOrder: true,
                     isDragging: draggingID == item.id,
                     onToggleCompleted: { toggleCompleted(item) },
                     onOpen: { expandCard(item) }
                 )
-                .gesture(dragGesture(for: item))
+                .gesture(dragGesture(for: item), isEnabled: isReorderable)
             }
         }
         // Карточки задач — светлые, как карточки заказов в СРМ: на чёрном фоне
@@ -191,7 +232,7 @@ struct TodoBoardView: View {
     private var draftBinding: Binding<TodoItem>? {
         guard draft != nil else { return nil }
         return Binding(
-            get: { draft ?? TodoItem(id: 0, listID: nil, title: "", note: nil, doAt: nil, deadlineAt: nil, someday: false, tags: [], completed: false, archived: false, position: 0, subtasks: []) },
+            get: { draft ?? TodoItem(id: 0, listID: nil, orderID: nil, ownerUserID: nil, assignees: [], title: "", note: nil, doAt: nil, deadlineAt: nil, someday: false, tags: [], completed: false, archived: false, position: 0, subtasks: []) },
             set: { draft = $0 }
         )
     }
@@ -208,6 +249,7 @@ struct TodoBoardView: View {
         case .smart(.inbox): return "Во «Входящих» пусто — быстро добавьте задачу кнопкой «+»"
         case .smart(.today): return "На сегодня задач нет"
         case .smart(.planned): return "Ничего не запланировано"
+        case .smart(.orders): return "К заказам пока не привязано ни одной задачи"
         case .smart(.someday): return "Список «Когда-нибудь» пуст"
         case .smart(.archive): return "Архив пуст"
         case .list: return "В этом списке пока нет задач"
@@ -329,6 +371,21 @@ struct TodoBoardView: View {
 
     // MARK: - Быстрое добавление
 
+    /// В «Заказах» и «Архиве» быстрое добавление прячем: заведённая там задача не
+    /// принадлежит ни одному заказу и тут же пропала бы с глаз.
+    /// Ручной порядок есть везде, кроме «Заказов» — там сортировка по свежести.
+    private var isReorderable: Bool {
+        if case .smart(.orders) = selectedSection { return false }
+        return true
+    }
+
+    private var canQuickAdd: Bool {
+        switch selectedSection {
+        case .smart(.orders), .smart(.archive): return false
+        default: return true
+        }
+    }
+
     private var addButton: some View {
         Button {
             collapseCard()
@@ -424,9 +481,28 @@ private struct TodoSectionChipBar: View {
     let onDeleteList: (TodoListItem) -> Void
 
     var body: some View {
+        HStack(spacing: 8) {
+            // «Заказы» закреплены слева и не уезжают: общая работа команды всегда
+            // на виду, скроллится только личная часть ленты.
+            chip(
+                title: TodoSmartList.orders.title,
+                icon: TodoSmartList.orders.icon,
+                count: openCount(.smart(.orders)),
+                isSelected: selection == .smart(.orders),
+                accent: TodoPalette.order
+            ) {
+                selection = .smart(.orders)
+            }
+
+            scrollableChips
+        }
+        .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
+    }
+
+    private var scrollableChips: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
-                ForEach(TodoSmartList.allCases) { smart in
+                ForEach(TodoSmartList.allCases.filter { $0 != .orders }) { smart in
                     chip(
                         title: smart.title,
                         icon: smart.icon,
@@ -472,7 +548,6 @@ private struct TodoSectionChipBar: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Новый список")
             }
-            .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
             // Лента всегда пружинит по горизонтали: упёршись в край, она сама
             // отрабатывает жест и не отдаёт его пейджеру экранов.
             .background(TodoChipScrollPagerGuard())
@@ -486,7 +561,14 @@ private struct TodoSectionChipBar: View {
         }
     }
 
-    private func chip(title: String, icon: String, count: Int, isSelected: Bool, action: @escaping () -> Void) -> some View {
+    private func chip(
+        title: String,
+        icon: String,
+        count: Int,
+        isSelected: Bool,
+        accent: Color? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
@@ -499,18 +581,34 @@ private struct TodoSectionChipBar: View {
                 if count > 0 {
                     Text("\(count)")
                         .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(isSelected ? AppTheme.primaryButtonText.opacity(0.6) : AppTheme.secondaryButtonText.opacity(0.6))
+                        .foregroundStyle(foreground(isSelected: isSelected, accent: accent).opacity(0.6))
                 }
             }
-            .foregroundStyle(isSelected ? AppTheme.primaryButtonText : AppTheme.secondaryButtonText)
+            .foregroundStyle(foreground(isSelected: isSelected, accent: accent))
             .padding(.horizontal, 12)
             .frame(height: 34)
             .background(
-                (isSelected ? AppTheme.primaryButtonBackground : AppTheme.secondaryButtonBackground),
+                background(isSelected: isSelected, accent: accent),
                 in: RoundedRectangle(cornerRadius: 12, style: .continuous)
             )
         }
         .buttonStyle(.plain)
+    }
+
+    /// Акцентный чипс («Заказы») выделен и в невыбранном состоянии — своим цветом,
+    /// а не общим серым.
+    private func background(isSelected: Bool, accent: Color?) -> Color {
+        guard let accent else {
+            return isSelected ? AppTheme.primaryButtonBackground : AppTheme.secondaryButtonBackground
+        }
+        return isSelected ? accent : accent.opacity(0.24)
+    }
+
+    private func foreground(isSelected: Bool, accent: Color?) -> Color {
+        guard accent != nil else {
+            return isSelected ? AppTheme.primaryButtonText : AppTheme.secondaryButtonText
+        }
+        return .white
     }
 }
 
@@ -520,6 +618,7 @@ private struct TodoTaskRow: View {
     let item: TodoItem
     let listName: String?
     let showsListName: Bool
+    var showsOrder: Bool = false
     let isDragging: Bool
     let onToggleCompleted: () -> Void
     let onOpen: () -> Void
@@ -625,6 +724,14 @@ private struct TodoTaskRow: View {
             chips.append(MetaChip(id: "list", icon: "list.bullet", text: listName, tint: Color.secondary))
         }
 
+        if showsOrder, let orderID = item.orderID {
+            chips.append(MetaChip(id: "order", icon: "shippingbox", text: "№\(orderID)", tint: TodoPalette.order))
+        }
+
+        for assignee in item.assignees {
+            chips.append(MetaChip(id: "assignee-\(assignee.id)", icon: "person", text: assignee.shortName, tint: Color.secondary))
+        }
+
         return chips
     }
 }
@@ -633,6 +740,7 @@ private struct TodoTaskRow: View {
 private enum TodoPalette {
     static let today = Color(red: 0.85, green: 0.62, blue: 0.05)
     static let checked = Color(red: 0.96, green: 0.44, blue: 0.27)
+    static let order = Color(red: 0.15, green: 0.45, blue: 0.90)
 }
 
 private struct TodoCheckbox: View {
@@ -665,9 +773,11 @@ private struct TodoCheckbox: View {
 
 // MARK: - Раскрытая карточка задачи
 
-private struct TodoTaskCard: View {
+struct TodoTaskCard: View {
     @Binding var item: TodoItem
     let lists: [TodoListItem]
+    var orders: [HomeOrder] = []
+    var participants: [ChatParticipant] = []
     let onToggleCompleted: () -> Void
     let onDelete: () -> Void
 
@@ -720,6 +830,10 @@ private struct TodoTaskCard: View {
             }
 
             listPicker
+
+            orderPicker
+
+            assigneesPicker
 
             divider
 
@@ -848,6 +962,110 @@ private struct TodoTaskCard: View {
                     .frame(height: 28)
                     .background(Color.primary.opacity(0.07), in: Capsule())
             }
+        }
+    }
+
+    /// Привязка к заказу: задача становится общей — её увидит любой, кому виден заказ.
+    private var orderPicker: some View {
+        HStack(spacing: 10) {
+            Label {
+                Text("Заказ")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.primary.opacity(0.86))
+            } icon: {
+                Image(systemName: "shippingbox")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(item.orderID == nil ? Color.secondary : TodoPalette.order)
+            }
+
+            Spacer(minLength: 0)
+
+            Menu {
+                Button("Без заказа") { item.orderID = nil }
+                ForEach(orders.prefix(50)) { order in
+                    Button(orderTitle(order)) { item.orderID = order.id }
+                }
+            } label: {
+                Text(currentOrderTitle)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.primary.opacity(0.86))
+                    .lineLimit(1)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(Color.primary.opacity(0.07), in: Capsule())
+            }
+        }
+    }
+
+    private func orderTitle(_ order: HomeOrder) -> String {
+        let customer = order.orderCustomer.trimmingCharacters(in: .whitespacesAndNewlines)
+        return customer.isEmpty ? "№\(order.id)" : "№\(order.id) · \(customer)"
+    }
+
+    private var currentOrderTitle: String {
+        guard let orderID = item.orderID else { return "Без заказа" }
+        if let order = orders.first(where: { $0.id == orderID }) {
+            return orderTitle(order)
+        }
+        return "№\(orderID)"
+    }
+
+    /// Ответственные: несколько человек, каждому при назначении уходит пуш.
+    private var assigneesPicker: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Label {
+                Text("Ответственные")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.primary.opacity(0.86))
+            } icon: {
+                Image(systemName: "person.2")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.secondary)
+            }
+
+            Spacer(minLength: 0)
+
+            Menu {
+                ForEach(participants) { participant in
+                    Button {
+                        toggleAssignee(participant)
+                    } label: {
+                        if item.assignees.contains(where: { $0.id == participant.id }) {
+                            Label(participant.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(participant.displayName)
+                        }
+                    }
+                }
+            } label: {
+                Text(currentAssigneesTitle)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.primary.opacity(0.86))
+                    .lineLimit(1)
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(Color.primary.opacity(0.07), in: Capsule())
+            }
+        }
+    }
+
+    private var currentAssigneesTitle: String {
+        guard !item.assignees.isEmpty else { return "Не назначены" }
+        return item.assignees.map(\.shortName).joined(separator: ", ")
+    }
+
+    private func toggleAssignee(_ participant: ChatParticipant) {
+        if let index = item.assignees.firstIndex(where: { $0.id == participant.id }) {
+            item.assignees.remove(at: index)
+        } else {
+            item.assignees.append(
+                TodoAssignee(
+                    id: participant.id,
+                    login: participant.userLogin,
+                    firstName: participant.userFirstName,
+                    secondName: participant.userSecondName
+                )
+            )
         }
     }
 

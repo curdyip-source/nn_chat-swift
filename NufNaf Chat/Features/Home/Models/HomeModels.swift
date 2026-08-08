@@ -752,6 +752,9 @@ struct HomeOrder: Codable, Identifiable, Hashable {
     let orderPaidBySecondName: String?
     let items: [HomeOrderItem]
     let comments: [HomeOrderComment]
+    /// Задачи заказа — приезжают прямо в карточке (как комментарии): из них рисуется
+    /// блок «Задачи» в просмотре заказа и бабл с количеством в списках СРМ.
+    var todos: [TodoItem] = []
     let cdek: HomeOrderCdek?
 
     enum CodingKeys: String, CodingKey {
@@ -779,11 +782,15 @@ struct HomeOrder: Codable, Identifiable, Hashable {
         case orderPaidBySecondName = "order_paid_by_second_name"
         case items
         case comments
+        case todos
         case cdek
     }
 
     /// Заказ отмечен оплаченным.
     var isPaid: Bool { orderPaid ?? false }
+
+    /// Незакрытые задачи заказа — по ним бабл в СРМ красится цветом, а не серым.
+    var openTodoCount: Int { todos.filter { !$0.completed && !$0.archived }.count }
 
     /// Тексты закреплённых сообщений чата заказа — в порядке отправки, для карточки
     /// заказа в списках СРМ. Без автора и вложений: в карточке нужен только текст.

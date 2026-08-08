@@ -40,9 +40,43 @@ struct TodoSubtask: Codable, Identifiable, Hashable {
     }
 }
 
+struct TodoAssignee: Codable, Identifiable, Hashable {
+    let id: Int
+    let login: String?
+    let firstName: String?
+    let secondName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "user_id"
+        case login = "user_login"
+        case firstName = "user_first_name"
+        case secondName = "user_second_name"
+    }
+
+    var displayName: String {
+        let full = [secondName, firstName].compactMap { value -> String? in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }.joined(separator: " ")
+        if !full.isEmpty { return full }
+        return login ?? "Пользователь"
+    }
+
+    /// Короткая подпись для строки задачи: фамилия либо логин.
+    var shortName: String {
+        if let secondName, !secondName.isEmpty { return secondName }
+        if let firstName, !firstName.isEmpty { return firstName }
+        return login ?? "—"
+    }
+}
+
 struct TodoItem: Codable, Identifiable, Hashable {
     let id: Int
     var listID: Int?
+    /// Привязка к заказу: такая задача общая — её видит любой, кому виден заказ.
+    var orderID: Int?
+    var ownerUserID: Int?
+    var assignees: [TodoAssignee]
     var title: String
     var note: String?
     var doAt: String?
@@ -57,6 +91,9 @@ struct TodoItem: Codable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey {
         case id = "todo_id"
         case listID = "todo_list_id"
+        case orderID = "todo_order_id"
+        case ownerUserID = "todo_owner_user_id"
+        case assignees
         case title = "todo_title"
         case note = "todo_note"
         case doAt = "todo_do_at"
@@ -91,6 +128,14 @@ struct TodoItem: Codable, Identifiable, Hashable {
     }
 
     var doneSubtaskCount: Int { subtasks.filter(\.done).count }
+
+    /// «Моя» задача — я автор или назначен ответственным. Умные списки показывают
+    /// только такие; чужие заказные живут в разделе «Заказы».
+    func isMine(currentUserID: Int?) -> Bool {
+        guard let currentUserID else { return true }
+        if ownerUserID == currentUserID { return true }
+        return assignees.contains { $0.id == currentUserID }
+    }
 
     var hasNote: Bool {
         guard let note else { return false }
@@ -148,6 +193,8 @@ enum TodoDay {
 
 /// Умные списки слева в Things — у нас чипсы в шапке экрана.
 enum TodoSmartList: String, CaseIterable, Identifiable, Hashable {
+    // Порядок = порядок чипсов в ленте. «Заказы» первыми: это общая работа команды.
+    case orders
     case inbox
     case today
     case planned
@@ -161,6 +208,7 @@ enum TodoSmartList: String, CaseIterable, Identifiable, Hashable {
         case .inbox: return "Входящие"
         case .today: return "Сегодня"
         case .planned: return "Запланировано"
+        case .orders: return "Заказы"
         case .someday: return "Когда-нибудь"
         case .archive: return "Архив"
         }
@@ -171,6 +219,7 @@ enum TodoSmartList: String, CaseIterable, Identifiable, Hashable {
         case .inbox: return "tray"
         case .today: return "star"
         case .planned: return "calendar"
+        case .orders: return "shippingbox"
         case .someday: return "moon.zzz"
         case .archive: return "archivebox"
         }
@@ -197,16 +246,52 @@ enum TodoSection: Hashable {
 struct TodoCreateRequest: Encodable {
     let title: String
     let listID: Int?
+    let orderID: Int?
+    var assigneeUserIDs: [Int] = []
+    var note: String? = nil
+    var doAt: String? = nil
+    var deadlineAt: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case title = "todo_title"
         case listID = "todo_list_id"
+        case orderID = "todo_order_id"
+        case assigneeUserIDs = "assignee_user_ids"
+        case note = "todo_note"
+        case doAt = "todo_do_at"
+        case deadlineAt = "todo_deadline_at"
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(title, forKey: .title)
         try container.encode(listID, forKey: .listID)
+        try container.encode(orderID, forKey: .orderID)
+        try container.encode(assigneeUserIDs, forKey: .assigneeUserIDs)
+        try container.encode(note, forKey: .note)
+        try container.encode(doAt, forKey: .doAt)
+        try container.encode(deadlineAt, forKey: .deadlineAt)
+    }
+
+    /// Пустая заготовка для формы «новая задача заказа».
+    static func draft(orderID: Int?) -> TodoItem {
+        TodoItem(
+            id: 0,
+            listID: nil,
+            orderID: orderID,
+            ownerUserID: nil,
+            assignees: [],
+            title: "",
+            note: nil,
+            doAt: nil,
+            deadlineAt: nil,
+            someday: false,
+            tags: [],
+            completed: false,
+            archived: false,
+            position: 0,
+            subtasks: []
+        )
     }
 }
 
@@ -215,6 +300,8 @@ struct TodoCreateRequest: Encodable {
 struct TodoUpdateRequest: Encodable {
     let title: String
     let listID: Int?
+    let orderID: Int?
+    let assigneeUserIDs: [Int]
     let note: String?
     let doAt: String?
     let deadlineAt: String?
@@ -225,6 +312,8 @@ struct TodoUpdateRequest: Encodable {
     enum CodingKeys: String, CodingKey {
         case title = "todo_title"
         case listID = "todo_list_id"
+        case orderID = "todo_order_id"
+        case assigneeUserIDs = "assignee_user_ids"
         case note = "todo_note"
         case doAt = "todo_do_at"
         case deadlineAt = "todo_deadline_at"
@@ -237,6 +326,8 @@ struct TodoUpdateRequest: Encodable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(title, forKey: .title)
         try container.encode(listID, forKey: .listID)
+        try container.encode(orderID, forKey: .orderID)
+        try container.encode(assigneeUserIDs, forKey: .assigneeUserIDs)
         try container.encode(note, forKey: .note)
         try container.encode(doAt, forKey: .doAt)
         try container.encode(deadlineAt, forKey: .deadlineAt)
