@@ -841,8 +841,10 @@ private struct CRMOrderCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
+            // Подзаголовок вынесен под всю строку шапки: иначе бабл статуса
+            // съедает ширину и «Канал * Склад * ...» переносится раньше времени.
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top, spacing: 12) {
                     HStack(spacing: 6) {
                         Text("Заказ №\(order.id)")
                             .font(.system(size: 18, weight: .bold, design: .rounded))
@@ -865,33 +867,35 @@ private struct CRMOrderCardView: View {
                             )
                         }
                     }
-                    Text(orderSubtitle)
-                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    if isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    if isShipmentMode {
+                        CRMShipmentOrderCompleteButton(
+                            isDisabled: isSaving || !isReadyForShipmentCompletion,
+                            action: onCompleteShipmentOrder
+                        )
+                    } else {
+                        CRMStatusMenu(
+                            title: order.orderStatus ?? "Статус",
+                            color: BusinessDocumentColors.statusColor(order.orderStatusColor),
+                            statuses: statuses,
+                            selectedStatusID: order.orderStatusID,
+                            isDisabled: isSaving,
+                            onSelect: onSelectStatus
+                        )
+                    }
                 }
 
-                Spacer()
-
-                if isSaving {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-
-                if isShipmentMode {
-                    CRMShipmentOrderCompleteButton(
-                        isDisabled: isSaving || !isReadyForShipmentCompletion,
-                        action: onCompleteShipmentOrder
-                    )
-                } else {
-                    CRMStatusMenu(
-                        title: order.orderStatus ?? "Статус",
-                        color: BusinessDocumentColors.statusColor(order.orderStatusColor),
-                        statuses: statuses,
-                        selectedStatusID: order.orderStatusID,
-                        isDisabled: isSaving,
-                        onSelect: onSelectStatus
-                    )
-                }
+                Text(orderSubtitle)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if !normalizedComment.isEmpty {
@@ -987,8 +991,8 @@ private struct CRMOrderCardView: View {
     }
 
     private var orderSubtitle: String {
-        // Порядок: канал * склад * метод * клиент.
-        [order.orderSalesChannel, order.orderEstablishmentName, methodTitle, order.orderCustomer]
+        // Порядок: канал * склад * метод * клиент * способ связи.
+        [order.orderSalesChannel, order.orderEstablishmentName, methodTitle, order.orderCustomer, order.orderContactMethod]
             .compactMap { value in
                 guard let value, !value.isEmpty else { return nil }
                 return value
