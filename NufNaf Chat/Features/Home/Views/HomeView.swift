@@ -825,8 +825,8 @@ struct HomeView: View {
                     onCollectAllShipmentItems: { order in
                         updateCRMShipmentAllItemsPacked(order: order)
                     },
-                    onCompleteShipmentOrder: { order in
-                        updateCRMShipmentOrderCompleted(order: order)
+                    onCompleteOrder: { order in
+                        updateCRMOrderCompleted(order: order)
                     },
                     onToggleOrderPayment: { order, paid in
                         updateCRMOrderPayment(order: order, paid: paid)
@@ -1500,7 +1500,9 @@ struct HomeView: View {
         }
     }
 
-    private func updateCRMShipmentOrderCompleted(order: HomeOrder) {
+    /// Финал заказа: «Выполнен» + все неотменённые позиции «Отгружено».
+    /// Зовётся и из «Отгрузок» (после сборки), и из «Все заказы» (мимо сборки).
+    private func updateCRMOrderCompleted(order: HomeOrder) {
         guard let completedOrderStatusID = store.referenceData.statuses.first(where: {
             $0.statusType == "orders" && $0.statusStatus == "Выполнен"
         })?.id else {

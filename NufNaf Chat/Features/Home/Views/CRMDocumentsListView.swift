@@ -25,7 +25,8 @@ struct CRMDocumentsListView: View {
     let onCollectShipmentItem: (HomeOrder, Int) -> Void
     /// «Упаковать все» из удержания на кнопке сборки.
     var onCollectAllShipmentItems: (HomeOrder) -> Void = { _ in }
-    let onCompleteShipmentOrder: (HomeOrder) -> Void
+    /// Финал заказа: «Выполнен» + все неотменённые товары «Отгружено».
+    let onCompleteOrder: (HomeOrder) -> Void
     /// Отметить заказ оплаченным / снять отметку (подтверждение уже показано).
     let onToggleOrderPayment: (HomeOrder, Bool) -> Void
     let onUpdateOrderItemNote: (HomeOrder, Int, String?) -> Void
@@ -36,6 +37,7 @@ struct CRMDocumentsListView: View {
     @State private var movementSelection: CRMMovementSelection?
     @State private var supplierSelection: CRMSupplierSelection?
     @State private var shipmentCompletionConfirmation: CRMShipmentOrderCompletionConfirmation?
+    @State private var orderCompletionConfirmation: CRMOrderCompletionConfirmation?
     @State private var paymentConfirmation: CRMOrderPaymentConfirmation?
     @State private var supplierQuery = ""
     @State private var supplierResults: [HomeContact] = []
@@ -125,8 +127,12 @@ struct CRMDocumentsListView: View {
                                         onCollectAllShipmentItems: {
                                             onCollectAllShipmentItems(order)
                                         },
-                                        onCompleteShipmentOrder: {
-                                            shipmentCompletionConfirmation = CRMShipmentOrderCompletionConfirmation(order: order)
+                                        onCompleteOrder: {
+                                            if selectedSection == .shipments {
+                                                shipmentCompletionConfirmation = CRMShipmentOrderCompletionConfirmation(order: order)
+                                            } else {
+                                                orderCompletionConfirmation = CRMOrderCompletionConfirmation(order: order)
+                                            }
                                         },
                                         onTogglePayment: {
                                             paymentConfirmation = CRMOrderPaymentConfirmation(order: order)
@@ -287,14 +293,34 @@ struct CRMDocumentsListView: View {
                 )
                 .transition(.opacity)
             }
+
+            // Выполнение заказа «мимо сборки»: перечисляем, что именно изменится,
+            // — действие затрагивает и заказ, и все его позиции разом.
+            if let orderCompletionConfirmation {
+                AppConfirmCard(
+                    title: "Выполнить заказ?",
+                    message: completionMessage(for: orderCompletionConfirmation.order),
+                    buttons: [
+                        AppConfirmButton(label: "Выполнить", style: .primary) {
+                            self.orderCompletionConfirmation = nil
+                            onCompleteOrder(orderCompletionConfirmation.order)
+                        },
+                        AppConfirmButton(label: "Отмена", style: .cancel) {
+                            self.orderCompletionConfirmation = nil
+                        },
+                    ]
+                )
+                .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.18), value: paymentConfirmation?.id)
+        .animation(.easeInOut(duration: 0.18), value: orderCompletionConfirmation?.id)
         .alert(item: $shipmentCompletionConfirmation) { confirmation in
             Alert(
                 title: Text("Подтвердите выполнение"),
                 message: Text("Отметить заказ как выполненный?"),
                 primaryButton: .default(Text("Подтвердить"), action: {
-                    onCompleteShipmentOrder(confirmation.order)
+                    onCompleteOrder(confirmation.order)
                     shipmentCompletionConfirmation = nil
                 }),
                 secondaryButton: .cancel(Text("Отмена"), action: {
@@ -416,6 +442,36 @@ struct CRMDocumentsListView: View {
         case .shipments:
             return "Нет заказов в статусах На сборку или Собран"
         }
+    }
+
+    /// Что именно произойдёт: позиции в «Отгружено», отменённые — нетронутыми,
+    /// плюс напоминание про неоплаченный заказ (частый повод не закрывать).
+    private func completionMessage(for order: HomeOrder) -> String {
+        let cancelled = order.items.filter { isCancelledOrderItem($0) }
+        let active = order.items.count - cancelled.count
+
+        var lines = ["Заказ №\(order.id) перейдёт в «Выполнен», сборка пропускается."]
+        if active > 0 {
+            lines.append("Позиций в «Отгружено»: \(active).")
+        }
+        if !cancelled.isEmpty {
+            lines.append("Отменённые позиции (\(cancelled.count)) останутся как есть.")
+        }
+        if !order.isPaid {
+            lines.append("Заказ не оплачен.")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func isCancelledOrderItem(_ item: HomeOrderItem) -> Bool {
+        ["Отменен", "Не будет"].contains(orderItemStatusTitle(for: item))
+    }
+
+    private func orderItemStatusTitle(for item: HomeOrderItem) -> String {
+        if let status = item.orderItemStatus?.trimmingCharacters(in: .whitespacesAndNewlines), !status.isEmpty {
+            return status
+        }
+        return orderItemStatuses.first(where: { $0.id == item.orderItemStatusID })?.statusStatus ?? ""
     }
 
     private var orderItemStatuses: [HomeStatus] {
@@ -836,7 +892,9 @@ private struct CRMOrderCardView: View {
     let onSelectItemStatus: (Int, Int) -> Void
     let onCollectShipmentItem: (Int) -> Void
     var onCollectAllShipmentItems: () -> Void = {}
-    let onCompleteShipmentOrder: () -> Void
+    /// Финал заказа: статус «Выполнен» + все неотменённые товары «Отгружено».
+    /// Один и тот же итог для кнопки в «Отгрузках» и действия в «Все заказы».
+    let onCompleteOrder: () -> Void
     let onTogglePayment: () -> Void
 
     var body: some View {
@@ -878,7 +936,7 @@ private struct CRMOrderCardView: View {
                     if isShipmentMode {
                         CRMShipmentOrderCompleteButton(
                             isDisabled: isSaving || !isReadyForShipmentCompletion,
-                            action: onCompleteShipmentOrder
+                            action: onCompleteOrder
                         )
                     } else {
                         CRMStatusMenu(
@@ -887,7 +945,17 @@ private struct CRMOrderCardView: View {
                             statuses: statuses,
                             selectedStatusID: order.orderStatusID,
                             isDisabled: isSaving,
-                            onSelect: onSelectStatus
+                            onSelect: onSelectStatus,
+                            // «Выполнен» из ручного селекта убран — заказ закрывает флоу
+                            // отгрузки. Для мелких заказов («отдал из рук в руки») тот же
+                            // финал доступен отсюда, отдельным действием с подтверждением.
+                            extraAction: canCompleteOrder
+                                ? CRMStatusMenu.ExtraAction(
+                                    title: "Выполнить заказ",
+                                    systemImage: "checkmark.seal",
+                                    perform: onCompleteOrder
+                                )
+                                : nil
                         )
                     }
                 }
@@ -1036,6 +1104,12 @@ private struct CRMOrderCardView: View {
         ["Отменен", "Не будет"].contains(itemStatusTitle(for: item))
     }
 
+    /// В «Отгрузках» финал закрывает своя кнопка; уже выполненному заказу
+    /// действие бессмысленно.
+    private var canCompleteOrder: Bool {
+        !isShipmentMode && (order.orderStatus ?? "") != "Выполнен"
+    }
+
     private var isReadyForShipmentCompletion: Bool {
         guard (order.orderStatus ?? "") != "Выполнен" else { return false }
         let activeItems = order.items.filter { !isCancelledItem($0) }
@@ -1151,6 +1225,13 @@ private struct CRMShipmentOrderCompleteButton: View {
 }
 
 private struct CRMShipmentOrderCompletionConfirmation: Identifiable {
+    let order: HomeOrder
+
+    var id: Int { order.id }
+}
+
+/// Подтверждение выполнения заказа из «Все заказы» (мимо сборки и отгрузки).
+private struct CRMOrderCompletionConfirmation: Identifiable {
     let order: HomeOrder
 
     var id: Int { order.id }
@@ -1329,6 +1410,14 @@ private struct CRMStatusMenu: View {
         }
     }
 
+    /// Действие под списком статусов — отдельной секцией, красным.
+    /// Не смена статуса, а операция над документом («Выполнить заказ»).
+    struct ExtraAction {
+        let title: String
+        let systemImage: String
+        let perform: () -> Void
+    }
+
     let title: String
     let color: Color
     let statuses: [HomeStatus]
@@ -1336,6 +1425,7 @@ private struct CRMStatusMenu: View {
     let size: Size
     let isDisabled: Bool
     let onSelect: (Int) -> Void
+    let extraAction: ExtraAction?
 
     init(
         title: String,
@@ -1344,7 +1434,8 @@ private struct CRMStatusMenu: View {
         selectedStatusID: Int?,
         size: Size = .regular,
         isDisabled: Bool,
-        onSelect: @escaping (Int) -> Void
+        onSelect: @escaping (Int) -> Void,
+        extraAction: ExtraAction? = nil
     ) {
         self.title = title
         self.color = color
@@ -1353,6 +1444,7 @@ private struct CRMStatusMenu: View {
         self.size = size
         self.isDisabled = isDisabled
         self.onSelect = onSelect
+        self.extraAction = extraAction
     }
 
     var body: some View {
@@ -1362,6 +1454,14 @@ private struct CRMStatusMenu: View {
                     onSelect(status.id)
                 } label: {
                     Text(status.statusStatus)
+                }
+            }
+
+            if let extraAction {
+                Section {
+                    Button(role: .destructive, action: extraAction.perform) {
+                        Label(extraAction.title, systemImage: extraAction.systemImage)
+                    }
                 }
             }
         } label: {
@@ -1384,7 +1484,7 @@ private struct CRMStatusMenu: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled || statuses.isEmpty)
+        .disabled(isDisabled || (statuses.isEmpty && extraAction == nil))
     }
 }
 
