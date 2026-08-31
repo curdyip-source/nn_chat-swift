@@ -30,7 +30,7 @@ struct ChatFilterSheet: View {
                         .font(.system(size: 20, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
 
-                    Text("Сущности, точки, статусы и период")
+                    Text("Тап — только это, долгое нажатие — убрать")
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(.white.opacity(0.68))
                 }
@@ -72,6 +72,9 @@ struct ChatFilterSheet: View {
                                 isActive: isActive(kind, in: filter.kinds),
                                 action: {
                                     filter.kinds = toggledSelection(kind, current: filter.kinds, allValues: HomeChatFilterKind.allCases)
+                                },
+                                onExclude: {
+                                    filter.kinds = excludedSelection(kind, current: filter.kinds, allValues: HomeChatFilterKind.allCases)
                                 }
                             )
                         }
@@ -86,6 +89,10 @@ struct ChatFilterSheet: View {
                                     action: {
                                         let allIDs = referenceData.orderMethods.map(\.id)
                                         filter.orderMethodIDs = toggledSelection(method.id, current: filter.orderMethodIDs, allValues: allIDs)
+                                    },
+                                    onExclude: {
+                                        let allIDs = referenceData.orderMethods.map(\.id)
+                                        filter.orderMethodIDs = excludedSelection(method.id, current: filter.orderMethodIDs, allValues: allIDs)
                                     }
                                 )
                             }
@@ -100,6 +107,10 @@ struct ChatFilterSheet: View {
                                 action: {
                                     let allIDs = referenceData.establishments.map(\.id)
                                     filter.establishmentIDs = toggledSelection(establishment.id, current: filter.establishmentIDs, allValues: allIDs)
+                                },
+                                onExclude: {
+                                    let allIDs = referenceData.establishments.map(\.id)
+                                    filter.establishmentIDs = excludedSelection(establishment.id, current: filter.establishmentIDs, allValues: allIDs)
                                 }
                             )
                         }
@@ -121,6 +132,10 @@ struct ChatFilterSheet: View {
                                                 action: {
                                                     let allIDs = availableStatuses.map(\.id)
                                                     filter.statusIDs = toggledSelection(status.id, current: filter.statusIDs, allValues: allIDs)
+                                                },
+                                                onExclude: {
+                                                    let allIDs = availableStatuses.map(\.id)
+                                                    filter.statusIDs = excludedSelection(status.id, current: filter.statusIDs, allValues: allIDs)
                                                 }
                                             )
                                         }
@@ -160,6 +175,9 @@ struct ChatFilterSheet: View {
                                 isActive: isActive(month, in: filter.months),
                                 action: {
                                     filter.months = toggledSelection(month, current: filter.months, allValues: allMonths)
+                                },
+                                onExclude: {
+                                    filter.months = excludedSelection(month, current: filter.months, allValues: allMonths)
                                 }
                             )
                         }
@@ -304,6 +322,20 @@ struct ChatFilterSheet: View {
         return updated
     }
 
+    /// Долгое нажатие: убрать один вариант, остальные оставить выбранными.
+    /// Пустой набор в фильтре означает «все», поэтому исключение из «всех»
+    /// разворачивается в явный список без этого значения.
+    private func excludedSelection<Value: Hashable>(_ value: Value, current: Set<Value>, allValues: [Value]) -> Set<Value> {
+        let allSet = Set(allValues)
+        var updated = current.isEmpty ? allSet : current
+        updated.remove(value)
+
+        // Последнее исключение обнулило бы набор — это читалось бы как «все».
+        // Оставляем «все, кроме этого»: намерение пользователя ровно такое.
+        guard !updated.isEmpty else { return allSet.subtracting([value]) }
+        return updated == allSet ? [] : updated
+    }
+
     private func filterSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
@@ -357,22 +389,33 @@ struct ChatFilterSheet: View {
         }
     }
 
-    private func filterChip(title: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(isActive ? Color.white : Color.white.opacity(0.84))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 40)
-                .padding(.horizontal, 10)
-                .background(
-                    isActive
-                        ? Color(red: 0.96, green: 0.44, blue: 0.27)
-                        : Color.white.opacity(0.08),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                )
-        }
-        .buttonStyle(.plain)
+    /// Тап — «оставить только это», долгое нажатие — «убрать только это».
+    /// Без второго жеста, чтобы исключить один вариант из десяти, приходилось
+    /// тапать девять остальных.
+    private func filterChip(title: String, isActive: Bool, action: @escaping () -> Void, onExclude: @escaping () -> Void) -> some View {
+        Text(title)
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(isActive ? Color.white : Color.white.opacity(0.84))
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 40)
+            .padding(.horizontal, 10)
+            .background(
+                isActive
+                    ? Color(red: 0.96, green: 0.44, blue: 0.27)
+                    : Color.white.opacity(0.08),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            // Долгое нажатие раньше тапа: на коротком касании сработает onTapGesture.
+            .onLongPressGesture(minimumDuration: 0.4) {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                onExclude()
+            }
+            .onTapGesture(perform: action)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(title)
+            .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
+            .accessibilityHint("Долгое нажатие — исключить")
     }
 }
