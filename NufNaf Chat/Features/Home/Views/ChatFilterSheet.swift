@@ -408,7 +408,8 @@ struct ChatFilterSheet: View {
             )
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             // Долгое нажатие раньше тапа: на коротком касании сработает onTapGesture.
-            .onLongPressGesture(minimumDuration: 0.4) {
+            // 0.3 с — заметно быстрее системных 0.5, но всё ещё не ловит обычный тап.
+            .onLongPressGesture(minimumDuration: 0.3) {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                 onExclude()
             }
