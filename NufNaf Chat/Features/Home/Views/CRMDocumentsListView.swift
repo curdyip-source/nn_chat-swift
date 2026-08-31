@@ -969,8 +969,10 @@ private struct CRMOrderCardView: View {
             HStack(spacing: 8) {
                 Spacer()
 
+                // Итог и оплата — на пункт крупнее остальной мелочи в карточке:
+                // это то, ради чего строку и просматривают.
                 Text(orderTotalLine)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
 
                 CRMOrderPaymentButton(
@@ -1167,7 +1169,7 @@ private struct CRMOrderPaymentButton: View {
     var body: some View {
         Button(action: action) {
             label
-                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
                 .lineLimit(1)
                 // Небольшой запас по краям — чтобы в надпись было легко попасть пальцем.
                 .padding(.vertical, 4)
