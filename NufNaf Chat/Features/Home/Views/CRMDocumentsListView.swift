@@ -127,6 +127,7 @@ struct CRMDocumentsListView: View {
                                         onCollectAllShipmentItems: {
                                             onCollectAllShipmentItems(order)
                                         },
+                                        canCompleteOrder: canCompleteOrders,
                                         onCompleteOrder: {
                                             if selectedSection == .shipments {
                                                 shipmentCompletionConfirmation = CRMShipmentOrderCompletionConfirmation(order: order)
@@ -472,6 +473,13 @@ struct CRMDocumentsListView: View {
             return status
         }
         return orderItemStatuses.first(where: { $0.id == item.orderItemStatusID })?.statusStatus ?? ""
+    }
+
+    /// Право на «Выполнить заказ» из «Все заказы» = право на раздел «Отгрузки»
+    /// (`app_shipments`): закрывать заказ может тот, кто и так закрывает отгрузки.
+    /// Отдельного ключа в правах пока нет — не хотим менять бэкенд ради одной кнопки.
+    private var canCompleteOrders: Bool {
+        allowedSections.isEmpty || allowedSections.contains(.shipments)
     }
 
     private var orderItemStatuses: [HomeStatus] {
@@ -892,6 +900,8 @@ private struct CRMOrderCardView: View {
     let onSelectItemStatus: (Int, Int) -> Void
     let onCollectShipmentItem: (Int) -> Void
     var onCollectAllShipmentItems: () -> Void = {}
+    /// Право закрыть заказ из «Все заказы» (по доступу к разделу «Отгрузки»).
+    var canCompleteOrder: Bool = true
     /// Финал заказа: статус «Выполнен» + все неотменённые товары «Отгружено».
     /// Один и тот же итог для кнопки в «Отгрузках» и действия в «Все заказы».
     let onCompleteOrder: () -> Void
@@ -949,7 +959,7 @@ private struct CRMOrderCardView: View {
                             // «Выполнен» из ручного селекта убран — заказ закрывает флоу
                             // отгрузки. Для мелких заказов («отдал из рук в руки») тот же
                             // финал доступен отсюда, отдельным действием с подтверждением.
-                            extraAction: canCompleteOrder
+                            extraAction: showsCompleteOrderAction
                                 ? CRMStatusMenu.ExtraAction(
                                     title: "Выполнить заказ",
                                     systemImage: "checkmark.seal",
@@ -1105,9 +1115,9 @@ private struct CRMOrderCardView: View {
     }
 
     /// В «Отгрузках» финал закрывает своя кнопка; уже выполненному заказу
-    /// действие бессмысленно.
-    private var canCompleteOrder: Bool {
-        !isShipmentMode && (order.orderStatus ?? "") != "Выполнен"
+    /// действие бессмысленно; без права на отгрузки — не показываем вовсе.
+    private var showsCompleteOrderAction: Bool {
+        canCompleteOrder && !isShipmentMode && (order.orderStatus ?? "") != "Выполнен"
     }
 
     private var isReadyForShipmentCompletion: Bool {
