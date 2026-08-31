@@ -1186,9 +1186,10 @@ private struct CRMOrderPaymentButton: View {
         guard !isPaid else {
             return Text("(Оплачено)").foregroundColor(paidColor)
         }
-        return Text("(Не оплачено").foregroundColor(unpaidColor)
-            + Text("!").foregroundColor(unpaidAccentColor)
-            + Text(")").foregroundColor(unpaidColor)
+        let body = Text("(Не оплачено").foregroundColor(unpaidColor)
+        let mark = Text("!").foregroundColor(unpaidAccentColor)
+        let tail = Text(")").foregroundColor(unpaidColor)
+        return Text("\(body)\(mark)\(tail)")
     }
 
     private var paidColor: Color { Color(red: 0.09, green: 0.64, blue: 0.35) }
