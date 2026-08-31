@@ -1183,7 +1183,10 @@ struct OrderDetailView: View {
             HStack(alignment: .center, spacing: 8) {
                 Text("СДЭК").font(.system(size: 17, weight: .semibold, design: .rounded))
                 if let c, c.hasWaybill, let track = c.trackNumber, !track.isEmpty {
-                    Button { copyTrack(track) } label: {
+                    Menu {
+                        Button("Скопировать трек-номер") { copyTrack(track) }
+                        Button("Скопировать ссылку") { copyTrack(cdekTrackingLink(track)) }
+                    } label: {
                         Image(systemName: didCopyTrack ? "checkmark" : "doc.on.doc")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(didCopyTrack ? Color.green : Color.accentColor)
@@ -1191,7 +1194,7 @@ struct OrderDetailView: View {
                             .background((didCopyTrack ? Color.green : Color.accentColor).opacity(0.12), in: Circle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Копировать трек-номер")
+                    .accessibilityLabel("Копировать трек-номер или ссылку")
                 }
                 Spacer()
             }
@@ -1265,8 +1268,13 @@ struct OrderDetailView: View {
         order ?? fallback
     }
 
-    private func copyTrack(_ track: String) {
-        UIPasteboard.general.string = track
+    /// Публичная страница отслеживания СДЭК по трек-номеру.
+    private func cdekTrackingLink(_ track: String) -> String {
+        "https://cdek.ru/m/order/\(track)"
+    }
+
+    private func copyTrack(_ value: String) {
+        UIPasteboard.general.string = value
         didCopyTrack = true
         Task {
             try? await Task.sleep(nanoseconds: 1_600_000_000)
