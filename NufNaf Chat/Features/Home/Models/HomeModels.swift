@@ -743,7 +743,7 @@ struct HomeOrder: Codable, Identifiable, Hashable {
     let orderOwnerUserLogin: String?
     let orderOwnerFirstName: String?
     let orderOwnerSecondName: String?
-    // Оплата: отметка с кнопки «Оплатить» в карточке заказа. Поля опциональные —
+    // Оплата: отметка с надписи «Не оплачено!» в карточке заказа. Поля опциональные —
     // в кэше сообщений могут лежать карточки, снятые до появления оплаты.
     let orderPaid: Bool?
     let orderPaidAt: String?

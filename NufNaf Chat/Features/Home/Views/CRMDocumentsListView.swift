@@ -1154,7 +1154,7 @@ private struct CRMShipmentOrderCompletionConfirmation: Identifiable {
     var id: Int { order.id }
 }
 
-/// Оплата у строки «Итого»: «(Оплатить)» → после подтверждения «(Оплачено)».
+/// Оплата у строки «Итого»: «(Не оплачено!)» → после подтверждения «(Оплачено)».
 /// Повторное нажатие по «(Оплачено)» предлагает отменить оплату.
 ///
 /// Намеренно без «бабла»: в карточке уже есть баблы статуса заказа и статусов
@@ -1166,10 +1166,9 @@ private struct CRMOrderPaymentButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(isPaid ? "(Оплачено)" : "(Оплатить)")
+            label
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .lineLimit(1)
-                .foregroundStyle(foregroundColor)
                 // Небольшой запас по краям — чтобы в надпись было легко попасть пальцем.
                 .padding(.vertical, 4)
                 .padding(.horizontal, 2)
@@ -1180,11 +1179,21 @@ private struct CRMOrderPaymentButton: View {
         .opacity(isDisabled ? 0.6 : 1)
     }
 
-    // «Оплачено» — зелёным (деньги пришли, видно с одного взгляда по списку),
-    // «Оплатить» — нейтральный серый, пока ничего не произошло.
-    private var foregroundColor: Color {
-        isPaid ? Color(red: 0.09, green: 0.64, blue: 0.35) : Color(uiColor: .systemGray)
+    // «Оплачено» — зелёным (деньги пришли, видно с одного взгляда по списку).
+    // «Не оплачено» — приглушённый красный, чтобы не спорить с баблами статусов,
+    // и восклицательный знак ярче: цепляет взгляд при беглом просмотре списка.
+    private var label: Text {
+        guard !isPaid else {
+            return Text("(Оплачено)").foregroundColor(paidColor)
+        }
+        return Text("(Не оплачено").foregroundColor(unpaidColor)
+            + Text("!").foregroundColor(unpaidAccentColor)
+            + Text(")").foregroundColor(unpaidColor)
     }
+
+    private var paidColor: Color { Color(red: 0.09, green: 0.64, blue: 0.35) }
+    private var unpaidColor: Color { Color(red: 0.78, green: 0.36, blue: 0.34) }
+    private var unpaidAccentColor: Color { CRMBadgeColors.unread }
 }
 
 private struct CRMOrderPaymentConfirmation: Identifiable {
