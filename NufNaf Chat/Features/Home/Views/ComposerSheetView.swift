@@ -1247,7 +1247,7 @@ struct ComposerSheetView: View {
 
     @ViewBuilder
     private var pastedListEditorSection: some View {
-        Text("Одна позиция — одна строка, в любом из двух видов:\n1. Gucci: Flora Gorgeous Orchid 100ml tester 1 x 5619₽ = 5619₽\n2 шт ⇥ Creed Aventus EDP 100 ml ⇥ 287 (колонки через таб)\nНумерация, «шт», валюта и «= сумма» необязательны.")
+        Text("Примеры списков:\n1. Kajal: Dahab 100ml 1 x 8224₽ = 8224₽\n1 шт Kajal: Dahab 100ml 64")
             .font(.system(size: 12, weight: .medium, design: .rounded))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -1301,10 +1301,6 @@ struct ComposerSheetView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
             }
-
-            Text("Ставится позициям, у которых в строке нет знака валюты.")
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
         }
 
         HStack(spacing: 10) {
