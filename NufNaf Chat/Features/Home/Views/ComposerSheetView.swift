@@ -185,23 +185,6 @@ struct ComposerSheetView: View {
                 composerFooter
             }
             .background(Color(UIColor.systemBackground))
-            // У цифровой клавиатуры нет Enter, а в поле списка Enter переносит строку —
-            // даём явную кнопку, чтобы зафиксировать ввод и убрать клавиатуру.
-            // Объявлено один раз на весь композер: тулбар в каждой карточке множит кнопку.
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    if showsKeyboardDoneButton {
-                        Spacer()
-                        Button("Готово") {
-                            dismissKeyboard()
-                        }
-                        .fontWeight(.semibold)
-                        // Композер форсит светлую схему, а клавиатура в приложении тёмная:
-                        // без этого подпись кнопки получалась чёрной на тёмной плашке.
-                        .environment(\.colorScheme, .dark)
-                    }
-                }
-            }
             .onAppear {
                 syncSelectedOrderSubMethod()
                 applyDefaultCurrencyToItems()
@@ -522,12 +505,16 @@ struct ComposerSheetView: View {
                 Text("Добавленные позиции")
                     .font(.system(size: 18, weight: .bold, design: .rounded))
 
-                LazyVStack(alignment: .leading, spacing: 8) {
+                // Обычный VStack, а не ленивый: ленивый стек выгружает и пересоздаёт
+                // карточки с полями ввода при прокрутке к фокусу, что при быстрой смене
+                // фокуса цена ↔ количество ведёт к лишним перестройкам и потере фокуса.
+                VStack(alignment: .leading, spacing: 8) {
                     ForEach($selectedItems) { $item in
                         let itemID = item.id
                         compactSelectedItemCard($item) {
                             selectedItems.removeAll { $0.id == itemID }
                         }
+                        .id(itemID)
                     }
                 }
             }
@@ -566,9 +553,22 @@ struct ComposerSheetView: View {
             // Тап в «Информация» поднимает поле к верху (под свитчер), чтобы кнопки
             // Склад/Способ/Метод были видны — как scroll-to-top в СДЭК-накладной.
             .onChange(of: focusedField) { _, field in
-                guard field == .info else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                    withAnimation { proxy.scrollTo("infoField", anchor: .top) }
+                switch field {
+                case .info:
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        withAnimation { proxy.scrollTo("infoField", anchor: .top) }
+                    }
+                case .itemPrice(let itemID), .itemQuantity(let itemID):
+                    // Системный автоскролл ставит поле вплотную к клавиатуре, и кнопка
+                    // «Создать заказ» над клавиатурой перекрывала низ карточки — поднимаем
+                    // карточку выше. На чужой странице такого id нет, и scrollTo ничего не делает.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(itemID, anchor: UnitPoint(x: 0.5, y: 0.4))
+                        }
+                    }
+                default:
+                    break
                 }
             }
         }
@@ -927,7 +927,7 @@ struct ComposerSheetView: View {
                     .focused($focusedField, equals: .counterparty)
                     .submitLabel(.search)
                     .foregroundStyle(.primary)
-                    .environment(\.colorScheme, .light)   // светлая клавиатура (как у остальных полей)
+                    .environment(\.colorScheme, .light)   // светлая схема поля
 
                 if isSearchingContacts {
                     ProgressView()
@@ -1130,7 +1130,7 @@ struct ComposerSheetView: View {
 
             composerField(title: "Артикул", text: $customArticle, placeholder: "000010", focus: .customArticle)
             composerField(title: "Название", text: $customName, placeholder: "Название товара", focus: .customName)
-            composerField(title: "Цена", text: $customPrice, placeholder: "0.00", keyboard: .decimalPad, focus: .customPrice)
+            composerField(title: "Цена", text: $customPrice, placeholder: "0.00", keyboard: .numbersAndPunctuation, focus: .customPrice)
 
             if let productFormErrorMessage, !productFormErrorMessage.isEmpty {
                 Text(productFormErrorMessage)
@@ -1268,15 +1268,6 @@ struct ComposerSheetView: View {
         )
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
-    }
-
-    private var showsKeyboardDoneButton: Bool {
-        switch focusedField {
-        case .itemPrice, .itemQuantity, .customPrice, .pastedList:
-            return true
-        default:
-            return false
-        }
     }
 
     /// Пока в мини-корзине пусто, окно — это поле вставки. С разобранными
@@ -1417,7 +1408,8 @@ struct ComposerSheetView: View {
                 .foregroundStyle(.secondary)
         }
 
-        LazyVStack(alignment: .leading, spacing: 8) {
+        // Обычный VStack — по той же причине, что в корзине заказа.
+        VStack(alignment: .leading, spacing: 8) {
             ForEach($pastedListDrafts) { $draft in
                 let draftID = draft.id
                 compactSelectedItemCard(
@@ -1666,8 +1658,8 @@ struct ComposerSheetView: View {
         counterpartyResults = []
         isSearchingContacts = false
         hasCompletedContactSearch = false
-        isCounterpartyOverlayPresented = true
-        focusedField = .counterparty
+        // Крестик только стирает: открытая клавиатура остаётся, закрытая не открывается.
+        isCounterpartyOverlayPresented = focusedField == .counterparty
     }
 
     private func applyContactSelection(_ contact: HomeContact) {
@@ -1850,9 +1842,8 @@ struct ComposerSheetView: View {
                     TextField(placeholder, text: text)
                 }
             }
-            // Светлая клавиатура для всех полей композера: окружение с уровня оверлея
-            // не всегда доходит до keyboardAppearance через кастомный пейджер, поэтому
-            // задаём светлую тему прямо на поле — иначе часть полей давала тёмную клавиатуру.
+            // Светлая схема прямо на поле: окружение с уровня оверлея не всегда доходит
+            // через кастомный пейджер. На цвет клавиатуры это надёжно не влияет.
             .environment(\.colorScheme, .light)
             .keyboardType(keyboard)
             .textFieldStyle(.plain)
@@ -1914,10 +1905,18 @@ struct ComposerSheetView: View {
 
                 TextField("Цена", text: item.price)
                     .focused($focusedField, equals: .itemPrice(itemValue.id))
-                    // Светлая клавиатура явно на поле (как в composerField): иначе при
-                    // переходе цена ↔ количество клавиатура моргала белой/чёрной.
                     .environment(\.colorScheme, .light)
-                    .keyboardType(.decimalPad)
+                    // Раскладка с Enter (у цифровых блоков его нет): Enter фиксирует значение
+                    // и убирает клавиатуру. Та же раскладка у количества.
+                    .keyboardType(.numbersAndPunctuation)
+                    .submitLabel(.done)
+                    // В раскладке есть и буквы — в цену пропускаем только цифры и разделители.
+                    .onChange(of: item.wrappedValue.price) { _, newValue in
+                        let filtered = newValue.filter { $0.isNumber || $0 == "." || $0 == "," }
+                        if filtered != newValue {
+                            item.wrappedValue.price = filtered
+                        }
+                    }
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
@@ -2295,7 +2294,9 @@ private struct CompactQuantityControl: View {
             TextField("", text: $text)
                 .focused(focus, equals: .itemQuantity(itemID))
                 .environment(\.colorScheme, .light)
-                .keyboardType(.numberPad)
+                // Та же раскладка, что у цены (см. поле цены), Enter фиксирует количество.
+                .keyboardType(.numbersAndPunctuation)
+                .submitLabel(.done)
                 .multilineTextAlignment(.center)
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .frame(minWidth: 34)
