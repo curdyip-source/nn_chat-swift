@@ -24,6 +24,10 @@ struct ComposerSheetView: View {
     @State private var info = ""
     @State private var counterpartyResults: [HomeContact] = []
     @State private var isSearchingContacts = false
+    @State private var contactSearchTask: Task<Void, Never>?
+    /// Был ли уже ответ поиска по текущему вводу: до первого ответа пишем «Ищем…»,
+    /// после — держим прошлый результат, пока не придёт новый (без мигания).
+    @State private var hasCompletedContactSearch = false
     @State private var isCounterpartyOverlayPresented = false
     @State private var shouldSaveContact = false
     @State private var shouldMarkItemsInStock = false
@@ -35,6 +39,8 @@ struct ComposerSheetView: View {
     @State private var selectedItems: [HomeComposerItemDraft] = []
     @State private var isSubmitting = false
     @State private var isSearchingProducts = false
+    @State private var productSearchTask: Task<Void, Never>?
+    @State private var hasCompletedProductSearch = false
     @State private var isSearchOverlayPresented = false
     @State private var isCreateProductOverlayPresented = false
     @State private var isCreatingProduct = false
@@ -114,7 +120,7 @@ struct ComposerSheetView: View {
         var id: String { rawValue }
     }
 
-    private enum FocusField: Hashable {
+    fileprivate enum FocusField: Hashable {
         case counterparty
         case info
         case search
@@ -123,6 +129,7 @@ struct ComposerSheetView: View {
         case customPrice
         case pastedList
         case itemPrice(UUID)
+        case itemQuantity(UUID)
     }
 
     var body: some View {
@@ -157,6 +164,9 @@ struct ComposerSheetView: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             dismissKeyboard()
+                            // Окно вставки закрывается только «Закрыть»: тап мимо — это
+                            // «убери клавиатуру», а не «выброси разобранный список».
+                            guard !isPastedListOverlayPresented else { return }
                             dismissProductOverlays(clearSearch: false)
                         }
                 }
@@ -175,6 +185,23 @@ struct ComposerSheetView: View {
                 composerFooter
             }
             .background(Color(UIColor.systemBackground))
+            // У цифровой клавиатуры нет Enter, а в поле списка Enter переносит строку —
+            // даём явную кнопку, чтобы зафиксировать ввод и убрать клавиатуру.
+            // Объявлено один раз на весь композер: тулбар в каждой карточке множит кнопку.
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    if showsKeyboardDoneButton {
+                        Spacer()
+                        Button("Готово") {
+                            dismissKeyboard()
+                        }
+                        .fontWeight(.semibold)
+                        // Композер форсит светлую схему, а клавиатура в приложении тёмная:
+                        // без этого подпись кнопки получалась чёрной на тёмной плашке.
+                        .environment(\.colorScheme, .dark)
+                    }
+                }
+            }
             .onAppear {
                 syncSelectedOrderSubMethod()
                 applyDefaultCurrencyToItems()
@@ -818,6 +845,11 @@ struct ComposerSheetView: View {
                     .submitLabel(.search)
                     .foregroundStyle(.primary)
 
+                if isSearchingProducts {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
                 if !searchQuery.isEmpty {
                     Button {
                         clearSearchQuery()
@@ -897,6 +929,11 @@ struct ComposerSheetView: View {
                     .foregroundStyle(.primary)
                     .environment(\.colorScheme, .light)   // светлая клавиатура (как у остальных полей)
 
+                if isSearchingContacts {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
                 if !counterpartyName.isEmpty {
                     Button {
                         clearCounterpartyQuery()
@@ -934,24 +971,15 @@ struct ComposerSheetView: View {
 
     private var counterpartyResultsPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if normalizedCounterpartyQuery.isEmpty {
+            if normalizedCounterpartyQuery.count < 2 {
                 Text(counterpartySearchPrompt)
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-            } else if isSearchingContacts {
-                VStack(spacing: 12) {
-                    Spacer(minLength: 0)
-                    ProgressView()
-                    Text("Ищем контакты...")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 120)
             } else if counterpartyResults.isEmpty {
-                Text(counterpartyEmptyStateTitle)
+                // Пока идёт новый запрос, панель показывает прошлый ответ, а не
+                // подменяется «Ищем…» — иначе она мигает на каждый символ.
+                Text(hasCompletedContactSearch ? counterpartyEmptyStateTitle : "Ищем контакты…")
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1001,22 +1029,16 @@ struct ComposerSheetView: View {
 
     private var searchResultsPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if normalizedSearchQuery.isEmpty {
+            if normalizedSearchQuery.count < 2 {
                 Text("Начните вводить артикул или название товара.")
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-            } else if isSearchingProducts {
-                VStack(spacing: 12) {
-                    Spacer(minLength: 0)
-                    ProgressView()
-                    Text("Ищем товары...")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 120)
+            } else if searchResults.isEmpty && !hasCompletedProductSearch {
+                Text("Ищем товары…")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else if searchResults.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Товар не найден")
@@ -1200,6 +1222,15 @@ struct ComposerSheetView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 2)
+                // Жест на фоне, а не на самом содержимом: так тап по полю списка
+                // ставит курсор, а тап по пустому месту убирает клавиатуру.
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            dismissKeyboard()
+                        }
+                }
             }
             .frame(maxHeight: 420)
             .scrollIndicators(.hidden)
@@ -1237,6 +1268,15 @@ struct ComposerSheetView: View {
         )
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
+    }
+
+    private var showsKeyboardDoneButton: Bool {
+        switch focusedField {
+        case .itemPrice, .itemQuantity, .customPrice, .pastedList:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Пока в мини-корзине пусто, окно — это поле вставки. С разобранными
@@ -1511,6 +1551,7 @@ struct ComposerSheetView: View {
     private func dismissProductOverlays(clearSearch: Bool) {
         isCreateProductOverlayPresented = false
         isPastedListOverlayPresented = false
+        productSearchTask?.cancel()
         isSearchingProducts = false
         productFormErrorMessage = nil
         dismissKeyboard()
@@ -1524,6 +1565,7 @@ struct ComposerSheetView: View {
 
     private func dismissCounterpartySearch(clearResults: Bool) {
         isCounterpartyOverlayPresented = false
+        contactSearchTask?.cancel()
         isSearchingContacts = false
         if clearResults {
             counterpartyResults = []
@@ -1551,8 +1593,10 @@ struct ComposerSheetView: View {
         }
 
         guard normalizedQuery.count >= 2 else {
+            productSearchTask?.cancel()
             searchResults = []
             isSearchingProducts = false
+            hasCompletedProductSearch = false
             isSearchOverlayPresented = true
             return
         }
@@ -1560,10 +1604,15 @@ struct ComposerSheetView: View {
         isSearchingProducts = true
         let expectedQuery = query
 
-        Task {
+        productSearchTask?.cancel()
+        productSearchTask = Task {
+            // Запрос уходит на паузе в наборе, а не на каждый символ.
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, searchQuery == expectedQuery else { return }
             let results = await store.searchProducts(accessToken: session.currentAccessToken, query: expectedQuery)
-            guard searchQuery == expectedQuery else { return }
+            guard !Task.isCancelled, searchQuery == expectedQuery else { return }
             searchResults = results
+            hasCompletedProductSearch = true
             isSearchingProducts = false
         }
     }
@@ -1577,8 +1626,10 @@ struct ComposerSheetView: View {
         }
 
         guard normalizedQuery.count >= 2 else {
+            contactSearchTask?.cancel()
             counterpartyResults = []
             isSearchingContacts = false
+            hasCompletedContactSearch = false
             isCounterpartyOverlayPresented = true
             return
         }
@@ -1586,26 +1637,35 @@ struct ComposerSheetView: View {
         isSearchingContacts = true
         let expectedQuery = query
 
-        Task {
+        contactSearchTask?.cancel()
+        contactSearchTask = Task {
+            // Запрос уходит на паузе в наборе, а не на каждый символ.
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, counterpartyName == expectedQuery else { return }
             let results = await store.searchContacts(accessToken: session.currentAccessToken, contactType: currentContactType, query: expectedQuery)
-            guard counterpartyName == expectedQuery else { return }
+            guard !Task.isCancelled, counterpartyName == expectedQuery else { return }
             counterpartyResults = results
+            hasCompletedContactSearch = true
             isSearchingContacts = false
         }
     }
 
     private func clearSearchQuery() {
+        productSearchTask?.cancel()
         searchQuery = ""
         searchResults = []
         isSearchingProducts = false
-        isSearchOverlayPresented = true
-        focusedField = .search
+        hasCompletedProductSearch = false
+        // Крестик только стирает: открытая клавиатура остаётся, закрытая не открывается.
+        isSearchOverlayPresented = focusedField == .search
     }
 
     private func clearCounterpartyQuery() {
+        contactSearchTask?.cancel()
         counterpartyName = ""
         counterpartyResults = []
         isSearchingContacts = false
+        hasCompletedContactSearch = false
         isCounterpartyOverlayPresented = true
         focusedField = .counterparty
     }
@@ -1847,11 +1907,16 @@ struct ComposerSheetView: View {
                 CompactQuantityControl(
                     quantity: item.quantity,
                     background: inputFieldBackground,
-                    border: inputFieldBorder
+                    border: inputFieldBorder,
+                    focus: $focusedField,
+                    itemID: itemValue.id
                 )
 
                 TextField("Цена", text: item.price)
                     .focused($focusedField, equals: .itemPrice(itemValue.id))
+                    // Светлая клавиатура явно на поле (как в composerField): иначе при
+                    // переходе цена ↔ количество клавиатура моргала белой/чёрной.
+                    .environment(\.colorScheme, .light)
                     .keyboardType(.decimalPad)
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.center)
@@ -2205,9 +2270,16 @@ private struct CompactQuantityControl: View {
     @Binding var quantity: Int
     let background: Color
     let border: Color
+    /// Фокус композера: через него работают «Готово» над клавиатурой и закрытие
+    /// клавиатуры тапом мимо — со своим @FocusState поле было композеру не видно.
+    let focus: FocusState<ComposerSheetView.FocusField?>.Binding
+    let itemID: UUID
 
-    @FocusState private var isFocused: Bool
     @State private var text: String = ""
+
+    private var isFocused: Bool {
+        focus.wrappedValue == .itemQuantity(itemID)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -2221,7 +2293,8 @@ private struct CompactQuantityControl: View {
             .buttonStyle(.plain)
 
             TextField("", text: $text)
-                .focused($isFocused)
+                .focused(focus, equals: .itemQuantity(itemID))
+                .environment(\.colorScheme, .light)
                 .keyboardType(.numberPad)
                 .multilineTextAlignment(.center)
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
