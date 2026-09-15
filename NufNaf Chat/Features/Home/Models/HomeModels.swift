@@ -158,6 +158,23 @@ struct HomeProduct: Codable, Identifiable, Hashable {
     }
 }
 
+/// Пакетное сопоставление наименований с номенклатурой (`POST /products/match`) —
+/// им пользуется вставка списка позиций в композере.
+struct HomeProductMatchRequest: Encodable {
+    let names: [String]
+}
+
+struct HomeProductMatchResponse: Decodable {
+    let results: [HomeProductMatch]
+}
+
+struct HomeProductMatch: Decodable {
+    /// Наименование, как его отдали на сопоставление.
+    let query: String
+    /// Найденный товар каталога. nil — точного совпадения по имени нет.
+    let matched: HomeProduct?
+}
+
 struct HomeProductCreateRequest: Encodable {
     let productArticle: String
     let productName: String

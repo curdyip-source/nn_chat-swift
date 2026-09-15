@@ -5,6 +5,7 @@
 //  Формат сумм: разряды тысяч разделяются пробелом (17 308.00).
 //
 
+import Foundation
 import Testing
 @testable import NufNaf_Chat
 

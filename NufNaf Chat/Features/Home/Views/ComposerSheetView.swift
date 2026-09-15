@@ -5,6 +5,7 @@
 //  Created by GitHub Copilot on 24.03.2026.
 //
 
+import CryptoKit
 import SwiftUI
 import UIKit
 
@@ -37,6 +38,17 @@ struct ComposerSheetView: View {
     @State private var isSearchOverlayPresented = false
     @State private var isCreateProductOverlayPresented = false
     @State private var isCreatingProduct = false
+    @State private var isPastedListOverlayPresented = false
+    @State private var pastedListText = ""
+    @State private var isApplyingPastedList = false
+    @State private var pastedListUnmatched: [String] = []
+    @State private var pastedListErrorMessage: String?
+    @State private var pastedListCurrencyID: Int?
+    /// Мини-корзина окна вставки: разобранные позиции ждут проверки и уезжают в
+    /// основную корзину только по кнопке «Добавить в корзину».
+    @State private var pastedListDrafts: [HomeComposerItemDraft] = []
+    @State private var pastedListNewProductIDs: Set<UUID> = []
+    @State private var isPastedListEditorExpanded = true
     @State private var productFormErrorMessage: String?
     @State private var submitErrorMessage: String?
     @State private var priceValidationAlertItemID: UUID?
@@ -109,6 +121,7 @@ struct ComposerSheetView: View {
         case customArticle
         case customName
         case customPrice
+        case pastedList
         case itemPrice(UUID)
     }
 
@@ -138,7 +151,7 @@ struct ComposerSheetView: View {
                     }
                 }
 
-                if isCreateProductOverlayPresented {
+                if isCreateProductOverlayPresented || isPastedListOverlayPresented {
                     Color.black.opacity(0.16)
                         .ignoresSafeArea()
                         .contentShape(Rectangle())
@@ -150,6 +163,11 @@ struct ComposerSheetView: View {
 
                 if isCreateProductOverlayPresented {
                     createProductOverlay
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                if isPastedListOverlayPresented {
+                    pastedListOverlay
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
@@ -170,9 +188,12 @@ struct ComposerSheetView: View {
             // Тап по цене товара очищает старое значение — сразу вводим новое,
             // не стирая вручную. Срабатывает при получении фокуса полем цены позиции.
             .onChange(of: focusedField) { _, newValue in
-                guard case let .itemPrice(itemID) = newValue,
-                      let index = selectedItems.firstIndex(where: { $0.id == itemID }) else { return }
-                selectedItems[index].price = ""
+                guard case let .itemPrice(itemID) = newValue else { return }
+                if let index = selectedItems.firstIndex(where: { $0.id == itemID }) {
+                    selectedItems[index].price = ""
+                } else if let index = pastedListDrafts.firstIndex(where: { $0.id == itemID }) {
+                    pastedListDrafts[index].price = ""
+                }
             }
             .onChange(of: selectedSection) { _, newValue in
                 pendingSection = newValue
@@ -191,7 +212,7 @@ struct ComposerSheetView: View {
             .transaction { transaction in
                 transaction.animation = nil
             }
-            .animation(.easeInOut(duration: 0.18), value: isCreateProductOverlayPresented || isSearchOverlayPresented)
+            .animation(.easeInOut(duration: 0.18), value: isCreateProductOverlayPresented || isSearchOverlayPresented || isPastedListOverlayPresented)
             .alert("Заполните цену", isPresented: priceValidationAlertBinding) {
                 Button("Ок") {
                     focusPriceFieldForValidation()
@@ -427,6 +448,34 @@ struct ComposerSheetView: View {
 
             productSearchField
 
+            // Мини-корзина окна вставки живёт отдельно от корзины заказа: без
+            // напоминания разобранный список можно забыть подтвердить.
+            if !pastedListDrafts.isEmpty {
+                Button {
+                    openPastedListOverlay()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "list.bullet.rectangle.portrait")
+                            .font(.system(size: 14, weight: .semibold))
+
+                        Text("Вставленный список: \(pastedListDrafts.count) поз. — проверьте и добавьте")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .multilineTextAlignment(.leading)
+
+                        Spacer(minLength: 8)
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .bold))
+                    }
+                    .foregroundStyle(.orange)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
             if isSearchOverlayPresented {
                 searchResultsPanel
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -448,7 +497,10 @@ struct ComposerSheetView: View {
 
                 LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach($selectedItems) { $item in
-                        compactSelectedItemCard($item)
+                        let itemID = item.id
+                        compactSelectedItemCard($item) {
+                            selectedItems.removeAll { $0.id == itemID }
+                        }
                     }
                 }
             }
@@ -776,6 +828,19 @@ struct ComposerSheetView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                // Вставка списка позиций целиком — по образцу заказа с сайта
+                // («1. Gucci: Flora 100ml 1 x 5619₽ = 5619₽»), чтобы не искать
+                // каждую строку руками.
+                Button {
+                    openPastedListOverlay()
+                } label: {
+                    Image(systemName: "list.bullet.rectangle.portrait")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
             .padding(14)
             .background(inputFieldBackground)
@@ -1088,6 +1153,305 @@ struct ComposerSheetView: View {
         .padding(.bottom, 12)
     }
 
+    private var pastedListOverlay: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            overlayGrabber
+
+            HStack {
+                Text("Список товаров")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+
+                Spacer(minLength: 12)
+
+                Button("Закрыть") {
+                    dismissKeyboard()
+                    isPastedListOverlayPresented = false
+                }
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.white)
+                .clipShape(Capsule())
+            }
+
+            // Всё содержимое — один скролл: с разобранным списком и развёрнутым
+            // полем вставки окно иначе не влезает в экран.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if showsPastedListEditor {
+                        pastedListEditorSection
+                    }
+
+                    if let pastedListErrorMessage, !pastedListErrorMessage.isEmpty {
+                        Text(pastedListErrorMessage)
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if !pastedListUnmatched.isEmpty {
+                        pastedListUnmatchedNote
+                    }
+
+                    if !pastedListDrafts.isEmpty {
+                        pastedListBasketSection
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 2)
+            }
+            .frame(maxHeight: 420)
+            .scrollIndicators(.hidden)
+            .scrollDismissesKeyboard(.interactively)
+
+            VStack(spacing: 8) {
+                if showsPastedListEditor {
+                    pastedListParseButton(isPrimary: pastedListDrafts.isEmpty)
+                }
+
+                if !pastedListDrafts.isEmpty {
+                    Button {
+                        commitPastedList()
+                    } label: {
+                        Text("Добавить в корзину (\(pastedListDrafts.count))")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 46)
+                            .background(Color.black)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+                    .buttonStyle(StaticPressButtonStyle())
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 18)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(UIColor.systemBackground))
+                .shadow(color: Color.black.opacity(0.14), radius: 22, x: 0, y: 10)
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 12)
+    }
+
+    /// Пока в мини-корзине пусто, окно — это поле вставки. С разобранными
+    /// позициями поле сворачивается: место нужно списку.
+    private var showsPastedListEditor: Bool {
+        pastedListDrafts.isEmpty || isPastedListEditorExpanded
+    }
+
+    @ViewBuilder
+    private var pastedListEditorSection: some View {
+        Text("Одна позиция — одна строка, в любом из двух видов:\n1. Gucci: Flora Gorgeous Orchid 100ml tester 1 x 5619₽ = 5619₽\n2 шт ⇥ Creed Aventus EDP 100 ml ⇥ 287 (колонки через таб)\nНумерация, «шт», валюта и «= сумма» необязательны.")
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+
+        TextEditor(text: $pastedListText)
+            .focused($focusedField, equals: .pastedList)
+            .environment(\.colorScheme, .light)
+            .font(.system(size: 14, weight: .medium, design: .rounded))
+            .scrollContentBackground(.hidden)
+            .frame(height: pastedListDrafts.isEmpty ? 132 : 88)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(inputFieldBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(inputFieldBorder, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+        if !availableCurrencies.isEmpty {
+            HStack(spacing: 10) {
+                Text("Валюта списка")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 12)
+
+                Menu {
+                    ForEach(availableCurrencies) { currency in
+                        Button {
+                            pastedListCurrencyID = currency.id
+                        } label: {
+                            Text(currencyMenuTitle(for: currency))
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(currencyButtonTitle(for: pastedListCurrencyID ?? defaultCurrencyID))
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .foregroundStyle(.primary)
+                    .frame(width: 96, height: 36)
+                    .background(inputFieldBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(inputFieldBorder, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+
+            Text("Ставится позициям, у которых в строке нет знака валюты.")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+
+        HStack(spacing: 10) {
+            // Системная кнопка вставки: буфер читается без «Разрешить вставку?».
+            PasteButton(payloadType: String.self) { strings in
+                let text = strings.joined(separator: "\n")
+                guard !text.isEmpty else { return }
+                pastedListText = text
+            }
+            .labelStyle(.titleAndIcon)
+            .buttonBorderShape(.capsule)
+
+            Spacer(minLength: 0)
+
+            if !pastedListText.isEmpty {
+                Button("Очистить") {
+                    pastedListText = ""
+                }
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+            }
+        }
+
+    }
+
+    private func pastedListParseButton(isPrimary: Bool) -> some View {
+        Button {
+            Task {
+                await applyPastedList()
+            }
+        } label: {
+            HStack(spacing: 10) {
+                if isApplyingPastedList {
+                    ProgressView()
+                        .tint(isPrimary ? .white : Color(uiColor: .label))
+                }
+
+                Text(pastedListDrafts.isEmpty ? "Разобрать список" : "Разобрать и дописать")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+            }
+            .foregroundStyle(isPrimary ? Color.white : secondaryButtonText)
+            .frame(maxWidth: .infinity)
+            .frame(height: 46)
+            .background(isPrimary ? Color.black : secondaryButtonBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(StaticPressButtonStyle())
+        .disabled(isPastedListParseDisabled)
+        .opacity(isPastedListParseDisabled ? 0.45 : 1)
+    }
+
+    /// Мини-корзина: разобранное проверяем и правим здесь, в основную корзину
+    /// позиции уезжают одной кнопкой.
+    @ViewBuilder
+    private var pastedListBasketSection: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("Разобрано: \(pastedListDrafts.count)")
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+
+            Spacer(minLength: 12)
+
+            Button(isPastedListEditorExpanded ? "Свернуть поле" : "Вставить ещё") {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isPastedListEditorExpanded.toggle()
+                }
+            }
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(.secondary)
+        }
+
+        if !pastedListTotals.isEmpty {
+            Text("Итого: \(pastedListTotals.joined(separator: " · "))")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+
+        LazyVStack(alignment: .leading, spacing: 8) {
+            ForEach($pastedListDrafts) { $draft in
+                let draftID = draft.id
+                compactSelectedItemCard(
+                    $draft,
+                    isNewProduct: pastedListNewProductIDs.contains(draftID)
+                ) {
+                    pastedListDrafts.removeAll { $0.id == draftID }
+                    pastedListNewProductIDs.remove(draftID)
+                }
+            }
+        }
+
+        Button("Очистить список") {
+            focusedField = nil
+            pastedListDrafts = []
+            pastedListNewProductIDs = []
+            pastedListUnmatched = []
+            isPastedListEditorExpanded = true
+        }
+        .font(.system(size: 13, weight: .semibold, design: .rounded))
+        .foregroundStyle(.red)
+    }
+
+    /// Суммы мини-корзины по валютам («1 234.00 $ · 5 600.00 ₽»).
+    private var pastedListTotals: [String] {
+        Dictionary(grouping: pastedListDrafts, by: { $0.currencyID })
+            .map { currencyID, drafts in
+                let sum = drafts.reduce(Decimal(0)) { partial, draft in
+                    let normalized = draft.price.replacingOccurrences(of: ",", with: ".")
+                    return partial + (Decimal(string: normalized) ?? 0) * Decimal(draft.quantity)
+                }
+                let currency = availableCurrencies.first { $0.id == currencyID }
+                let suffix = currency?.currencySign ?? currency?.currencyName ?? ""
+                return "\(AppAmount.grouped(sum))\(suffix.isEmpty ? "" : " \(suffix)")"
+            }
+            .sorted()
+    }
+
+    /// Ненайденные позиции уедут в корзину новыми товарами — предупреждаем и даём
+    /// список, чтобы лишнее можно было убрать до добавления.
+    private var pastedListUnmatchedNote: some View {
+        let shown = pastedListUnmatched.prefix(6)
+        let rest = pastedListUnmatched.count - shown.count
+
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("Не нашли в номенклатуре — уйдут новыми товарами:")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+
+            ForEach(Array(shown), id: \.self) { name in
+                Text("• \(name)")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if rest > 0 {
+                Text("и ещё \(rest)")
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.orange.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var isPastedListParseDisabled: Bool {
+        isApplyingPastedList || pastedListText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var overlayGrabber: some View {
         Capsule()
             .fill(Color.black.opacity(0.14))
@@ -1150,6 +1514,7 @@ struct ComposerSheetView: View {
 
     private func dismissProductOverlays(clearSearch: Bool) {
         isCreateProductOverlayPresented = false
+        isPastedListOverlayPresented = false
         isSearchingProducts = false
         productFormErrorMessage = nil
         dismissKeyboard()
@@ -1287,6 +1652,104 @@ struct ComposerSheetView: View {
         )
     }
 
+    private func openPastedListOverlay() {
+        dismissKeyboard()
+        isSearchOverlayPresented = false
+        isCreateProductOverlayPresented = false
+        isPastedListOverlayPresented = true
+        pastedListErrorMessage = nil
+        if pastedListCurrencyID == nil {
+            pastedListCurrencyID = defaultCurrencyID
+        }
+    }
+
+    /// Разбираем вставленный список и сопоставляем строки с номенклатурой. Позиции
+    /// складываем в мини-корзину окна — в основную корзину они уедут отдельной
+    /// кнопкой, когда список проверят.
+    private func applyPastedList() async {
+        pastedListErrorMessage = nil
+
+        let parsedItems = ComposerPastedItemsParser.parse(pastedListText)
+        guard !parsedItems.isEmpty else {
+            pastedListErrorMessage = "В списке не нашлось ни одной позиции. Строка должна быть вида «1. Gucci: Flora 100ml 1 x 5619₽ = 5619₽» или «2 шт ⇥ Creed Aventus EDP 100 ml ⇥ 287»."
+            return
+        }
+
+        isApplyingPastedList = true
+        defer { isApplyingPastedList = false }
+
+        do {
+            let matches = try await store.matchProductsByName(
+                accessToken: session.currentAccessToken,
+                names: parsedItems.map(\.name)
+            )
+            let productByName = Dictionary(
+                matches.compactMap { match in match.matched.map { (match.query, $0) } },
+                uniquingKeysWith: { first, _ in first }
+            )
+
+            var drafts: [HomeComposerItemDraft] = []
+            var newProductIDs: Set<UUID> = []
+            var unmatched: [String] = []
+
+            for item in parsedItems {
+                let product = productByName[item.name]
+                let draft = HomeComposerItemDraft(
+                    productID: product?.id,
+                    article: product?.productArticle ?? Self.pastedItemArticle(for: item.name),
+                    name: product?.productName ?? item.name,
+                    quantity: item.quantity,
+                    price: item.price ?? "",
+                    // Знак валюты в строке важнее выбора в окне: он относится
+                    // к конкретной позиции, а выбор — ко всему списку.
+                    currencyID: currencyID(forCode: item.currencyCode) ?? pastedListCurrencyID ?? defaultCurrencyID
+                )
+                if product == nil {
+                    unmatched.append(item.name)
+                    newProductIDs.insert(draft.id)
+                }
+                drafts.append(draft)
+            }
+
+            pastedListDrafts.append(contentsOf: drafts)
+            pastedListNewProductIDs.formUnion(newProductIDs)
+            pastedListUnmatched.append(contentsOf: unmatched)
+            pastedListText = ""
+            isPastedListEditorExpanded = false
+            dismissKeyboard()
+        } catch {
+            pastedListErrorMessage = resolveActionError(error)
+        }
+    }
+
+    /// Проверенная мини-корзина уезжает в корзину заказа.
+    private func commitPastedList() {
+        dismissKeyboard()
+        selectedItems.append(contentsOf: pastedListDrafts)
+        pastedListDrafts = []
+        pastedListNewProductIDs = []
+        pastedListUnmatched = []
+        pastedListText = ""
+        pastedListErrorMessage = nil
+        isPastedListEditorExpanded = true
+        isPastedListOverlayPresented = false
+    }
+
+    /// Артикул позиции, которой нет в каталоге. Хеш от наименования — тот же
+    /// алгоритм, что у приёма заказов с сайта (`SITE-XXXXXXXX`): повторная вставка
+    /// того же товара подцепится к уже созданной карточке, а не размножит дубли.
+    private static func pastedItemArticle(for name: String) -> String {
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let digest = Insecure.MD5.hash(data: Data(normalized.utf8))
+        let hex = digest.map { String(format: "%02x", $0) }.joined().prefix(8)
+        return "SITE-\(hex.uppercased())"
+    }
+
+    private func currencyID(forCode code: String?) -> Int? {
+        guard let code else { return nil }
+        return availableCurrencies.first { $0.currencyName.caseInsensitiveCompare(code) == .orderedSame }?.id
+    }
+
     private func clearCustomProductForm() {
         customArticle = ""
         customName = ""
@@ -1348,19 +1811,31 @@ struct ComposerSheetView: View {
         }
     }
 
-    private func compactSelectedItemCard(_ item: Binding<HomeComposerItemDraft>) -> some View {
+    private func compactSelectedItemCard(
+        _ item: Binding<HomeComposerItemDraft>,
+        isNewProduct: Bool = false,
+        onRemove: @escaping () -> Void
+    ) -> some View {
         let itemValue = item.wrappedValue
 
         return AnyView(VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
-                Text(itemValue.name)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(itemValue.name)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if isNewProduct {
+                        Text("новый товар")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.orange)
+                    }
+                }
 
                 Button(role: .destructive) {
                     focusedField = nil
-                    selectedItems.removeAll { $0.id == itemValue.id }
+                    onRemove()
                 } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 14, weight: .semibold))

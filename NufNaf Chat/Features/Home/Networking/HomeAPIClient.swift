@@ -206,6 +206,17 @@ struct HomeAPIClient {
         return response.items
     }
 
+    /// Сопоставление списка наименований с номенклатурой (точное совпадение по имени).
+    func matchProductsByName(accessToken: String, names: [String]) async throws -> [HomeProductMatch] {
+        let response: HomeProductMatchResponse = try await send(
+            path: "products/match",
+            method: "POST",
+            body: HomeProductMatchRequest(names: names),
+            accessToken: accessToken
+        )
+        return response.results
+    }
+
     func createProduct(accessToken: String, request: HomeProductCreateRequest) async throws -> HomeProduct {
         let response: HomeItemEnvelope<HomeProduct> = try await send(path: "products", method: "POST", body: request, accessToken: accessToken)
         return response.item
