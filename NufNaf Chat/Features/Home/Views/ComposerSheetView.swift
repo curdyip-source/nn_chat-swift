@@ -1875,10 +1875,7 @@ struct ComposerSheetView: View {
                     Group {
                         if let badge = editingItemBadge(for: itemValue),
                            let badgeImage = statusBadgeImage(title: badge.title, color: badge.color) {
-                            Text(badgeImage)
-                                .baselineOffset(-3)
-                            + Text(" ")
-                            + Text(itemValue.name)
+                            Text("\(Text(badgeImage).baselineOffset(-3)) \(itemValue.name)")
                                 .font(.system(size: 15, weight: .bold, design: .rounded))
                         } else {
                             Text(itemValue.name)
