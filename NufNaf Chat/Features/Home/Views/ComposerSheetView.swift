@@ -1869,33 +1869,17 @@ struct ComposerSheetView: View {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     // Статус — перед наименованием: при чистке заказа глаз ищет сначала его,
-                    // а наименования у позиций длинные и похожие.
+                    // а наименования у позиций длинные и похожие. Бабл вставлен в текст
+                    // картинкой: рядом с наименованием (HStack) перенос второй строки уходил
+                    // бы под наименование, а без картинки подложку внутри текста не нарисовать.
                     Group {
-                        if let badge = editingItemBadge(for: itemValue) {
-                            ViewThatFits(in: .horizontal) {
-                                // Наименование влезает в строку — статус остаётся баблом.
-                                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                    Text(badge.title)
-                                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                                        .foregroundStyle(badge.color)
-                                        .padding(.horizontal, 9)
-                                        .padding(.vertical, 5)
-                                        .background(badge.color.opacity(0.14), in: Capsule())
-
-                                    Text(itemValue.name)
-                                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                                        .lineLimit(1)
-                                }
-                                // Наименование переносится — статус и наименование одним
-                                // текстом, иначе вторая строка уходила бы под наименование,
-                                // а не к левому краю. Подложку внутри общего текста не нарисовать.
-                                Text(badge.title)
-                                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                                    .foregroundStyle(badge.color)
-                                + Text("  ")
-                                + Text(itemValue.name)
-                                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                            }
+                        if let badge = editingItemBadge(for: itemValue),
+                           let badgeImage = statusBadgeImage(title: badge.title, color: badge.color) {
+                            Text(badgeImage)
+                                .baselineOffset(-3)
+                            + Text(" ")
+                            + Text(itemValue.name)
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
                         } else {
                             Text(itemValue.name)
                                 .font(.system(size: 15, weight: .bold, design: .rounded))
@@ -1994,6 +1978,37 @@ struct ComposerSheetView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)))
     }
 
+
+    /// Готовые картинки баблов: статусов в заказе немного, а перерисовок карточек много.
+    private static var statusBadgeImages: [StatusBadgeKey: Image] = [:]
+
+    private struct StatusBadgeKey: Hashable {
+        let title: String
+        let color: Color
+    }
+
+    /// Бабл статуса картинкой — чтобы он встал внутрь текста наименования.
+    private func statusBadgeImage(title: String, color: Color) -> Image? {
+        let key = StatusBadgeKey(title: title, color: color)
+        if let cached = Self.statusBadgeImages[key] {
+            return cached
+        }
+
+        let badge = Text(title)
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .foregroundStyle(color)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.14), in: Capsule())
+
+        let renderer = ImageRenderer(content: badge)
+        renderer.scale = UITraitCollection.current.displayScale
+        guard let uiImage = renderer.uiImage else { return nil }
+
+        let image = Image(uiImage: uiImage).renderingMode(.original)
+        Self.statusBadgeImages[key] = image
+        return image
+    }
 
     /// Бабл статуса позиции редактируемого заказа. Статус берём текущий: его могли
     /// поменять в карточке заказа, пока форма редактирования открыта.
