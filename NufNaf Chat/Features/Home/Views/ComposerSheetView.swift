@@ -1868,10 +1868,23 @@ struct ComposerSheetView: View {
         return AnyView(VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(itemValue.name)
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .multilineTextAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // Статус — перед наименованием: при чистке заказа глаз ищет сначала его,
+                    // а наименования у позиций длинные и похожие.
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if let badge = editingItemBadge(for: itemValue) {
+                            Text(badge.title)
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .foregroundStyle(badge.color)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(badge.color.opacity(0.14), in: Capsule())
+                        }
+
+                        Text(itemValue.name)
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
 
                     if isNewProduct {
                         Text("новый товар")
@@ -1892,31 +1905,6 @@ struct ComposerSheetView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)
-            }
-
-            // Статус позиции и поставщик/маршрут — только при редактировании заказа.
-            // Из двадцати позиций удалять нужно конкретные, и по одному наименованию
-            // не вспомнить, какая из них заказана, а какая едет с другого склада.
-            if editingItemBadge(for: itemValue) != nil || editingItemSourceLine(for: itemValue) != nil {
-                HStack(spacing: 8) {
-                    if let badge = editingItemBadge(for: itemValue) {
-                        Text(badge.title)
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .foregroundStyle(badge.color)
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 5)
-                            .background(badge.color.opacity(0.14), in: Capsule())
-                    }
-
-                    if let sourceLine = editingItemSourceLine(for: itemValue) {
-                        Text(sourceLine)
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.leading)
-                    }
-
-                    Spacer(minLength: 0)
-                }
             }
 
             HStack(spacing: 8) {
@@ -2001,21 +1989,6 @@ struct ComposerSheetView: View {
 
         guard let title = existingItem.orderItemStatus, !title.isEmpty else { return nil }
         return (title, BusinessDocumentColors.statusColor(existingItem.orderItemStatusColor))
-    }
-
-    /// Поставщик позиции, а если его нет — маршрут перемещения (как в списке СРМ).
-    private func editingItemSourceLine(for item: HomeComposerItemDraft) -> String? {
-        guard let existingItem = resolveEditingOrderItem(for: item) else { return nil }
-
-        if let supplier = existingItem.orderItemSupplier?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !supplier.isEmpty {
-            return supplier
-        }
-
-        let source = existingItem.orderItemSourceEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let destination = existingItem.orderItemDestinationEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let source, !source.isEmpty, let destination, !destination.isEmpty else { return nil }
-        return "\(source) -> \(destination)"
     }
 
     private func currencyButtonTitle(for currencyID: Int?) -> String {
