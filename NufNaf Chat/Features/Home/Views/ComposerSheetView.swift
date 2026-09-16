@@ -1894,6 +1894,31 @@ struct ComposerSheetView: View {
                 .buttonStyle(.plain)
             }
 
+            // Статус позиции и поставщик/маршрут — только при редактировании заказа.
+            // Из двадцати позиций удалять нужно конкретные, и по одному наименованию
+            // не вспомнить, какая из них заказана, а какая едет с другого склада.
+            if editingItemBadge(for: itemValue) != nil || editingItemSourceLine(for: itemValue) != nil {
+                HStack(spacing: 8) {
+                    if let badge = editingItemBadge(for: itemValue) {
+                        Text(badge.title)
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .foregroundStyle(badge.color)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(badge.color.opacity(0.14), in: Capsule())
+                    }
+
+                    if let sourceLine = editingItemSourceLine(for: itemValue) {
+                        Text(sourceLine)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+            }
+
             HStack(spacing: 8) {
                 CompactQuantityControl(
                     quantity: item.quantity,
@@ -1963,6 +1988,35 @@ struct ComposerSheetView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous)))
     }
 
+
+    /// Бабл статуса позиции редактируемого заказа. Статус берём текущий: его могли
+    /// поменять в карточке заказа, пока форма редактирования открыта.
+    private func editingItemBadge(for item: HomeComposerItemDraft) -> (title: String, color: Color)? {
+        guard let existingItem = resolveEditingOrderItem(for: item) else { return nil }
+
+        if let statusID = resolveEditingOrderItemStatusID(for: item),
+           let status = store.referenceData.statuses.first(where: { $0.statusType == "order_products" && $0.id == statusID }) {
+            return (status.statusStatus, BusinessDocumentColors.statusColor(status.statusColor))
+        }
+
+        guard let title = existingItem.orderItemStatus, !title.isEmpty else { return nil }
+        return (title, BusinessDocumentColors.statusColor(existingItem.orderItemStatusColor))
+    }
+
+    /// Поставщик позиции, а если его нет — маршрут перемещения (как в списке СРМ).
+    private func editingItemSourceLine(for item: HomeComposerItemDraft) -> String? {
+        guard let existingItem = resolveEditingOrderItem(for: item) else { return nil }
+
+        if let supplier = existingItem.orderItemSupplier?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !supplier.isEmpty {
+            return supplier
+        }
+
+        let source = existingItem.orderItemSourceEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let destination = existingItem.orderItemDestinationEstablishmentName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let source, !source.isEmpty, let destination, !destination.isEmpty else { return nil }
+        return "\(source) -> \(destination)"
+    }
 
     private func currencyButtonTitle(for currencyID: Int?) -> String {
         guard let currency = availableCurrencies.first(where: { $0.id == currencyID }) else {
