@@ -1870,21 +1870,39 @@ struct ComposerSheetView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     // Статус — перед наименованием: при чистке заказа глаз ищет сначала его,
                     // а наименования у позиций длинные и похожие.
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Group {
                         if let badge = editingItemBadge(for: itemValue) {
-                            Text(badge.title)
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                                .foregroundStyle(badge.color)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 5)
-                                .background(badge.color.opacity(0.14), in: Capsule())
-                        }
+                            ViewThatFits(in: .horizontal) {
+                                // Наименование влезает в строку — статус остаётся баблом.
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(badge.title)
+                                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                                        .foregroundStyle(badge.color)
+                                        .padding(.horizontal, 9)
+                                        .padding(.vertical, 5)
+                                        .background(badge.color.opacity(0.14), in: Capsule())
 
-                        Text(itemValue.name)
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    Text(itemValue.name)
+                                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                                        .lineLimit(1)
+                                }
+                                // Наименование переносится — статус и наименование одним
+                                // текстом, иначе вторая строка уходила бы под наименование,
+                                // а не к левому краю. Подложку внутри общего текста не нарисовать.
+                                Text(badge.title)
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    .foregroundStyle(badge.color)
+                                + Text("  ")
+                                + Text(itemValue.name)
+                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                            }
+                        } else {
+                            Text(itemValue.name)
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                        }
                     }
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     if isNewProduct {
                         Text("новый товар")
