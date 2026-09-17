@@ -691,6 +691,13 @@ final class HomeStore: ObservableObject {
         do { return try await client.cdekDefaults(accessToken: accessToken) } catch { return nil }
     }
 
+    func fetchOrderHistory(accessToken: String?, orderID: Int) async throws -> [HomeOrderHistoryEntry] {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        return try await client.fetchOrderHistory(accessToken: accessToken, orderID: orderID)
+    }
+
     func matchProductsByName(accessToken: String?, names: [String]) async throws -> [HomeProductMatch] {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")

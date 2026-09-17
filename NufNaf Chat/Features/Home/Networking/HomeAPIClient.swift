@@ -207,6 +207,17 @@ struct HomeAPIClient {
     }
 
     /// Сопоставление списка наименований с номенклатурой (точное совпадение по имени).
+    /// История заказа: события аудита заказа и накладных СДЭК, новые сверху.
+    func fetchOrderHistory(accessToken: String, orderID: Int) async throws -> [HomeOrderHistoryEntry] {
+        let response: HomeOrderHistoryResponse = try await send(
+            path: "orders/\(orderID)/history",
+            method: "GET",
+            body: Optional<String>.none,
+            accessToken: accessToken
+        )
+        return response.items
+    }
+
     func matchProductsByName(accessToken: String, names: [String]) async throws -> [HomeProductMatch] {
         let response: HomeProductMatchResponse = try await send(
             path: "products/match",

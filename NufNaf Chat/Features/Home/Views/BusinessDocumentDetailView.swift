@@ -240,6 +240,9 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
     let onInteractiveDismissStart: () -> Void
     let headerActionSystemImage: String?
     let onHeaderAction: (() -> Void)?
+    /// Второе действие в шапке — слева от основного (в заказе это история).
+    let headerSecondaryActionSystemImage: String?
+    let onHeaderSecondaryAction: (() -> Void)?
     let prefersDarkHeader: Bool
     let scrollTargetID: String?
     let scrollRequest: Int
@@ -266,6 +269,8 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         onInteractiveDismissStart: @escaping () -> Void = {},
         headerActionSystemImage: String? = nil,
         onHeaderAction: (() -> Void)? = nil,
+        headerSecondaryActionSystemImage: String? = nil,
+        onHeaderSecondaryAction: (() -> Void)? = nil,
         prefersDarkHeader: Bool = false,
         scrollTargetID: String? = nil,
         scrollRequest: Int = 0,
@@ -284,6 +289,8 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
         self.onInteractiveDismissStart = onInteractiveDismissStart
         self.headerActionSystemImage = headerActionSystemImage
         self.onHeaderAction = onHeaderAction
+        self.headerSecondaryActionSystemImage = headerSecondaryActionSystemImage
+        self.onHeaderSecondaryAction = onHeaderSecondaryAction
         self.prefersDarkHeader = prefersDarkHeader
         self.scrollTargetID = scrollTargetID
         self.scrollRequest = scrollRequest
@@ -328,6 +335,17 @@ struct BusinessDocumentDetailContainer<HeaderContent: View, Content: View>: View
                                 .padding(.horizontal, 12)
                                 .frame(height: 38)
                                 .background((prefersDarkHeader ? Color.white.opacity(0.14) : Color(uiColor: .secondarySystemBackground)), in: Capsule())
+                            }
+
+                            if let headerSecondaryActionSystemImage, let onHeaderSecondaryAction {
+                                Button(action: onHeaderSecondaryAction) {
+                                    Image(systemName: headerSecondaryActionSystemImage)
+                                        .font(.system(size: 16, weight: .semibold))
+                                        .foregroundStyle(prefersDarkHeader ? Color.white : Color.primary)
+                                        .frame(width: 38, height: 38)
+                                        .background((prefersDarkHeader ? Color.white.opacity(0.14) : Color.black.opacity(0.05)), in: Circle())
+                                }
+                                .buttonStyle(.plain)
                             }
 
                             if let headerActionSystemImage, let onHeaderAction {

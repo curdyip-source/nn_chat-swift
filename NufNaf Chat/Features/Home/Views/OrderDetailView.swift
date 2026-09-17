@@ -23,6 +23,13 @@ struct OrderDetailView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var isEditSheetPresented = false
+    @State private var isHistorySheetPresented = false
+    @State private var historyEntries: [HomeOrderHistoryEntry] = []
+    @State private var isLoadingHistory = false
+    @State private var historyErrorMessage: String?
+    /// Высота ленты истории: окно должно быть по содержимому, а не на весь экран —
+    /// список внутри ScrollView иначе растягивается на всю доступную высоту.
+    @State private var historyContentHeight: CGFloat = 0
     @State private var comments: [HomeOrderComment] = []
     @State private var commentDraft = ""
     @State private var commentReplyTarget: HomeOrderComment?
@@ -135,6 +142,14 @@ struct OrderDetailView: View {
             }
         }
         .animation(.easeInOut(duration: 0.22), value: isEditSheetPresented)
+        // История заказа — таким же выезжающим окном, как редактирование.
+        .overlay {
+            if isHistorySheetPresented {
+                historyOverlay
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: isHistorySheetPresented)
         // Подтверждения (сплит на сборку / отмена заказа) — карточкой поверх всего.
         .overlay {
             if assemblySplitStatusID != nil {
@@ -258,7 +273,7 @@ struct OrderDetailView: View {
     /// Поверх заказа открыт лист (задача, накладная, редактирование) — страница
     /// под ним должна стоять на месте.
     private var isModalSheetPresented: Bool {
-        todoSheet != nil || cdekSheetOrder != nil || isEditSheetPresented
+        todoSheet != nil || cdekSheetOrder != nil || isEditSheetPresented || isHistorySheetPresented
     }
 
     private var contentView: some View {
@@ -275,6 +290,8 @@ struct OrderDetailView: View {
             },
             headerActionSystemImage: order == nil ? nil : "pencil",
             onHeaderAction: order == nil ? nil : { isEditSheetPresented = true },
+            headerSecondaryActionSystemImage: order == nil ? nil : "clock.arrow.circlepath",
+            onHeaderSecondaryAction: order == nil ? nil : { openHistory() },
             prefersDarkHeader: true,
             scrollTargetID: "order-comments-section",
             scrollRequest: commentScrollRequest,
@@ -440,6 +457,152 @@ struct OrderDetailView: View {
 
     private func editingItemStatusIDs(for order: HomeOrder) -> [Int: Int?] {
         Dictionary(uniqueKeysWithValues: order.items.map { ($0.id, $0.orderItemStatusID) })
+    }
+
+    // Эмодзи под тип события — те же, что в истории на сайте (иконотеки в проекте нет).
+    private static let historyKindIcons: [String: String] = [
+        "create": "🆕",
+        "order_status": "🔄",
+        "item_status": "📦",
+        "edit": "✏️",
+        "split": "✂️",
+        "comment": "💬",
+        "delete": "🗑️",
+        "cdek": "🚚",
+    ]
+
+    private static let historyDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = "dd.MM.yy, HH:mm"
+        return formatter
+    }()
+
+    private func historyTime(_ rawValue: String?) -> String {
+        guard let date = HomeMessageDateParser.parse(rawValue) else { return "" }
+        return Self.historyDateFormatter.string(from: date)
+    }
+
+    private func openHistory() {
+        closeCommentAttachmentMenu()
+        dismissCommentKeyboard()
+        isHistorySheetPresented = true
+        Task { await loadHistory() }
+    }
+
+    private func loadHistory() async {
+        isLoadingHistory = true
+        historyErrorMessage = nil
+        defer { isLoadingHistory = false }
+
+        do {
+            historyEntries = try await store.fetchOrderHistory(accessToken: session.currentAccessToken, orderID: orderID)
+        } catch {
+            historyErrorMessage = resolveActionError(error)
+        }
+    }
+
+    private var historyOverlay: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.24)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        isHistorySheetPresented = false
+                    }
+
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Text("История заказа")
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+
+                        Spacer(minLength: 12)
+
+                        Button("Закрыть") {
+                            isHistorySheetPresented = false
+                        }
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color(uiColor: .secondarySystemBackground))
+                        .clipShape(Capsule())
+                    }
+
+                    if isLoadingHistory, historyEntries.isEmpty {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text("Загрузка…")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else if let historyErrorMessage, !historyErrorMessage.isEmpty {
+                        Text(historyErrorMessage)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if historyEntries.isEmpty {
+                        Text("История пуста")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 14) {
+                                // Бэкенд отдаёт события новыми сверху. Одно событие может дать
+                                // несколько записей, поэтому различаем их по позиции в ленте.
+                                ForEach(Array(historyEntries.enumerated()), id: \.offset) { _, entry in
+                                    historyRow(entry)
+                                }
+                            }
+                            .padding(.bottom, 4)
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                proxy.size.height
+                            } action: { height in
+                                historyContentHeight = height
+                            }
+                        }
+                        .scrollIndicators(.hidden)
+                        .scrollBounceBehavior(.basedOnSize)
+                        // Короткая история — короткое окно; длинная упирается в потолок и скроллится.
+                        .frame(height: min(max(historyContentHeight, 44), proxy.size.height * 0.9 - 120))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 20)
+                .frame(maxHeight: proxy.size.height * 0.9, alignment: .top)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(Color(UIColor.systemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: -4)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                // Светлое окно в тёмном приложении — как форма создания и редактирования.
+                .environment(\.colorScheme, .light)
+            }
+        }
+    }
+
+    private func historyRow(_ entry: HomeOrderHistoryEntry) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(Self.historyKindIcons[entry.kind] ?? "•")
+                .font(.system(size: 15))
+                .frame(width: 22, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(Text(entry.actorName).fontWeight(.semibold)) \(entry.text)")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(historyTime(entry.createdAt))
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private func orderEditOverlay(order: HomeOrder) -> some View {

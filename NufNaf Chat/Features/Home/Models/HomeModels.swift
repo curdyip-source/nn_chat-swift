@@ -160,6 +160,29 @@ struct HomeProduct: Codable, Identifiable, Hashable {
 
 /// Пакетное сопоставление наименований с номенклатурой (`POST /products/match`) —
 /// им пользуется вставка списка позиций в композере.
+/// История заказа (лента аудита): эмодзи по типу события, «Имя + текст», время.
+/// Одно событие может дать несколько записей (правка заказа меняет сразу несколько полей),
+/// поэтому audit_event_id в ленте не уникален — в списке идентифицируем по позиции.
+struct HomeOrderHistoryResponse: Decodable {
+    let items: [HomeOrderHistoryEntry]
+}
+
+struct HomeOrderHistoryEntry: Decodable, Hashable {
+    let auditEventID: Int
+    let kind: String
+    let text: String
+    let actorName: String
+    let createdAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case auditEventID = "audit_event_id"
+        case kind
+        case text
+        case actorName = "actor_name"
+        case createdAt = "created_at"
+    }
+}
+
 struct HomeProductMatchRequest: Encodable {
     let names: [String]
 }
