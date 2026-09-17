@@ -14,6 +14,11 @@
 //      1 шт⇥Гель для душа Amouage Guidance 360 ml⇥64
 //      12 шт⇥Chanel Coco Mademoiselle, Eau De Parfum, 1,5 мл⇥7
 //
+//  Тот же вид, но колонки разделены звёздочкой:
+//
+//      1 шт. *  Armand Basi: In Red edp 100ml tester *  2159 ₽
+//      1 шт. *  Estee Lauder: Beautiful Belle 100ml *  6784 ₽
+//
 //  Первый формат — зеркало `nn_price/backend/app/ingest/site_order_parser.py`: одна
 //  и та же вставка должна давать одинаковые позиции и в письме, и руками из
 //  приложения.
@@ -66,10 +71,10 @@ nonisolated enum ComposerPastedItemsParser {
         pattern: #"^\s*(?<qty>\d+)[ \t]*\t[ \t]*(?<rest>\S.*)$"#
     )
 
-    // Цена отдельной колонкой: отделяем её только явным разделителем (таб или 2+
-    // пробела), чтобы не спутать с числами внутри наименования («… 100 мл»).
+    // Цена отдельной колонкой: отделяем её только явным разделителем (таб, 2+ пробела
+    // или «*»), чтобы не спутать с числами внутри наименования («… 100 мл»).
     private static let columnPriceRegex = try? NSRegularExpression(
-        pattern: #"^(?<name>.*\S)(?:[ \t]*\t[ \t]*| {2,})(?<price>\d[\d\s.,]*?)\s*(?<currency>₽|руб\.?|р\.|rub|\$|usd|€|eur)?\s*$"#,
+        pattern: #"^(?<name>.*\S)(?:[ \t]*[*•|][ \t]*|[ \t]*\t[ \t]*| {2,})(?<price>\d[\d\s.,]*?)\s*(?<currency>₽|руб\.?|р\.|rub|\$|usd|€|eur)?\s*$"#,
         options: [.caseInsensitive]
     )
 
@@ -86,6 +91,8 @@ nonisolated enum ComposerPastedItemsParser {
     private static let urlRegex = try? NSRegularExpression(pattern: #"https?\s*://|www\."#, options: [.caseInsensitive])
 
     private static let numberingRegex = try? NSRegularExpression(pattern: #"^\s*\d+\s*[.)]\s*"#)
+
+    private static let leadingSeparatorRegex = try? NSRegularExpression(pattern: #"^[ \t]*[*•|][ \t]*"#)
 
     private static func parseLine(_ rawLine: String) -> ComposerPastedItem? {
         let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -118,7 +125,7 @@ nonisolated enum ComposerPastedItemsParser {
             return nil
         }
 
-        let (name, price, currencyCode) = splitTrailingPrice(rest)
+        let (name, price, currencyCode) = splitTrailingPrice(stripLeadingSeparator(rest))
         guard !name.isEmpty else { return nil }
 
         return ComposerPastedItem(
@@ -202,7 +209,17 @@ nonisolated enum ComposerPastedItemsParser {
     }
 
     private static func cleanedName(_ raw: String) -> String {
-        raw.trimmingCharacters(in: CharacterSet(charactersIn: " .·—-\t"))
+        raw.trimmingCharacters(in: CharacterSet(charactersIn: " .·—-*•|\t"))
+    }
+
+    /// «*  Armand Basi: …» -> «Armand Basi: …»: разделитель колонок после количества.
+    private static func stripLeadingSeparator(_ rest: String) -> String {
+        guard let leadingSeparatorRegex else { return rest }
+        return leadingSeparatorRegex.stringByReplacingMatches(
+            in: rest,
+            range: NSRange(rest.startIndex..., in: rest),
+            withTemplate: ""
+        )
     }
 
     /// «6 690,00» / «6,690.00» / «6690» -> «6690.00». nil, если не число.

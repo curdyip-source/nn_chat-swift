@@ -134,6 +134,24 @@ struct ComposerPastedItemsParserTests {
         #expect(items[0] == ComposerPastedItem(name: "Creed Aventus EDP 100 ml", quantity: 2, price: "287.00", currencyCode: "USD"))
     }
 
+    @Test func parsesColumnsSeparatedByAsterisk() {
+        let items = ComposerPastedItemsParser.parse(
+            """
+            1 шт. *  Armand Basi: In Red edp 100ml tester *  2159 ₽
+            1 шт. *  Estee Lauder: Beautiful Belle 100ml *  6784 ₽
+            2 шт. *  Bvlgari: Omnia Crystalline edt 100ml tester *  7548 ₽
+
+            Итого: 16 491 ₽
+            """
+        )
+
+        #expect(items.count == 3)
+        #expect(items[0] == ComposerPastedItem(name: "Armand Basi: In Red edp 100ml tester", quantity: 1, price: "2159.00", currencyCode: "RUB"))
+        #expect(items[1] == ComposerPastedItem(name: "Estee Lauder: Beautiful Belle 100ml", quantity: 1, price: "6784.00", currencyCode: "RUB"))
+        // Количество больше одного и строка «Итого» в корзину не идёт.
+        #expect(items[2] == ComposerPastedItem(name: "Bvlgari: Omnia Crystalline edt 100ml tester", quantity: 2, price: "7548.00", currencyCode: "RUB"))
+    }
+
     @Test func returnsNothingForEmptyText() {
         #expect(ComposerPastedItemsParser.parse("").isEmpty)
         #expect(ComposerPastedItemsParser.parse("   \n\n  ").isEmpty)

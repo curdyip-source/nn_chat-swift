@@ -1278,7 +1278,7 @@ struct ComposerSheetView: View {
 
     @ViewBuilder
     private var pastedListEditorSection: some View {
-        Text("Примеры списков:\n1. Kajal: Dahab 100ml 1 x 8224₽ = 8224₽\n1 шт Kajal: Dahab 100ml 64")
+        Text("Примеры списков:\n1. Kajal: Dahab 100ml 1 x 8224₽ = 8224₽\n1 шт Kajal: Dahab 100ml 64\n1 шт. * Kajal: Dahab 100ml * 8224 ₽")
             .font(.system(size: 12, weight: .medium, design: .rounded))
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
