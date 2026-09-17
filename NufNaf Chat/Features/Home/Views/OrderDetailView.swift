@@ -464,6 +464,8 @@ struct OrderDetailView: View {
         "create": "🆕",
         "order_status": "🔄",
         "item_status": "📦",
+        // На сайте для оплаты значка нет и рисуется точка-заглушка — здесь свой.
+        "order_paid": "💰",
         "edit": "✏️",
         "split": "✂️",
         "comment": "💬",
