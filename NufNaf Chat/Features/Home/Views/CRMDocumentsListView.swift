@@ -25,6 +25,9 @@ struct CRMDocumentsListView: View {
     let onCollectShipmentItem: (HomeOrder, Int) -> Void
     /// «Упаковать все» из удержания на кнопке сборки.
     var onCollectAllShipmentItems: (HomeOrder) -> Void = { _ in }
+    /// Массовая смена статуса всех товаров заказа — из удержания на бабле статуса
+    /// товара в «Все заказы» (аналог «Упаковать все», но для любого статуса).
+    var onSelectAllOrderItemsStatus: (HomeOrder, Int) -> Void = { _, _ in }
     /// Финал заказа: «Выполнен» + все неотменённые товары «Отгружено».
     let onCompleteOrder: (HomeOrder) -> Void
     /// Отметить заказ оплаченным / снять отметку (подтверждение уже показано).
@@ -39,6 +42,7 @@ struct CRMDocumentsListView: View {
     @State private var shipmentCompletionConfirmation: CRMShipmentOrderCompletionConfirmation?
     @State private var orderCompletionConfirmation: CRMOrderCompletionConfirmation?
     @State private var paymentConfirmation: CRMOrderPaymentConfirmation?
+    @State private var bulkItemStatusConfirmation: CRMBulkItemStatusConfirmation?
     @State private var supplierQuery = ""
     @State private var supplierResults: [HomeContact] = []
     @State private var isSearchingSuppliers = false
@@ -96,50 +100,7 @@ struct CRMDocumentsListView: View {
                                 }
                             } else {
                                 ForEach(displayedOrders) { order in
-                                    CRMOrderCardView(
-                                        order: order,
-                                        isShipmentMode: selectedSection == .shipments,
-                                        unreadCommentsCount: unreadCommentsCount(order),
-                                        commentReadRevision: commentReadRevision,
-                                        showsTodoBadge: showsTodoBadge,
-                                        orderMethods: referenceData.orderMethods,
-                                        itemStatuses: orderItemStatuses,
-                                        // «Собран»/«Выполнен» ставит только флоу отгрузки — убираем
-                                        // из ручного селекта, текущий статус заказа оставляем.
-                                        statuses: referenceData.statuses.filter {
-                                            $0.statusType == "orders"
-                                                && (!["Собран", "Выполнен"].contains($0.statusStatus) || $0.id == order.orderStatusID)
-                                        },
-                                        currencyTitleProvider: currencyTitle(for:),
-                                        isSaving: updatingDocumentKey == documentKey(kind: "order", id: order.id),
-                                        onOpen: {
-                                            onOpenDocument("order", order.id)
-                                        },
-                                        onSelectStatus: { statusID in
-                                            onSelectOrderStatus(order, statusID)
-                                        },
-                                        onSelectItemStatus: { itemID, statusID in
-                                            handleOrderItemStatusSelection(order: order, itemID: itemID, statusID: statusID, promptForSupplier: true)
-                                        },
-                                        onCollectShipmentItem: { itemID in
-                                            onCollectShipmentItem(order, itemID)
-                                        },
-                                        onCollectAllShipmentItems: {
-                                            onCollectAllShipmentItems(order)
-                                        },
-                                        canCompleteOrder: canCompleteOrders,
-                                        onCompleteOrder: {
-                                            if selectedSection == .shipments {
-                                                shipmentCompletionConfirmation = CRMShipmentOrderCompletionConfirmation(order: order)
-                                            } else {
-                                                orderCompletionConfirmation = CRMOrderCompletionConfirmation(order: order)
-                                            }
-                                        },
-                                        onTogglePayment: {
-                                            paymentConfirmation = CRMOrderPaymentConfirmation(order: order)
-                                        }
-                                    )
-                                    .environment(\.colorScheme, .light)
+                                    orderCardView(for: order)
                                 }
                             }
                         }
@@ -313,9 +274,30 @@ struct CRMDocumentsListView: View {
                 )
                 .transition(.opacity)
             }
+
+            // Массовая смена статуса всех товаров — из удержания на бабле статуса
+            // в «Все заказы». Явное предупреждение: действие задевает все позиции разом.
+            if let bulkItemStatusConfirmation {
+                AppConfirmCard(
+                    title: "Изменить статус всех товаров?",
+                    message: "Текущее действие изменит статус всех товаров заказа №\(bulkItemStatusConfirmation.order.id) на «\(bulkItemStatusConfirmation.statusTitle)».",
+                    buttons: [
+                        AppConfirmButton(label: "Изменить", style: .primary) {
+                            let confirmation = bulkItemStatusConfirmation
+                            self.bulkItemStatusConfirmation = nil
+                            onSelectAllOrderItemsStatus(confirmation.order, confirmation.statusID)
+                        },
+                        AppConfirmButton(label: "Отмена", style: .cancel) {
+                            self.bulkItemStatusConfirmation = nil
+                        },
+                    ]
+                )
+                .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.18), value: paymentConfirmation?.id)
         .animation(.easeInOut(duration: 0.18), value: orderCompletionConfirmation?.id)
+        .animation(.easeInOut(duration: 0.18), value: bulkItemStatusConfirmation?.id)
         .alert(item: $shipmentCompletionConfirmation) { confirmation in
             Alert(
                 title: Text("Подтвердите выполнение"),
@@ -546,6 +528,60 @@ struct CRMDocumentsListView: View {
 
     private func documentKey(kind: String, id: Int) -> String {
         "\(kind):\(id)"
+    }
+
+    /// Вынесено из ForEach отдельной функцией — инлайн-вызов с таким числом
+    /// closure-параметров укладывал тайпчекер по таймауту.
+    @ViewBuilder
+    private func orderCardView(for order: HomeOrder) -> some View {
+        CRMOrderCardView(
+            order: order,
+            isShipmentMode: selectedSection == .shipments,
+            unreadCommentsCount: unreadCommentsCount(order),
+            commentReadRevision: commentReadRevision,
+            showsTodoBadge: showsTodoBadge,
+            orderMethods: referenceData.orderMethods,
+            itemStatuses: orderItemStatuses,
+            // «Собран»/«Выполнен» ставит только флоу отгрузки — убираем
+            // из ручного селекта, текущий статус заказа оставляем.
+            statuses: referenceData.statuses.filter {
+                $0.statusType == "orders"
+                    && (!["Собран", "Выполнен"].contains($0.statusStatus) || $0.id == order.orderStatusID)
+            },
+            currencyTitleProvider: currencyTitle(for:),
+            isSaving: updatingDocumentKey == documentKey(kind: "order", id: order.id),
+            onOpen: {
+                onOpenDocument("order", order.id)
+            },
+            onSelectStatus: { statusID in
+                onSelectOrderStatus(order, statusID)
+            },
+            onSelectItemStatus: { itemID, statusID in
+                handleOrderItemStatusSelection(order: order, itemID: itemID, statusID: statusID, promptForSupplier: true)
+            },
+            onCollectShipmentItem: { itemID in
+                onCollectShipmentItem(order, itemID)
+            },
+            onCollectAllShipmentItems: {
+                onCollectAllShipmentItems(order)
+            },
+            onRequestBulkItemStatus: { statusID in
+                let title = orderItemStatuses.first(where: { $0.id == statusID })?.statusStatus ?? "Статус"
+                bulkItemStatusConfirmation = CRMBulkItemStatusConfirmation(order: order, statusID: statusID, statusTitle: title)
+            },
+            canCompleteOrder: canCompleteOrders,
+            onCompleteOrder: {
+                if selectedSection == .shipments {
+                    shipmentCompletionConfirmation = CRMShipmentOrderCompletionConfirmation(order: order)
+                } else {
+                    orderCompletionConfirmation = CRMOrderCompletionConfirmation(order: order)
+                }
+            },
+            onTogglePayment: {
+                paymentConfirmation = CRMOrderPaymentConfirmation(order: order)
+            }
+        )
+        .environment(\.colorScheme, .light)
     }
 
     private func handleOrderItemStatusSelection(order: HomeOrder, itemID: Int, statusID: Int, promptForSupplier: Bool = false) {
@@ -900,6 +936,9 @@ private struct CRMOrderCardView: View {
     let onSelectItemStatus: (Int, Int) -> Void
     let onCollectShipmentItem: (Int) -> Void
     var onCollectAllShipmentItems: () -> Void = {}
+    /// Удержание на бабле статуса товара в «Все заказы» — статус для выбора из
+    /// удержания, применится сразу ко всем товарам заказа (после подтверждения).
+    var onRequestBulkItemStatus: (Int) -> Void = { _ in }
     /// Право закрыть заказ из «Все заказы» (по доступу к разделу «Отгрузки»).
     var canCompleteOrder: Bool = true
     /// Финал заказа: статус «Выполнен» + все неотменённые товары «Отгружено».
@@ -1017,16 +1056,23 @@ private struct CRMOrderCardView: View {
                                     onPackAll: onCollectAllShipmentItems
                                 )
                             } else {
-                                CRMStatusMenu(
+                                // Menu сама перехватывает и тап, и удержание одним и тем же
+                                // открытием списка — отдельный .contextMenu на ней не успевает
+                                // сработать. Поэтому тут обычная кнопка (как в CRMShipmentCollectButton):
+                                // тап — статус этой позиции (свой попап в нативном стиле меню),
+                                // удержание (с той же вибрацией, как в «Отгрузках») — системный
+                                // .contextMenu «Статус всех товаров» + подтверждение выше по дереву.
+                                CRMOrderItemStatusControl(
                                     title: itemStatusTitle(for: item),
                                     color: BusinessDocumentColors.statusColor(item.orderItemStatusColor),
                                     statuses: itemStatuses,
+                                    bulkStatuses: bulkItemStatusOptions,
                                     selectedStatusID: item.orderItemStatusID,
-                                    size: .compact,
                                     isDisabled: isSaving,
                                     onSelect: { statusID in
                                         onSelectItemStatus(item.id, statusID)
-                                    }
+                                    },
+                                    onRequestBulkStatus: onRequestBulkItemStatus
                                 )
                             }
 
@@ -1132,6 +1178,142 @@ private struct CRMOrderCardView: View {
             return status
         }
         return itemStatuses.first(where: { $0.id == item.orderItemStatusID })?.statusStatus ?? "Статус"
+    }
+
+    /// Статусы, доступные для массового применения ко всем товарам заказа разом.
+    /// «Заказ поставщику»/«Перемещение» требуют доп. данных на каждую позицию
+    /// (поставщик / маршрут склад-склад) — их по-прежнему выбирают по одной позиции.
+    private var bulkItemStatusOptions: [HomeStatus] {
+        itemStatuses.filter { !["Заказ поставщику", "Перемещение"].contains($0.statusStatus) }
+    }
+}
+
+/// Статус товара в «Все заказы»: тап — статус этой позиции, удержание — статус
+/// всех товаров разом (с подтверждением выше по дереву). Оба — свой попап в
+/// одном визуальном стиле (тёмная карточка меню), различаются заголовком/иконкой.
+///
+/// Почему не Menu: у Menu тап и удержание — ОДНО и то же действие (открыть её
+/// список), она не различает жест и начинает открываться на любое касание —
+/// навешенный поверх .highPriorityGesture перехватывал слишком поздно, отсюда
+/// была вспышка системной анимации перед тем, как открывался кастомный попап.
+/// Button так себя не ведёт — тап и удержание различает штатно.
+private struct CRMOrderItemStatusControl: View {
+    let title: String
+    let color: Color
+    let statuses: [HomeStatus]
+    let bulkStatuses: [HomeStatus]
+    let selectedStatusID: Int?
+    let isDisabled: Bool
+    let onSelect: (Int) -> Void
+    let onRequestBulkStatus: (Int) -> Void
+
+    @State private var isShowingStatusPicker = false
+    @State private var isShowingBulkPicker = false
+
+    var body: some View {
+        Button {
+            isShowingStatusPicker = true
+        } label: {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle(color)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(color.opacity(0.14), in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke((selectedStatusID == nil ? Color.clear : color).opacity(0.26), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled || statuses.isEmpty)
+        .highPriorityGesture(
+            LongPressGesture(minimumDuration: 0.45)
+                .onEnded { _ in
+                    guard !isDisabled, !bulkStatuses.isEmpty else { return }
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    isShowingBulkPicker = true
+                }
+        )
+        .popover(isPresented: $isShowingStatusPicker, arrowEdge: .leading) {
+            CRMMenuStylePopover(title: "Статус товара", icon: "tag.fill", statuses: statuses) { status in
+                isShowingStatusPicker = false
+                onSelect(status.id)
+            }
+            .presentationCompactAdaptation(.popover)
+        }
+        .popover(isPresented: $isShowingBulkPicker, arrowEdge: .leading) {
+            CRMMenuStylePopover(title: "Статус всех товаров", icon: "square.stack.3d.up.fill", statuses: bulkStatuses) { status in
+                isShowingBulkPicker = false
+                onRequestBulkStatus(status.id)
+            }
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+/// Список статусов в стиле системного меню (тёмная карточка, заголовок, иконка +
+/// текст, разделители). Без ScrollView — открывается сбоку от бабла (arrowEdge
+/// .leading), там по высоте достаточно места под весь список сразу, без скролла.
+private struct CRMMenuStylePopover: View {
+    let title: String
+    let icon: String
+    let statuses: [HomeStatus]
+    let onSelect: (HomeStatus) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
+
+            Divider().overlay(Color.white.opacity(0.16))
+
+            ForEach(statuses) { status in
+                Button {
+                    onSelect(status)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: icon)
+                            .font(.system(size: 15))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .frame(width: 18)
+                        Text(status.statusStatus)
+                            .font(.system(size: 16, weight: .regular, design: .rounded))
+                            .foregroundStyle(.white)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if status.id != statuses.last?.id {
+                    Divider()
+                        .overlay(Color.white.opacity(0.14))
+                        .padding(.leading, 16)
+                }
+            }
+        }
+        .padding(.bottom, 8)
+        .frame(minWidth: 250)
+        .background(Color(red: 0.14, green: 0.15, blue: 0.18))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+        )
     }
 }
 
@@ -1295,6 +1477,16 @@ private struct CRMOrderPaymentConfirmation: Identifiable {
 
     var id: Int { order.id }
     var isPaid: Bool { order.isPaid }
+}
+
+/// Подтверждение массовой смены статуса всех товаров заказа (удержание на бабле
+/// статуса товара в «Все заказы»).
+private struct CRMBulkItemStatusConfirmation: Identifiable {
+    let order: HomeOrder
+    let statusID: Int
+    let statusTitle: String
+
+    var id: String { "\(order.id)-\(statusID)" }
 }
 
 private struct CRMFlatDocumentCard: View {
