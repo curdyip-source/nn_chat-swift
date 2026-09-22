@@ -11,6 +11,19 @@ struct HomeItemEnvelope<Item: Decodable>: Decodable {
     let item: Item
 }
 
+/// Системное сообщение из «Админки» — приходит списком неподтверждённых с
+/// GET /system-messages/pending, блокирующий оверлей показывает по одному
+/// (см. SystemMessageCenter).
+struct HomeSystemMessage: Decodable, Identifiable, Equatable {
+    let id: Int
+    let text: String
+    let important: Bool
+}
+
+struct HomeSystemMessagesResponse: Decodable {
+    let items: [HomeSystemMessage]
+}
+
 struct HomeReferenceDataResponse: Decodable {
     let establishments: [HomeEstablishment]
     let orderMethods: [HomeOrderMethod]
@@ -642,6 +655,16 @@ struct HomeComposerItemDraft: Identifiable, Hashable {
     var price: String
     var statusID: Int?
     var currencyID: Int?
+    /// ID уже существующей позиции заказа, из которой сделан этот черновик — только
+    /// для черновиков, заведённых через init(item:) при редактировании заказа. nil у
+    /// заново добавленных товаров (даже если название/артикул совпадают с уже
+    /// имеющейся позицией — это разные строки, не одна и та же).
+    ///
+    /// Раньше resolveEditingOrderItem искала совпадение по названию/артикулу — если
+    /// в заказ повторно добавляли товар, который там уже был в другом статусе
+    /// (например «Собрано»), новая позиция ошибочно получала статус старой вместо
+    /// дефолтного «Не обработан» (баг на заказе №1372).
+    var sourceOrderItemID: Int?
 
     init(id: UUID = UUID(), productID: Int? = nil, article: String = "", name: String = "", quantity: Int = 1, price: String = "0.00", statusID: Int? = nil, currencyID: Int? = nil) {
         self.id = id
@@ -652,6 +675,7 @@ struct HomeComposerItemDraft: Identifiable, Hashable {
         self.price = price
         self.statusID = statusID
         self.currencyID = currencyID
+        self.sourceOrderItemID = nil
     }
 
     init(item: HomeOrderItem) {
@@ -663,6 +687,7 @@ struct HomeComposerItemDraft: Identifiable, Hashable {
         self.price = item.orderItemPrice
         self.statusID = item.orderItemStatusID
         self.currencyID = item.orderItemCurrencyID
+        self.sourceOrderItemID = item.id
     }
 }
 

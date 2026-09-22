@@ -2295,15 +2295,11 @@ struct ComposerSheetView: View {
     }
 
     private func resolveEditingOrderItem(for item: HomeComposerItemDraft) -> HomeOrderItem? {
-        guard let editingOrder else {
+        guard let editingOrder, let sourceOrderItemID = item.sourceOrderItemID else {
             return nil
         }
 
-        return editingOrder.items.first(where: {
-            $0.orderItemProductID == item.productID
-                && $0.orderItemName == item.name
-                && ($0.orderItemArticle ?? "") == item.article
-        })
+        return editingOrder.items.first(where: { $0.id == sourceOrderItemID })
     }
 
     private func syncSelectedOrderSubMethod() {

@@ -486,6 +486,7 @@ struct HomeView: View {
             Task {
                 await session.restoreSession()
                 await store.reloadMessages(accessToken: session.currentAccessToken)
+                store.refreshSystemMessages(accessToken: session.currentAccessToken)
             }
         }
         .onChange(of: notificationRouter.foregroundPushTick) { _, _ in
@@ -824,6 +825,9 @@ struct HomeView: View {
                     },
                     onCollectAllShipmentItems: { order in
                         updateCRMShipmentAllItemsPacked(order: order)
+                    },
+                    onSelectAllOrderItemsStatus: { order, statusID in
+                        updateCRMAllOrderItemsStatus(order: order, statusID: statusID)
                     },
                     onCompleteOrder: { order in
                         updateCRMOrderCompleted(order: order)
@@ -1490,6 +1494,45 @@ struct HomeView: View {
                                 destinationEstablishmentID: item.orderItemDestinationEstablishmentID,
                                 checkpointStarted: item.orderItemCheckpointStarted,
                                 checkpointCompleted: item.orderItemCheckpointCompleted
+                            )
+                        }
+                    )
+                )
+            } catch {
+                crmErrorMessage = resolveActionError(error)
+            }
+        }
+    }
+
+    /// Массовая смена статуса всех товаров заказа — из «Все заказы», удержание на
+    /// бабле статуса товара (подтверждение уже показано). Статус самого заказа не
+    /// трогаем — только статусы позиций.
+    private func updateCRMAllOrderItemsStatus(order: HomeOrder, statusID: Int) {
+        let targetIDs = Set(order.items.filter { $0.orderItemStatusID != statusID }.map(\.id))
+        guard !targetIDs.isEmpty else { return }
+
+        Task {
+            crmUpdatingDocumentKey = documentKey(kind: "order", id: order.id)
+            crmErrorMessage = nil
+            defer { crmUpdatingDocumentKey = nil }
+
+            do {
+                _ = try await store.updateOrder(
+                    accessToken: session.currentAccessToken,
+                    orderID: order.id,
+                    request: HomeOrderUpdateRequest(
+                        orderEstablishmentID: order.orderEstablishmentID,
+                        orderMethodID: order.orderMethodID,
+                        orderSubMethod: order.orderSubMethod,
+                        orderContactMethod: order.orderContactMethod,
+                        orderSalesChannel: order.orderSalesChannel,
+                        orderCustomer: order.orderCustomer,
+                        orderInfo: order.orderInfo,
+                        orderStatusID: order.orderStatusID,
+                        items: order.items.map { item in
+                            makeOrderItemRequest(
+                                item: item,
+                                statusID: targetIDs.contains(item.id) ? statusID : item.orderItemStatusID
                             )
                         }
                     )

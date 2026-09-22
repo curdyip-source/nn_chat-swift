@@ -11,6 +11,7 @@ struct ContentView: View {
     @EnvironmentObject private var session: AppSession
     @EnvironmentObject private var alertCenter: AppAlertCenter
     @EnvironmentObject private var versionGate: AppVersionGate
+    @EnvironmentObject private var systemMessageCenter: SystemMessageCenter
 
     var body: some View {
         ZStack {
@@ -20,8 +21,13 @@ struct ContentView: View {
             // Блокер форс-апдейта — поверх всего, включая оверлей ошибок.
             AppUpdateGateOverlay(gate: versionGate)
                 .zIndex(2000)
+            // Системное сообщение — ещё выше: должно быть прочитано независимо от
+            // того, заблокировано ли приложение форс-апдейтом.
+            SystemMessageOverlay(center: systemMessageCenter)
+                .zIndex(2100)
         }
         .animation(.easeInOut(duration: 0.2), value: versionGate.isBlocked)
+        .animation(.easeInOut(duration: 0.18), value: systemMessageCenter.stage)
     }
 
     @ViewBuilder

@@ -261,7 +261,19 @@ final class HomeStore: ObservableObject {
         } catch {
         }
 
+        // На случай, если получатель был оффлайн в момент отправки — SSE не догонит.
+        refreshSystemMessages(accessToken: accessToken)
+
         await loadParticipants(accessToken: accessToken)
+    }
+
+    /// Перечитать неподтверждённые системные сообщения. Кроме старта сессии (load),
+    /// зовётся при каждом возврате приложения из фона (см. HomeView .onChange(scenePhase))
+    /// — иначе сообщение, отправленное пока приложение было свёрнуто (не закрыто целиком),
+    /// не появлялось бы, пока SSE случайно не подхватит следующее отправленное сообщение.
+    func refreshSystemMessages(accessToken: String?) {
+        guard let accessToken else { return }
+        SystemMessageCenter.shared.refresh(client: client, accessToken: accessToken)
     }
 
     /// Полный пере-синк ленты С НУЛЯ: сбрасываем курсор и текущие сообщения, затем тянем весь
@@ -332,7 +344,7 @@ final class HomeStore: ObservableObject {
         messages = sortedMessages(working)
     }
 
-    private func applyStreamEvent(_ event: MessageStreamEvent) {
+    private func applyStreamEvent(_ event: MessageStreamEvent, accessToken: String) {
         switch event.type {
         case "created", "updated":
             guard let message = event.message else { return }
@@ -353,6 +365,10 @@ final class HomeStore: ObservableObject {
             if let minBuild = event.minSupportedIosBuild {
                 AppVersionGate.shared.update(minBuild: minBuild)
             }
+        case "system_message_created":
+            // Эвент без содержимого (см. комментарий в SystemMessageCenter) — перечитываем
+            // список адресно, по текущему пользователю.
+            SystemMessageCenter.shared.refresh(client: client, accessToken: accessToken)
         default:
             break
         }
@@ -384,7 +400,7 @@ final class HomeStore: ObservableObject {
                     if Task.isCancelled { return }
                     // Decode here (main actor) — the model's Decodable conformance is main-actor isolated.
                     if let event = try? JSONDecoder().decode(MessageStreamEvent.self, from: payload) {
-                        applyStreamEvent(event)
+                        applyStreamEvent(event, accessToken: accessToken)
                     }
                 }
             } catch {

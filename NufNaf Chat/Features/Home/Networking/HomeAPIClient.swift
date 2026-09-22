@@ -139,6 +139,21 @@ struct HomeAPIClient {
         try await send(path: "reference-data", method: "GET", body: Optional<String>.none, accessToken: accessToken)
     }
 
+    /// Неподтверждённые системные сообщения текущего пользователя (блокирующий оверлей
+    /// показывает их по одному). Дёргается при старте и по SSE-сигналу «system_message_created».
+    func fetchPendingSystemMessages(accessToken: String) async throws -> [HomeSystemMessage] {
+        let response: HomeSystemMessagesResponse = try await send(
+            path: "system-messages/pending", method: "GET", body: Optional<String>.none, accessToken: accessToken
+        )
+        return response.items
+    }
+
+    func acknowledgeSystemMessage(accessToken: String, messageID: Int) async throws {
+        let _: EmptyAPIResponse = try await send(
+            path: "system-messages/\(messageID)/ack", method: "POST", body: Optional<String>.none, accessToken: accessToken
+        )
+    }
+
     // MARK: - Прайс (прокси к nn_vla)
 
     func priceSuppliers(accessToken: String) async throws -> [PriceSupplier] {
