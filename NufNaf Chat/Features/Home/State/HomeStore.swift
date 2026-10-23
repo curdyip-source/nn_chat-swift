@@ -692,9 +692,10 @@ final class HomeStore: ObservableObject {
         return try await client.cdekWaybillStatus(accessToken: accessToken, orderID: orderID)
     }
 
-    func cdekPrefill(accessToken: String?, customer: String) async -> CdekPrefill? {
-        guard let accessToken, !customer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        do { return try await client.cdekPrefill(accessToken: accessToken, customer: customer) } catch { return nil }
+    /// СДЭК-данные покупателя из его прошлых заказов — только по ключу контакта.
+    func cdekPrefill(accessToken: String?, contactID: Int) async -> CdekPrefill? {
+        guard let accessToken else { return nil }
+        do { return try await client.cdekPrefill(accessToken: accessToken, contactID: contactID) } catch { return nil }
     }
 
     func deleteCdekWaybill(accessToken: String?, orderID: Int) async throws -> HomeOrderCdek {
@@ -1177,7 +1178,7 @@ final class HomeStore: ObservableObject {
         return try await client.uploadProfilePhoto(accessToken: accessToken, jpegData: jpegData)
     }
 
-    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, orderContactMethod: String?, orderSalesChannel: String? = nil, counterpartyName: String, info: String, saveContact: Bool, orderStatusID: Int? = nil, defaultOrderItemStatusID: Int? = nil, cdek: HomeOrderCdekRequest? = nil, items: [HomeComposerItemDraft]) async {
+    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, orderContactMethod: String?, orderSalesChannel: String? = nil, counterpartyName: String, info: String, saveContact: Bool, contactID: Int? = nil, orderStatusID: Int? = nil, defaultOrderItemStatusID: Int? = nil, cdek: HomeOrderCdekRequest? = nil, items: [HomeComposerItemDraft]) async {
         guard let accessToken else { return }
         let normalizedItems = items.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.price.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !normalizedItems.isEmpty else { return }
@@ -1208,7 +1209,8 @@ final class HomeStore: ObservableObject {
                         orderItemStatusID: $0.statusID ?? defaultOrderItemStatusID,
                         orderItemCurrencyID: $0.currencyID
                     )
-                }
+                },
+                orderContactID: contactID
             )
             let localMessage = makeLocalBusinessDocumentMessage(
                 id: localMessageID,

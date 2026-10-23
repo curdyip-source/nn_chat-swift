@@ -773,6 +773,8 @@ struct HomeOrderCreateRequest: Encodable {
     let saveContact: Bool
     let cdek: HomeOrderCdekRequest?
     let items: [HomeOrderItemCreateRequest]
+    /// Покупатель, выбранный из поиска контактов. По имени заказ не привязывается.
+    var orderContactID: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case orderEstablishmentID = "order_establishment_id"
@@ -783,6 +785,7 @@ struct HomeOrderCreateRequest: Encodable {
         case orderCustomer = "order_customer"
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
+        case orderContactID = "order_contact_id"
         case saveContact = "save_contact"
         case cdek
         case items
@@ -800,6 +803,8 @@ struct HomeOrder: Codable, Identifiable, Hashable {
     let orderContactMethod: String?
     let orderSalesChannel: String?
     let orderCustomer: String
+    /// Покупатель по ключу (карточка «Контрагенты»); nil — заказ ни к кому не привязан.
+    let orderContactID: Int?
     let orderInfo: String
     let orderStatusID: Int
     let orderStatus: String?
@@ -832,6 +837,7 @@ struct HomeOrder: Codable, Identifiable, Hashable {
         case orderContactMethod = "order_contact_method"
         case orderSalesChannel = "order_sales_channel"
         case orderCustomer = "order_customer"
+        case orderContactID = "order_contact_id"
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
         case orderStatus = "order_status"
@@ -1450,6 +1456,14 @@ struct HomeOrderItemCreateRequest: Encodable {
     }
 }
 
+/// Привязка заказа к покупателю в PUT: `.keep` — поле не отправляется, бэкенд
+/// оставляет текущую привязку (точечные правки статусов/позиций); `.set` —
+/// отправляется как есть, `nil` снимает привязку (форма заказа).
+enum HomeOrderContactLink: Equatable {
+    case keep
+    case set(Int?)
+}
+
 struct HomeOrderUpdateRequest: Encodable {
     let orderEstablishmentID: Int
     let orderMethodID: Int?
@@ -1460,6 +1474,7 @@ struct HomeOrderUpdateRequest: Encodable {
     let orderInfo: String
     let orderStatusID: Int
     let items: [HomeOrderItemCreateRequest]
+    var orderContact: HomeOrderContactLink = .keep
 
     enum CodingKeys: String, CodingKey {
         case orderEstablishmentID = "order_establishment_id"
@@ -1470,7 +1485,24 @@ struct HomeOrderUpdateRequest: Encodable {
         case orderCustomer = "order_customer"
         case orderInfo = "order_info"
         case orderStatusID = "order_status_id"
+        case orderContactID = "order_contact_id"
         case items
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(orderEstablishmentID, forKey: .orderEstablishmentID)
+        try c.encodeIfPresent(orderMethodID, forKey: .orderMethodID)
+        try c.encodeIfPresent(orderSubMethod, forKey: .orderSubMethod)
+        try c.encodeIfPresent(orderContactMethod, forKey: .orderContactMethod)
+        try c.encodeIfPresent(orderSalesChannel, forKey: .orderSalesChannel)
+        try c.encode(orderCustomer, forKey: .orderCustomer)
+        try c.encode(orderInfo, forKey: .orderInfo)
+        try c.encode(orderStatusID, forKey: .orderStatusID)
+        if case .set(let contactID) = orderContact {
+            try c.encode(contactID, forKey: .orderContactID)
+        }
+        try c.encode(items, forKey: .items)
     }
 }
 

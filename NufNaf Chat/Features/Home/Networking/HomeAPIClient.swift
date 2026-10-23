@@ -556,10 +556,10 @@ struct HomeAPIClient {
         return response.item
     }
 
-    func cdekPrefill(accessToken: String, customer: String) async throws -> CdekPrefill {
+    func cdekPrefill(accessToken: String, contactID: Int) async throws -> CdekPrefill {
         let response: HomeItemEnvelope<CdekPrefill> = try await send(
             path: "cdek/prefill",
-            queryItems: [URLQueryItem(name: "customer", value: customer)],
+            queryItems: [URLQueryItem(name: "contact_id", value: String(contactID))],
             method: "GET", body: Optional<String>.none, accessToken: accessToken)
         return response.item
     }

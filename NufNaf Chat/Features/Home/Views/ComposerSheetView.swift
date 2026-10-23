@@ -21,6 +21,10 @@ struct ComposerSheetView: View {
     @State private var selectedOrderContactMethod: String?
     @State private var selectedSalesChannel: String?
     @State private var counterpartyName = ""
+    /// Покупатель по ключу: ставится выбором из поиска контактов, снимается ручной
+    /// правкой имени. По одному имени заказ не привязываем — тёзок много.
+    @State private var selectedContactID: Int?
+    @State private var selectedContactName: String?
     @State private var info = ""
     @State private var counterpartyResults: [HomeContact] = []
     @State private var isSearchingContacts = false
@@ -76,7 +80,7 @@ struct ComposerSheetView: View {
     @State private var cdekPvzCode: String?
     @State private var cdekPvzResults: [CdekPvz] = []
     @State private var cdekDeliveryAddress = ""
-    @State private var cdekPrefilledFor: String?
+    @State private var cdekPrefilledFor: Int?
     @State private var suppressCdekCitySearch = false
     @State private var suppressCdekPvzSearch = false
 
@@ -109,6 +113,8 @@ struct ComposerSheetView: View {
         _selectedOrderContactMethod = State(initialValue: editingOrder?.orderContactMethod)
         _selectedSalesChannel = State(initialValue: editingOrder?.orderSalesChannel)
         _counterpartyName = State(initialValue: editingOrder?.orderCustomer ?? "")
+        _selectedContactID = State(initialValue: editingOrder?.orderContactID)
+        _selectedContactName = State(initialValue: editingOrder?.orderContactID != nil ? editingOrder?.orderCustomer : nil)
         _info = State(initialValue: editingOrder?.orderInfo ?? "")
         _selectedItems = State(initialValue: editingOrder?.items.map(HomeComposerItemDraft.init) ?? [])
     }
@@ -315,7 +321,7 @@ struct ComposerSheetView: View {
                 composerDivider
                 cdekComposerBlock
                     .onAppear { prefillCdekIfNeeded() }
-                    .onChange(of: counterpartyName) { _, _ in prefillCdekIfNeeded() }
+                    .onChange(of: selectedContactID) { _, _ in prefillCdekIfNeeded() }
             }
         }
     }
@@ -395,11 +401,11 @@ struct ComposerSheetView: View {
     }
 
     private func prefillCdekIfNeeded() {
-        let name = counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard isCdekComposer, !name.isEmpty, cdekPrefilledFor != name else { return }
-        cdekPrefilledFor = name
+        // Только по выбранному контакту: по имени подтягивались данные чужих тёзок.
+        guard isCdekComposer, let contactID = selectedContactID, cdekPrefilledFor != contactID else { return }
+        cdekPrefilledFor = contactID
         Task {
-            guard let item = await store.cdekPrefill(accessToken: session.currentAccessToken, customer: name) else { return }
+            guard let item = await store.cdekPrefill(accessToken: session.currentAccessToken, contactID: contactID) else { return }
             if let v = item.recipientName, cdekName.isEmpty { cdekName = v }
             if let v = item.recipientPhone, cdekPhone.isEmpty { cdekPhone = v }
             // Текст города/ПВЗ выставляем под suppress-флагом, иначе onChange →
@@ -1611,6 +1617,10 @@ struct ComposerSheetView: View {
 
     private func handleCounterpartyQueryChange(_ query: String) {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let selectedContactName, normalizedQuery != selectedContactName {
+            selectedContactID = nil
+            self.selectedContactName = nil
+        }
 
         guard (isCounterpartyOverlayPresented || focusedField == .counterparty),
               let currentContactType else {
@@ -1663,6 +1673,11 @@ struct ComposerSheetView: View {
     }
 
     private func applyContactSelection(_ contact: HomeContact) {
+        if contact.contactType == "buyer" {
+            // Имя-снимок ставим вместе с ключом, чтобы onChange имени не снял привязку.
+            selectedContactName = contact.contactName
+            selectedContactID = contact.id
+        }
         counterpartyName = contact.contactName
 
         if contact.contactType == "buyer" {
@@ -2197,7 +2212,8 @@ struct ComposerSheetView: View {
                                 orderItemCheckpointStarted: existingItem?.orderItemCheckpointStarted ?? false,
                                 orderItemCheckpointCompleted: existingItem?.orderItemCheckpointCompleted ?? false
                             )
-                        }
+                        },
+                        orderContact: kind == .order ? .set(selectedContactID) : .keep
                     )
                 )
                 dismissProductOverlays(clearSearch: true)
@@ -2221,6 +2237,7 @@ struct ComposerSheetView: View {
             counterpartyName: counterpartyName.trimmingCharacters(in: .whitespacesAndNewlines),
             info: info.trimmingCharacters(in: .whitespacesAndNewlines),
             saveContact: shouldSaveContact,
+            contactID: kind == .order ? selectedContactID : nil,
             orderStatusID: shouldMarkItemsInStock ? orderAssemblyStatusID : nil,
             defaultOrderItemStatusID: shouldMarkItemsInStock ? inStockOrderItemStatusID : nil,
             cdek: cdekRequestForComposer(),
