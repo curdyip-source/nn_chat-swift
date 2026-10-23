@@ -21,10 +21,10 @@ struct ComposerSheetView: View {
     @State private var selectedOrderContactMethod: String?
     @State private var selectedSalesChannel: String?
     @State private var counterpartyName = ""
-    /// Покупатель по ключу: ставится выбором из поиска контактов, снимается ручной
-    /// правкой имени. По одному имени заказ не привязываем — тёзок много.
+    /// Покупатель по ключу: ставится выбором из поиска контактов, меняется выбором
+    /// другого, снимается только крестиком очистки поля. Правка имени ключ не трогает.
+    /// По одному имени заказ не привязываем — тёзок много.
     @State private var selectedContactID: Int?
-    @State private var selectedContactName: String?
     @State private var info = ""
     @State private var counterpartyResults: [HomeContact] = []
     @State private var isSearchingContacts = false
@@ -114,7 +114,6 @@ struct ComposerSheetView: View {
         _selectedSalesChannel = State(initialValue: editingOrder?.orderSalesChannel)
         _counterpartyName = State(initialValue: editingOrder?.orderCustomer ?? "")
         _selectedContactID = State(initialValue: editingOrder?.orderContactID)
-        _selectedContactName = State(initialValue: editingOrder?.orderContactID != nil ? editingOrder?.orderCustomer : nil)
         _info = State(initialValue: editingOrder?.orderInfo ?? "")
         _selectedItems = State(initialValue: editingOrder?.items.map(HomeComposerItemDraft.init) ?? [])
     }
@@ -1617,10 +1616,6 @@ struct ComposerSheetView: View {
 
     private func handleCounterpartyQueryChange(_ query: String) {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let selectedContactName, normalizedQuery != selectedContactName {
-            selectedContactID = nil
-            self.selectedContactName = nil
-        }
 
         guard (isCounterpartyOverlayPresented || focusedField == .counterparty),
               let currentContactType else {
@@ -1664,6 +1659,8 @@ struct ComposerSheetView: View {
 
     private func clearCounterpartyQuery() {
         contactSearchTask?.cancel()
+        // Крестик — явный сброс клиента: снимаем и привязку к покупателю.
+        selectedContactID = nil
         counterpartyName = ""
         counterpartyResults = []
         isSearchingContacts = false
@@ -1674,8 +1671,6 @@ struct ComposerSheetView: View {
 
     private func applyContactSelection(_ contact: HomeContact) {
         if contact.contactType == "buyer" {
-            // Имя-снимок ставим вместе с ключом, чтобы onChange имени не снял привязку.
-            selectedContactName = contact.contactName
             selectedContactID = contact.id
         }
         counterpartyName = contact.contactName
