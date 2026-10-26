@@ -1547,6 +1547,9 @@ struct HomeInventory: Codable, Identifiable, Hashable {
     let inventoryStatus: String?
     let inventoryStatusColor: String?
     let inventoryCreatedAt: String?
+    let inventoryOwnerUserLogin: String?
+    let inventoryOwnerFirstName: String?
+    let inventoryOwnerSecondName: String?
     let items: [HomeInventoryItem]
 
     enum CodingKeys: String, CodingKey {
@@ -1558,8 +1561,29 @@ struct HomeInventory: Codable, Identifiable, Hashable {
         case inventoryStatus = "inventory_status"
         case inventoryStatusColor = "inventory_status_color"
         case inventoryCreatedAt = "inventory_created_at"
+        case inventoryOwnerUserLogin = "inventory_owner_user_login"
+        case inventoryOwnerFirstName = "inventory_owner_first_name"
+        case inventoryOwnerSecondName = "inventory_owner_second_name"
         case items
     }
+
+    /// ФИО создателя (Фамилия Имя), иначе логин — для строки «Кем создана».
+    var inventoryOwnerDisplayName: String? {
+        documentOwnerDisplayName(secondName: inventoryOwnerSecondName, firstName: inventoryOwnerFirstName, login: inventoryOwnerUserLogin)
+    }
+}
+
+/// «Фамилия Имя» создателя документа, иначе логин, иначе nil.
+func documentOwnerDisplayName(secondName: String?, firstName: String?, login: String?) -> String? {
+    let fullName = [secondName, firstName]
+        .compactMap { value -> String? in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
+        .joined(separator: " ")
+    if !fullName.isEmpty { return fullName }
+    if let login, !login.isEmpty { return login }
+    return nil
 }
 
 struct HomeInventoryItem: Codable, Identifiable, Hashable {
@@ -1655,6 +1679,9 @@ struct HomeProductRegistration: Codable, Identifiable, Hashable {
     let productRegistrationStatus: String?
     let productRegistrationStatusColor: String?
     let productRegistrationCreatedAt: String?
+    let productRegistrationOwnerUserLogin: String?
+    let productRegistrationOwnerFirstName: String?
+    let productRegistrationOwnerSecondName: String?
     let items: [HomeProductRegistrationItem]
 
     enum CodingKeys: String, CodingKey {
@@ -1666,7 +1693,15 @@ struct HomeProductRegistration: Codable, Identifiable, Hashable {
         case productRegistrationStatus = "product_registration_status"
         case productRegistrationStatusColor = "product_registration_status_color"
         case productRegistrationCreatedAt = "product_registration_created_at"
+        case productRegistrationOwnerUserLogin = "product_registration_owner_user_login"
+        case productRegistrationOwnerFirstName = "product_registration_owner_first_name"
+        case productRegistrationOwnerSecondName = "product_registration_owner_second_name"
         case items
+    }
+
+    /// ФИО создателя (Фамилия Имя), иначе логин — для строки «Кем создана».
+    var productRegistrationOwnerDisplayName: String? {
+        documentOwnerDisplayName(secondName: productRegistrationOwnerSecondName, firstName: productRegistrationOwnerFirstName, login: productRegistrationOwnerUserLogin)
     }
 }
 

@@ -1621,7 +1621,8 @@ private struct OrderDocumentItemsSection: View {
     }
 }
 
-private struct OrderCompactMetricView: View {
+/// Плашка «Кол-во/Цена/Валюта/Сумма» у позиции — общая для заказа, инвентаризации и приёмки.
+struct OrderCompactMetricView: View {
     let title: String
     let value: String
 
@@ -2183,7 +2184,7 @@ private struct OrderDocumentItemViewModel: Identifiable {
 }
 
 /// Парсит строковую цену бэкенда (возможны пробелы-разделители и запятая) в Double.
-private func parseOrderItemPrice(_ raw: String) -> Double? {
+func parseOrderItemPrice(_ raw: String) -> Double? {
     let normalized = raw
         .replacingOccurrences(of: "\u{00A0}", with: "")
         .replacingOccurrences(of: " ", with: "")
@@ -2193,7 +2194,7 @@ private func parseOrderItemPrice(_ raw: String) -> Double? {
 }
 
 /// Форматирует сумму: целые — без дробной части, иначе две цифры.
-private func formatOrderAmount(_ value: Double) -> String {
+func formatOrderAmount(_ value: Double) -> String {
     if value.rounded() == value {
         return String(format: "%.0f", value)
     }

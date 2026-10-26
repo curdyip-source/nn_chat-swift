@@ -154,6 +154,9 @@ struct InventoryDetailView: View {
         if let supplier = inventory.inventorySupplier, !supplier.isEmpty {
             rows.insert(BusinessDocumentInfoRowModel(title: "Поставщик", value: supplier), at: 1)
         }
+        if let owner = inventory.inventoryOwnerDisplayName {
+            rows.append(BusinessDocumentInfoRowModel(title: "Кем создана", value: owner))
+        }
 
         return rows
     }
@@ -225,11 +228,7 @@ struct ProductRegistrationDetailView: View {
                     VStack(spacing: 16) {
                         BusinessDocumentInfoSection(
                             title: "Параметры",
-                            rows: [
-                                BusinessDocumentInfoRowModel(title: "Точка", value: registration.productRegistrationEstablishmentName ?? "Точка"),
-                                BusinessDocumentInfoRowModel(title: "Поставщик", value: registration.productRegistrationSupplier ?? "-"),
-                                BusinessDocumentInfoRowModel(title: "Создана", value: formattedDate(registration.productRegistrationCreatedAt))
-                            ]
+                            rows: registrationInfoRows(for: registration)
                         )
                         BusinessDocumentItemsSection(
                             title: "Позиции",
@@ -279,6 +278,18 @@ struct ProductRegistrationDetailView: View {
         .task(id: productRegistrationID) {
             await loadRegistration()
         }
+    }
+
+    private func registrationInfoRows(for registration: HomeProductRegistration) -> [BusinessDocumentInfoRowModel] {
+        var rows = [
+            BusinessDocumentInfoRowModel(title: "Точка", value: registration.productRegistrationEstablishmentName ?? "Точка"),
+            BusinessDocumentInfoRowModel(title: "Поставщик", value: registration.productRegistrationSupplier ?? "-"),
+            BusinessDocumentInfoRowModel(title: "Создана", value: formattedDate(registration.productRegistrationCreatedAt))
+        ]
+        if let owner = registration.productRegistrationOwnerDisplayName {
+            rows.append(BusinessDocumentInfoRowModel(title: "Кем создана", value: owner))
+        }
+        return rows
     }
 
     private func loadRegistration() async {
@@ -816,9 +827,26 @@ struct BusinessDocumentInfoSection: View {
     }
 }
 
+/// «Позиции» инвентаризации и приёмки — в том же виде, что у заказа: наименование,
+/// под ним Кол-во / Цена / Валюта / Сумма, внизу итог по валютам (без статуса —
+/// у позиций этих документов его нет).
 struct BusinessDocumentItemsSection: View {
     let title: String
     let items: [BusinessDocumentItemViewModel]
+
+    // Итоги по валютам в порядке первого появления валюты — как в заказе.
+    private var totalsByCurrency: [(currency: String, total: Double)] {
+        var totals: [String: Double] = [:]
+        var order: [String] = []
+        for item in items {
+            guard let lineTotal = item.lineTotal else { continue }
+            if totals[item.currencyTitle] == nil { order.append(item.currencyTitle) }
+            totals[item.currencyTitle, default: 0] += lineTotal
+        }
+        return order.compactMap { currency in
+            totals[currency].map { (currency, $0) }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -831,60 +859,49 @@ struct BusinessDocumentItemsSection: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(items) { item in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.name)
-                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                if let article = item.article, !article.isEmpty {
-                                    Text(article)
-                                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(item.name)
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .frame(maxWidth: .infinity, alignment: .leading)
 
-                            Spacer()
-
-                            Text(item.totalTitle)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.secondary)
-                        }
-
-                        HStack(spacing: 10) {
-                            BusinessDocumentMetricChip(title: "Кол-во", value: "\(item.quantity)")
-                            BusinessDocumentMetricChip(title: "Цена", value: "\(AppAmount.grouped(item.cost)) \(item.currencyTitle)")
+                        HStack(spacing: 8) {
+                            OrderCompactMetricView(title: "Кол-во", value: "\(item.quantity)")
+                            OrderCompactMetricView(title: "Цена", value: AppAmount.grouped(item.cost))
+                            OrderCompactMetricView(title: "Валюта", value: item.currencyTitle)
+                            OrderCompactMetricView(
+                                title: "Сумма",
+                                value: item.lineTotal.map { "\(AppAmount.grouped(formatOrderAmount($0))) \(item.currencyTitle)" } ?? "—"
+                            )
                         }
                     }
-                    .padding(16)
+                    .padding(12)
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
                             .stroke(Color(uiColor: .separator).opacity(0.35), lineWidth: 1)
                     )
+                }
+
+                if !totalsByCurrency.isEmpty {
+                    Divider()
+                        .padding(.vertical, 2)
+
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Spacer()
+                        Text("Итого")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        Text(
+                            totalsByCurrency
+                                .map { "\(AppAmount.grouped(formatOrderAmount($0.total))) \($0.currency)" }
+                                .joined(separator: " + ")
+                        )
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
         .background(Color.black.opacity(0.04), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-}
-
-struct BusinessDocumentMetricChip: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -902,10 +919,8 @@ struct BusinessDocumentItemViewModel: Identifiable {
     let cost: String
     let currencyTitle: String
 
-    var totalTitle: String {
-        let normalizedCost = cost.replacingOccurrences(of: ",", with: ".")
-        let total = (Double(normalizedCost) ?? 0) * Double(quantity)
-        return "Итого: \(AppAmount.grouped(String(format: "%.2f", total))) \(currencyTitle)"
+    var lineTotal: Double? {
+        parseOrderItemPrice(cost).map { $0 * Double(quantity) }
     }
 }
 
