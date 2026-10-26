@@ -3,23 +3,27 @@ import SwiftUI
 /// Вкладка «Финансы» в СРМ приложения — упрощённый вариант веб-раздела, чтобы
 /// закупку вносили прямо с телефона:
 /// - сверху выручка и прибыль за период (в валюте продажи, по валютам);
-/// - строка фильтра: день / месяц / год (по умолчанию — текущий), листание
-///   периода, «скрыть зафиксированные»;
+/// - строка фильтра: отдельные списки день / месяц / год (по умолчанию — сегодня;
+///   «Весь месяц» / «Весь год» — смотреть период целиком), «скрыть зафиксированные»;
 /// - список отгруженных позиций (дата отгрузки = переход в «Отгружено»): цена
 ///   продажи (только чтение) и закупочная цена (ввод), фиксатор справа.
-/// Дата горит зелёным, если закупка внесена у всех позиций этого дня, иначе — бледно-красным.
+/// Закрыта только зафиксированная позиция: без замка она «в работе» и горит красным
+/// (даже с внесённой закупкой). Период горит зелёным, когда закрыты все его позиции.
 struct CRMFinanceView: View {
     @EnvironmentObject private var session: AppSession
     private let client = HomeAPIClient()
 
-    enum PeriodKind: String, CaseIterable {
-        case day = "День"
-        case month = "Месяц"
-        case year = "Год"
-    }
+    // Выбор периода: год обязателен; месяц nil — весь год; день nil — весь месяц.
+    @State private var year: Int
+    @State private var month: Int?
+    @State private var day: Int?
 
-    @State private var periodKind: PeriodKind = .day
-    @State private var anchor = Date()
+    init() {
+        let now = Self.calendar.dateComponents([.year, .month, .day], from: Date())
+        _year = State(initialValue: now.year ?? 2026)
+        _month = State(initialValue: now.month)
+        _day = State(initialValue: now.day)
+    }
     @State private var hidesLocked = false
     @State private var data: AppFinanceResponse?
     @State private var isLoading = false
@@ -48,14 +52,6 @@ struct CRMFinanceView: View {
         formatter.timeZone = calendar.timeZone
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.dateFormat = "dd.MM.yy"
-        return formatter
-    }()
-
-    private static let monthFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.timeZone = calendar.timeZone
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.dateFormat = "LLLL yyyy"
         return formatter
     }()
 
@@ -88,7 +84,7 @@ struct CRMFinanceView: View {
                             CRMFinanceItemRow(
                                 item: item,
                                 dateTitle: dayTitle(item.shippedDate),
-                                dateColor: dayColor(item.shippedDate),
+                                dateColor: itemColor(item),
                                 isSaving: savingItemIDs.contains(item.id),
                                 onSavePurchase: { value in savePurchase(item: item, value: value) },
                                 onToggleLock: { toggleLock(item) }
@@ -146,40 +142,50 @@ struct CRMFinanceView: View {
 
     private var filterRow: some View {
         HStack(spacing: 8) {
-            // День / Месяц / Год.
-            HStack(spacing: 2) {
-                ForEach(PeriodKind.allCases, id: \.self) { kind in
-                    Button {
-                        periodKind = kind
-                        anchor = Date()
-                    } label: {
-                        Text(kind.rawValue)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .foregroundStyle(periodKind == kind ? AppTheme.primaryButtonText : AppTheme.secondaryButtonText)
-                            .padding(.horizontal, 9)
-                            .frame(height: 30)
-                            .background(periodKind == kind ? AppTheme.primaryButtonBackground : Color.clear, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
+            // День — только когда выбран месяц; «Весь месяц» — сброс дня.
+            Menu {
+                Button("Весь месяц") { day = nil }
+                Divider()
+                ForEach(availableDays.reversed(), id: \.self) { value in
+                    Button(dayMenuTitle(value)) { day = value }
                 }
+            } label: {
+                filterPill(day.map { String(format: "%02d", $0) } ?? "Все дни", isFinest: day != nil)
             }
-            .padding(2)
-            .background(AppTheme.secondaryButtonBackground, in: Capsule())
+            .disabled(month == nil)
+            .opacity(month == nil ? 0.4 : 1)
 
-            // ‹ период › — цвет: всё внесено / нет.
-            HStack(spacing: 2) {
-                periodArrow("chevron.left") { shift(by: -1) }
-                Text(periodTitle)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(periodColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .frame(maxWidth: .infinity)
-                periodArrow("chevron.right") { shift(by: 1) }
-                    .disabled(isCurrentPeriod)
-                    .opacity(isCurrentPeriod ? 0.35 : 1)
+            Menu {
+                Button("Весь год") { month = nil; day = nil }
+                Divider()
+                ForEach(availableMonths.reversed(), id: \.self) { value in
+                    Button(Self.monthNames[value - 1]) {
+                        month = value
+                        // День, которого нет в новом месяце (31 → февраль) или ещё не наступил, — на последний доступный.
+                        if let current = day, !availableDays(year: year, month: value).contains(current) {
+                            day = availableDays(year: year, month: value).last
+                        }
+                    }
+                }
+            } label: {
+                filterPill(month.map { Self.monthNames[$0 - 1] } ?? "Все месяцы", isFinest: month != nil && day == nil)
             }
-            .frame(maxWidth: .infinity)
+
+            Menu {
+                ForEach(availableYears.reversed(), id: \.self) { value in
+                    Button(String(value)) {
+                        year = value
+                        if let current = month, !availableMonths(year: value).contains(current) {
+                            month = availableMonths(year: value).last
+                        }
+                        if let m = month, let current = day, !availableDays(year: value, month: m).contains(current) {
+                            day = availableDays(year: value, month: m).last
+                        }
+                    }
+                }
+            } label: {
+                filterPill(String(year), isFinest: month == nil)
+            }
 
             // Скрыть зафиксированные.
             Button {
@@ -196,48 +202,92 @@ struct CRMFinanceView: View {
         }
     }
 
-    private func periodArrow(_ systemName: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(AppTheme.secondaryButtonText)
-                .frame(width: 26, height: 30)
+    /// Кнопка-список фильтра. Самая «мелкая» выбранная часть (день, иначе месяц,
+    /// иначе год) подсвечена цветом готовности периода: зелёный — всё внесено.
+    private func filterPill(_ title: String, isFinest: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(isFinest ? periodColor : AppTheme.secondaryButtonText)
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(AppTheme.secondaryButtonText.opacity(0.7))
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, 11)
+        // Списки делят ширину строки поровну — фильтр на всю ширину экрана.
+        .frame(maxWidth: .infinity)
+        .frame(height: 34)
+        .background(AppTheme.secondaryButtonBackground, in: Capsule())
     }
 
     // MARK: - Период
 
+    private static let monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+    private static let weekdayFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.dateFormat = "EE"
+        return formatter
+    }()
+
+    private var today: DateComponents {
+        Self.calendar.dateComponents([.year, .month, .day], from: Date())
+    }
+
+    /// Годы — с 2025 (раньше отгрузок в системе нет) по текущий.
+    private var availableYears: [Int] {
+        Array(2025...max(today.year ?? year, year))
+    }
+
+    private var availableMonths: [Int] { availableMonths(year: year) }
+
+    private func availableMonths(year: Int) -> [Int] {
+        // Будущие месяцы не показываем.
+        let last = year == today.year ? (today.month ?? 12) : 12
+        return Array(1...last)
+    }
+
+    private var availableDays: [Int] {
+        guard let month else { return [] }
+        return availableDays(year: year, month: month)
+    }
+
+    private func availableDays(year: Int, month: Int) -> [Int] {
+        guard let start = Self.calendar.date(from: DateComponents(year: year, month: month, day: 1)),
+              let range = Self.calendar.range(of: .day, in: .month, for: start) else { return [] }
+        // Будущие дни не показываем.
+        let last = (year == today.year && month == today.month) ? (today.day ?? range.count) : range.count
+        return Array(1...max(last, 1))
+    }
+
+    /// «26 · пн · сегодня» — чтобы вчера/сегодня находились сразу.
+    private func dayMenuTitle(_ value: Int) -> String {
+        guard let month, let date = Self.calendar.date(from: DateComponents(year: year, month: month, day: value)) else {
+            return String(value)
+        }
+        var title = "\(value) · \(Self.weekdayFormatter.string(from: date))"
+        if year == today.year, month == today.month {
+            if value == today.day { title += " · сегодня" }
+            if let todayDay = today.day, value == todayDay - 1 { title += " · вчера" }
+        }
+        return title
+    }
+
     private var interval: (from: Date, to: Date) {
         let calendar = Self.calendar
-        let component: Calendar.Component = periodKind == .day ? .day : (periodKind == .month ? .month : .year)
-        let start = calendar.dateInterval(of: component, for: anchor)?.start ?? anchor
+        let startComponents = DateComponents(year: year, month: month ?? 1, day: day ?? 1)
+        let start = calendar.date(from: startComponents) ?? Date()
+        let component: Calendar.Component = day != nil ? .day : (month != nil ? .month : .year)
         let next = calendar.date(byAdding: component, value: 1, to: start) ?? start
         let end = calendar.date(byAdding: .day, value: -1, to: next) ?? start
         return (start, end)
     }
 
-    /// Ключ перезагрузки: смена вида периода или самого периода.
+    /// Ключ перезагрузки — сам выбранный период.
     private var periodKey: String {
-        "\(periodKind.rawValue)-\(Self.apiDateFormatter.string(from: interval.from))"
-    }
-
-    private var isCurrentPeriod: Bool {
-        let now = interval
-        return Date() >= now.from && Date() < (Self.calendar.date(byAdding: .day, value: 1, to: now.to) ?? now.to)
-    }
-
-    private var periodTitle: String {
-        switch periodKind {
-        case .day: return Self.shortDayFormatter.string(from: interval.from)
-        case .month: return Self.monthFormatter.string(from: interval.from).capitalized
-        case .year: return String(Self.calendar.component(.year, from: interval.from))
-        }
-    }
-
-    private func shift(by value: Int) {
-        let component: Calendar.Component = periodKind == .day ? .day : (periodKind == .month ? .month : .year)
-        anchor = Self.calendar.date(byAdding: component, value: value, to: anchor) ?? anchor
+        "\(year)-\(month ?? 0)-\(day ?? 0)"
     }
 
     // MARK: - Цвета дней
@@ -245,25 +295,15 @@ struct CRMFinanceView: View {
     private static let completeColor = Color(red: 0.30, green: 0.82, blue: 0.48)
     private static let incompleteColor = Color(red: 0.95, green: 0.55, blue: 0.55)
 
-    /// День → закупка внесена у всех позиций этого дня (по всем, не только видимым).
-    private var dayCompleteness: [String: Bool] {
-        var result: [String: Bool] = [:]
-        for item in data?.items ?? [] {
-            guard let day = item.shippedDate else { continue }
-            result[day] = (result[day] ?? true) && item.purchasePrice != nil
-        }
-        return result
-    }
-
+    /// Период закрыт, когда все его позиции зафиксированы.
     private var periodColor: Color {
         guard let items = data?.items, !items.isEmpty else { return AppTheme.secondaryButtonText }
-        return items.allSatisfy { $0.purchasePrice != nil } ? Self.completeColor : Self.incompleteColor
+        return items.allSatisfy(\.locked) ? Self.completeColor : Self.incompleteColor
     }
 
-    private func dayColor(_ day: String?) -> Color {
-        guard let day, let complete = dayCompleteness[day] else { return .black.opacity(0.5) }
-        // В строке (светлая карточка) — те же оттенки, чуть темнее для читаемости.
-        return complete ? Color(red: 0.12, green: 0.58, blue: 0.30) : Color(red: 0.86, green: 0.36, blue: 0.36)
+    /// Позиция: зафиксирована — зелёная, в работе (без замка) — красная.
+    private func itemColor(_ item: AppFinanceItem) -> Color {
+        item.locked ? Color(red: 0.12, green: 0.58, blue: 0.30) : Color(red: 0.86, green: 0.36, blue: 0.36)
     }
 
     private func dayTitle(_ day: String?) -> String {
@@ -470,6 +510,11 @@ private struct CRMFinanceItemRow: View {
         }
         .padding(12)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        // В работе (не зафиксирована) — бледно-красная рамка.
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(item.locked ? Color.clear : Color(red: 0.95, green: 0.55, blue: 0.55), lineWidth: 2)
+        )
         .environment(\.colorScheme, .light)
         .toolbar {
             if isFocused {
