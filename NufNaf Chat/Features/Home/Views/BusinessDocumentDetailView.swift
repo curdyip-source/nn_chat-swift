@@ -8,10 +8,21 @@ struct InventoryDetailView: View {
     let inventoryID: Int
     let onClose: () -> Void
 
+    init(store: HomeStore, inventoryID: Int, onClose: @escaping () -> Void) {
+        _store = ObservedObject(wrappedValue: store)
+        self.inventoryID = inventoryID
+        self.onClose = onClose
+        // Как у заказа: берём документ из ленты, чтобы он был на экране уже во время
+        // анимации открытия; loadInventory() затем тихо его обновит.
+        _inventory = State(initialValue: store.cachedInventory(inventoryID: inventoryID))
+    }
+
     @State private var inventory: HomeInventory?
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var isEditSheetPresented = false
+    @State private var history = DocumentHistoryState()
 
     var body: some View {
         BusinessDocumentDetailContainer(
@@ -20,6 +31,11 @@ struct InventoryDetailView: View {
             isSaving: isSaving,
             errorMessage: errorMessage,
             onClose: onClose,
+            headerActionSystemImage: inventory == nil ? nil : "pencil",
+            onHeaderAction: inventory == nil ? nil : { isEditSheetPresented = true },
+            headerSecondaryActionSystemImage: inventory == nil ? nil : "clock.arrow.circlepath",
+            onHeaderSecondaryAction: inventory == nil ? nil : { openHistory() },
+            ignoresKeyboardScroll: isEditSheetPresented || history.isPresented,
             headerContent: {
                 if let inventory {
                     BusinessDocumentStatusButtons(
@@ -54,20 +70,62 @@ struct InventoryDetailView: View {
                 }
             }
         )
+        .overlay {
+            if let inventory, isEditSheetPresented {
+                DocumentEditOverlay(onDismiss: { isEditSheetPresented = false }) {
+                    ComposerSheetView(
+                        kind: .inventory,
+                        editingInventory: inventory,
+                        store: store,
+                        onClose: { isEditSheetPresented = false },
+                        onInventoryUpdated: { self.inventory = $0 }
+                    )
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: isEditSheetPresented)
+        .overlay {
+            if history.isPresented {
+                DocumentHistoryOverlay(
+                    title: "История инвентаризации",
+                    entries: history.entries,
+                    isLoading: history.isLoading,
+                    errorMessage: history.errorMessage,
+                    onClose: { history.isPresented = false }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: history.isPresented)
         .task(id: inventoryID) {
             await loadInventory()
         }
     }
 
     private func loadInventory() async {
-        isLoading = true
+        // Документ уже на экране из кэша — обновляем тихо, без мигания спиннером.
+        let showSpinner = inventory == nil
+        if showSpinner { isLoading = true }
         errorMessage = nil
-        defer { isLoading = false }
+        defer { if showSpinner { isLoading = false } }
 
         do {
             inventory = try await store.fetchInventory(accessToken: session.currentAccessToken, inventoryID: inventoryID)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = resolveActionError(error)
+        }
+    }
+
+    private func openHistory() {
+        history.open()
+        Task {
+            do {
+                history.entries = try await store.fetchInventoryHistory(accessToken: session.currentAccessToken, inventoryID: inventoryID)
+            } catch {
+                history.errorMessage = resolveActionError(error)
+            }
+            history.isLoading = false
         }
     }
 
@@ -82,7 +140,7 @@ struct InventoryDetailView: View {
             do {
                 inventory = try await store.updateInventoryStatus(accessToken: session.currentAccessToken, inventoryID: inventoryID, statusID: statusID)
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = resolveActionError(error)
             }
         }
     }
@@ -125,10 +183,20 @@ struct ProductRegistrationDetailView: View {
     let productRegistrationID: Int
     let onClose: () -> Void
 
+    init(store: HomeStore, productRegistrationID: Int, onClose: @escaping () -> Void) {
+        _store = ObservedObject(wrappedValue: store)
+        self.productRegistrationID = productRegistrationID
+        self.onClose = onClose
+        // Как у заказа: сразу с содержимым из ленты, затем тихое обновление.
+        _registration = State(initialValue: store.cachedProductRegistration(productRegistrationID: productRegistrationID))
+    }
+
     @State private var registration: HomeProductRegistration?
     @State private var isLoading = false
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var isEditSheetPresented = false
+    @State private var history = DocumentHistoryState()
 
     var body: some View {
         BusinessDocumentDetailContainer(
@@ -137,6 +205,11 @@ struct ProductRegistrationDetailView: View {
             isSaving: isSaving,
             errorMessage: errorMessage,
             onClose: onClose,
+            headerActionSystemImage: registration == nil ? nil : "pencil",
+            onHeaderAction: registration == nil ? nil : { isEditSheetPresented = true },
+            headerSecondaryActionSystemImage: registration == nil ? nil : "clock.arrow.circlepath",
+            onHeaderSecondaryAction: registration == nil ? nil : { openHistory() },
+            ignoresKeyboardScroll: isEditSheetPresented || history.isPresented,
             headerContent: {
                 if let registration {
                     BusinessDocumentStatusButtons(
@@ -175,20 +248,62 @@ struct ProductRegistrationDetailView: View {
                 }
             }
         )
+        .overlay {
+            if let registration, isEditSheetPresented {
+                DocumentEditOverlay(onDismiss: { isEditSheetPresented = false }) {
+                    ComposerSheetView(
+                        kind: .productRegistration,
+                        editingProductRegistration: registration,
+                        store: store,
+                        onClose: { isEditSheetPresented = false },
+                        onProductRegistrationUpdated: { self.registration = $0 }
+                    )
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: isEditSheetPresented)
+        .overlay {
+            if history.isPresented {
+                DocumentHistoryOverlay(
+                    title: "История приемки",
+                    entries: history.entries,
+                    isLoading: history.isLoading,
+                    errorMessage: history.errorMessage,
+                    onClose: { history.isPresented = false }
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: history.isPresented)
         .task(id: productRegistrationID) {
             await loadRegistration()
         }
     }
 
     private func loadRegistration() async {
-        isLoading = true
+        // Документ уже на экране из кэша — обновляем тихо, без мигания спиннером.
+        let showSpinner = registration == nil
+        if showSpinner { isLoading = true }
         errorMessage = nil
-        defer { isLoading = false }
+        defer { if showSpinner { isLoading = false } }
 
         do {
             registration = try await store.fetchProductRegistration(accessToken: session.currentAccessToken, productRegistrationID: productRegistrationID)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = resolveActionError(error)
+        }
+    }
+
+    private func openHistory() {
+        history.open()
+        Task {
+            do {
+                history.entries = try await store.fetchProductRegistrationHistory(accessToken: session.currentAccessToken, productRegistrationID: productRegistrationID)
+            } catch {
+                history.errorMessage = resolveActionError(error)
+            }
+            history.isLoading = false
         }
     }
 
@@ -203,7 +318,7 @@ struct ProductRegistrationDetailView: View {
             do {
                 registration = try await store.updateProductRegistrationStatus(accessToken: session.currentAccessToken, productRegistrationID: productRegistrationID, statusID: statusID)
             } catch {
-                errorMessage = error.localizedDescription
+                errorMessage = resolveActionError(error)
             }
         }
     }
@@ -223,6 +338,48 @@ struct ProductRegistrationDetailView: View {
             return rawValue ?? "-"
         }
         return BusinessDocumentFormatters.dateTime.string(from: date)
+    }
+}
+
+/// Состояние окна истории документа (инвентаризация/приёмка).
+struct DocumentHistoryState {
+    var isPresented = false
+    var entries: [HomeOrderHistoryEntry] = []
+    var isLoading = false
+    var errorMessage: String?
+
+    mutating func open() {
+        isPresented = true
+        errorMessage = nil
+        isLoading = true
+    }
+}
+
+/// Форма правки документа поверх экрана — выезжает снизу, как при создании.
+struct DocumentEditOverlay<Content: View>: View {
+    let onDismiss: () -> Void
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.24)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onDismiss)
+
+                content()
+                    .frame(maxWidth: .infinity)
+                    .frame(maxHeight: proxy.size.height * 0.9)
+                    .background(Color(UIColor.systemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                    .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: -4)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
+                    // Светлая форма (как при создании) в тёмном приложении.
+                    .environment(\.colorScheme, .light)
+            }
+        }
     }
 }
 

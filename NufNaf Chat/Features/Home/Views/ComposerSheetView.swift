@@ -86,26 +86,53 @@ struct ComposerSheetView: View {
 
     let kind: HomeComposerKind
     let editingOrder: HomeOrder?
+    /// Правка существующей инвентаризации/приёмки (кнопка-карандаш в документе) —
+    /// та же форма, что и при создании, сохраняет через PUT документа.
+    let editingInventory: HomeInventory?
+    let editingProductRegistration: HomeProductRegistration?
     let editingItemStatusIDs: [Int: Int?]
     @ObservedObject var store: HomeStore
     let onClose: () -> Void
     let onOrderUpdated: ((HomeOrder) -> Void)?
+    let onInventoryUpdated: ((HomeInventory) -> Void)?
+    let onProductRegistrationUpdated: ((HomeProductRegistration) -> Void)?
 
     @MainActor
     init(
         kind: HomeComposerKind,
         editingOrder: HomeOrder? = nil,
+        editingInventory: HomeInventory? = nil,
+        editingProductRegistration: HomeProductRegistration? = nil,
         editingItemStatusIDs: [Int: Int?] = [:],
         store: HomeStore,
         onClose: @escaping () -> Void,
-        onOrderUpdated: ((HomeOrder) -> Void)? = nil
+        onOrderUpdated: ((HomeOrder) -> Void)? = nil,
+        onInventoryUpdated: ((HomeInventory) -> Void)? = nil,
+        onProductRegistrationUpdated: ((HomeProductRegistration) -> Void)? = nil
     ) {
         self.kind = kind
         self.editingOrder = editingOrder
+        self.editingInventory = editingInventory
+        self.editingProductRegistration = editingProductRegistration
         self.editingItemStatusIDs = editingItemStatusIDs
         self.store = store
         self.onClose = onClose
         self.onOrderUpdated = onOrderUpdated
+        self.onInventoryUpdated = onInventoryUpdated
+        self.onProductRegistrationUpdated = onProductRegistrationUpdated
+
+        if let editingInventory {
+            _selectedEstablishmentID = State(initialValue: editingInventory.inventoryEstablishmentID)
+            _counterpartyName = State(initialValue: editingInventory.inventorySupplier ?? "")
+            _selectedItems = State(initialValue: editingInventory.items.map(HomeComposerItemDraft.init))
+            return
+        }
+        if let editingProductRegistration {
+            _selectedEstablishmentID = State(initialValue: editingProductRegistration.productRegistrationEstablishmentID)
+            _counterpartyName = State(initialValue: editingProductRegistration.productRegistrationSupplier ?? "")
+            _selectedItems = State(initialValue: editingProductRegistration.items.map(HomeComposerItemDraft.init))
+            return
+        }
 
         _selectedEstablishmentID = State(initialValue: editingOrder?.orderEstablishmentID)
         _selectedOrderMethodID = State(initialValue: editingOrder?.orderMethodID)
@@ -723,8 +750,12 @@ struct ComposerSheetView: View {
         kind == .order ? "Марина" : "ООО Восток"
     }
 
+    private var isEditing: Bool {
+        editingOrder != nil || editingInventory != nil || editingProductRegistration != nil
+    }
+
     private var shouldShowSaveContactToggle: Bool {
-        editingOrder == nil
+        !isEditing
     }
 
     private var shouldShowItemsInStockToggle: Bool {
@@ -747,6 +778,12 @@ struct ComposerSheetView: View {
         if editingOrder != nil {
             return "Сохранить заказ"
         }
+        if editingInventory != nil {
+            return "Сохранить инвентаризацию"
+        }
+        if editingProductRegistration != nil {
+            return "Сохранить приемку"
+        }
 
         switch kind {
         case .order:
@@ -761,6 +798,12 @@ struct ComposerSheetView: View {
     private var sheetTitle: String {
         if let editingOrder {
             return "Ред. заказа №\(editingOrder.id)"
+        }
+        if let editingInventory {
+            return "Ред. инвентаризации №\(editingInventory.id)"
+        }
+        if let editingProductRegistration {
+            return "Ред. приемки №\(editingProductRegistration.id)"
         }
         return kind.title
     }
@@ -2213,6 +2256,67 @@ struct ComposerSheetView: View {
                 )
                 dismissProductOverlays(clearSearch: true)
                 onOrderUpdated?(updatedOrder)
+                onClose()
+            } catch {
+                submitErrorMessage = resolveActionError(error)
+            }
+            return
+        }
+
+        if let editingInventory {
+            do {
+                let updated = try await store.updateInventory(
+                    accessToken: session.currentAccessToken,
+                    inventoryID: editingInventory.id,
+                    request: HomeInventoryUpdateRequest(
+                        inventoryEstablishmentID: selectedEstablishmentID,
+                        // Поля поставщика в форме инвентаризации нет — сохраняем как был.
+                        inventorySupplier: normalized(editingInventory.inventorySupplier ?? ""),
+                        inventoryStatusID: editingInventory.inventoryStatusID,
+                        items: selectedItems.map {
+                            HomeInventoryItemCreateRequest(
+                                productID: $0.productID,
+                                productArticle: $0.productID == nil ? normalized($0.article) : nil,
+                                productName: $0.productID == nil ? (normalized($0.name) ?? "Позиция") : nil,
+                                inventoryItemQuantity: max($0.quantity, 1),
+                                inventoryItemCost: normalizedPrice($0.price),
+                                inventoryItemCurrencyID: $0.currencyID
+                            )
+                        }
+                    )
+                )
+                dismissProductOverlays(clearSearch: true)
+                onInventoryUpdated?(updated)
+                onClose()
+            } catch {
+                submitErrorMessage = resolveActionError(error)
+            }
+            return
+        }
+
+        if let editingProductRegistration {
+            do {
+                let updated = try await store.updateProductRegistration(
+                    accessToken: session.currentAccessToken,
+                    productRegistrationID: editingProductRegistration.id,
+                    request: HomeProductRegistrationUpdateRequest(
+                        productRegistrationEstablishmentID: selectedEstablishmentID,
+                        productRegistrationSupplier: normalized(counterpartyName) ?? "",
+                        productRegistrationStatusID: editingProductRegistration.productRegistrationStatusID,
+                        items: selectedItems.map {
+                            HomeProductRegistrationItemCreateRequest(
+                                productID: $0.productID,
+                                productArticle: $0.productID == nil ? normalized($0.article) : nil,
+                                productName: $0.productID == nil ? (normalized($0.name) ?? "Позиция") : nil,
+                                productRegistrationItemQuantity: max($0.quantity, 1),
+                                productRegistrationItemCost: normalizedPrice($0.price),
+                                productRegistrationItemCurrencyID: $0.currencyID
+                            )
+                        }
+                    )
+                )
+                dismissProductOverlays(clearSearch: true)
+                onProductRegistrationUpdated?(updated)
                 onClose()
             } catch {
                 submitErrorMessage = resolveActionError(error)

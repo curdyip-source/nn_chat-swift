@@ -27,9 +27,6 @@ struct OrderDetailView: View {
     @State private var historyEntries: [HomeOrderHistoryEntry] = []
     @State private var isLoadingHistory = false
     @State private var historyErrorMessage: String?
-    /// Высота ленты истории: окно должно быть по содержимому, а не на весь экран —
-    /// список внутри ScrollView иначе растягивается на всю доступную высоту.
-    @State private var historyContentHeight: CGFloat = 0
     @State private var comments: [HomeOrderComment] = []
     @State private var commentDraft = ""
     @State private var commentReplyTarget: HomeOrderComment?
@@ -46,6 +43,9 @@ struct OrderDetailView: View {
     @State private var pendingCommentPayloads: [Int: PendingOrderCommentPayload] = [:]
     @State private var assemblySplitStatusID: Int?
     @State private var pendingCancelStatusID: Int?
+    /// Статус для массовой смены всех товаров (удержание на бабле статуса позиции) —
+    /// ждёт подтверждения.
+    @State private var pendingBulkItemStatusID: Int?
     @State private var assemblyAlertMessage: String?
     @State private var commentScrollRequest = 0
     @State private var cdekSheetOrder: HomeOrder?
@@ -182,10 +182,25 @@ struct OrderDetailView: View {
                     ]
                 )
                 .transition(.opacity)
+            } else if let statusID = pendingBulkItemStatusID, let order {
+                // Массовая смена статуса всех товаров — тот же текст, что в «Все заказы».
+                AppConfirmCard(
+                    title: "Изменить статус всех товаров?",
+                    message: "Текущее действие изменит статус всех товаров заказа №\(order.id) на «\(orderItemStatuses.first(where: { $0.id == statusID })?.statusStatus ?? "Статус")».",
+                    buttons: [
+                        AppConfirmButton(label: "Изменить", style: .primary) {
+                            pendingBulkItemStatusID = nil
+                            updateAllItemsStatus(statusID: statusID)
+                        },
+                        AppConfirmButton(label: "Отмена", style: .cancel) { pendingBulkItemStatusID = nil },
+                    ]
+                )
+                .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.18), value: assemblySplitStatusID)
         .animation(.easeInOut(duration: 0.18), value: pendingCancelStatusID)
+        .animation(.easeInOut(duration: 0.18), value: pendingBulkItemStatusID)
         .onChange(of: isEditSheetPresented) { _, isPresented in
             if isPresented {
                 closeCommentAttachmentMenu()
@@ -345,7 +360,10 @@ struct OrderDetailView: View {
                                 )
                             },
                             isSaving: isSaving,
-                            onSelectStatus: handleItemStatusSelection
+                            onSelectStatus: handleItemStatusSelection,
+                            onRequestBulkStatus: { statusID in
+                                pendingBulkItemStatusID = statusID
+                            }
                         )
 
                         OrderCommentsSection(
@@ -459,32 +477,6 @@ struct OrderDetailView: View {
         Dictionary(uniqueKeysWithValues: order.items.map { ($0.id, $0.orderItemStatusID) })
     }
 
-    // Эмодзи под тип события — те же, что в истории на сайте (иконотеки в проекте нет).
-    private static let historyKindIcons: [String: String] = [
-        "create": "🆕",
-        "order_status": "🔄",
-        "item_status": "📦",
-        // На сайте для оплаты значка нет и рисуется точка-заглушка — здесь свой.
-        "order_paid": "💰",
-        "edit": "✏️",
-        "split": "✂️",
-        "comment": "💬",
-        "delete": "🗑️",
-        "cdek": "🚚",
-    ]
-
-    private static let historyDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.dateFormat = "dd.MM.yy, HH:mm"
-        return formatter
-    }()
-
-    private func historyTime(_ rawValue: String?) -> String {
-        guard let date = HomeMessageDateParser.parse(rawValue) else { return "" }
-        return Self.historyDateFormatter.string(from: date)
-    }
-
     private func openHistory() {
         closeCommentAttachmentMenu()
         dismissCommentKeyboard()
@@ -505,106 +497,13 @@ struct OrderDetailView: View {
     }
 
     private var historyOverlay: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .bottom) {
-                Color.black.opacity(0.24)
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        isHistorySheetPresented = false
-                    }
-
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        Text("История заказа")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-
-                        Spacer(minLength: 12)
-
-                        Button("Закрыть") {
-                            isHistorySheetPresented = false
-                        }
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(Color(uiColor: .secondarySystemBackground))
-                        .clipShape(Capsule())
-                    }
-
-                    if isLoadingHistory, historyEntries.isEmpty {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                            Text("Загрузка…")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    } else if let historyErrorMessage, !historyErrorMessage.isEmpty {
-                        Text(historyErrorMessage)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundStyle(.red)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else if historyEntries.isEmpty {
-                        Text("История пуста")
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 14) {
-                                // Бэкенд отдаёт события новыми сверху. Одно событие может дать
-                                // несколько записей, поэтому различаем их по позиции в ленте.
-                                ForEach(Array(historyEntries.enumerated()), id: \.offset) { _, entry in
-                                    historyRow(entry)
-                                }
-                            }
-                            .padding(.bottom, 4)
-                            .onGeometryChange(for: CGFloat.self) { proxy in
-                                proxy.size.height
-                            } action: { height in
-                                historyContentHeight = height
-                            }
-                        }
-                        .scrollIndicators(.hidden)
-                        .scrollBounceBehavior(.basedOnSize)
-                        // Короткая история — короткое окно; длинная упирается в потолок и скроллится.
-                        .frame(height: min(max(historyContentHeight, 44), proxy.size.height * 0.9 - 120))
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 20)
-                .frame(maxHeight: proxy.size.height * 0.9, alignment: .top)
-                .fixedSize(horizontal: false, vertical: true)
-                .background(Color(UIColor.systemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-                .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: -4)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
-                // Светлое окно в тёмном приложении — как форма создания и редактирования.
-                .environment(\.colorScheme, .light)
-            }
-        }
-    }
-
-    private func historyRow(_ entry: HomeOrderHistoryEntry) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text(Self.historyKindIcons[entry.kind] ?? "•")
-                .font(.system(size: 15))
-                .frame(width: 22, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(Text(entry.actorName).fontWeight(.semibold)) \(entry.text)")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text(historyTime(entry.createdAt))
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
-            }
-        }
+        DocumentHistoryOverlay(
+            title: "История заказа",
+            entries: historyEntries,
+            isLoading: isLoadingHistory,
+            errorMessage: historyErrorMessage,
+            onClose: { isHistorySheetPresented = false }
+        )
     }
 
     private func orderEditOverlay(order: HomeOrder) -> some View {
@@ -761,6 +660,53 @@ struct OrderDetailView: View {
         }
 
         updateItemStatus(itemID: itemID, statusID: statusID)
+    }
+
+    /// Массовая смена статуса всех товаров заказа — удержание на бабле статуса
+    /// позиции (подтверждение уже показано). Как в «Все заказы»: статус самого
+    /// заказа не трогаем, «Заказ поставщику»/«Перемещение» сюда не попадают.
+    private func updateAllItemsStatus(statusID: Int) {
+        guard let order else { return }
+        let targetIDs = Set(order.items.filter { $0.orderItemStatusID != statusID }.map(\.id))
+        guard !targetIDs.isEmpty else { return }
+
+        Task {
+            isSaving = true
+            errorMessage = nil
+            defer { isSaving = false }
+
+            do {
+                let updatedOrder = try await store.updateOrder(
+                    accessToken: session.currentAccessToken,
+                    orderID: order.id,
+                    request: HomeOrderUpdateRequest(
+                        orderEstablishmentID: order.orderEstablishmentID,
+                        orderMethodID: order.orderMethodID,
+                        orderSubMethod: order.orderSubMethod,
+                        orderContactMethod: order.orderContactMethod,
+                        orderSalesChannel: order.orderSalesChannel,
+                        orderCustomer: order.orderCustomer,
+                        orderInfo: order.orderInfo,
+                        orderStatusID: order.orderStatusID,
+                        items: order.items.map { item in
+                            makeOrderItemRequest(
+                                item: item,
+                                statusID: targetIDs.contains(item.id) ? statusID : item.orderItemStatusID,
+                                sourceEstablishmentID: item.orderItemSourceEstablishmentID,
+                                destinationEstablishmentID: item.orderItemDestinationEstablishmentID,
+                                checkpointStarted: item.orderItemCheckpointStarted,
+                                checkpointCompleted: item.orderItemCheckpointCompleted
+                            )
+                        }
+                    )
+                )
+                self.order = updatedOrder
+                self.comments = sortComments(updatedOrder.comments)
+                markCommentsRead(updatedOrder.comments)
+            } catch {
+                errorMessage = resolveActionError(error)
+            }
+        }
     }
 
     private func updateItemStatus(
@@ -1535,6 +1481,8 @@ private struct OrderDocumentItemsSection: View {
     let items: [OrderDocumentItemViewModel]
     let isSaving: Bool
     let onSelectStatus: (Int, Int) -> Void
+    /// Удержание на бабле статуса — статус для всех товаров заказа (подтверждение выше).
+    let onRequestBulkStatus: (Int) -> Void
 
     @State private var didCopy = false
 
@@ -1591,15 +1539,19 @@ private struct OrderDocumentItemsSection: View {
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(alignment: .center, spacing: 10) {
-                            OrderItemStatusMenu(
+                            // Тот же контрол, что в «Все заказы»: тап — статус позиции,
+                            // удержание — статус всех товаров заказа.
+                            CRMOrderItemStatusControl(
                                 title: item.statusTitle,
                                 color: item.statusColor,
                                 statuses: item.statuses,
+                                bulkStatuses: CRMOrderItemStatusControl.bulkOptions(from: item.statuses),
                                 selectedStatusID: item.selectedStatusID,
                                 isDisabled: isSaving,
                                 onSelect: { statusID in
                                     onSelectStatus(item.id, statusID)
-                                }
+                                },
+                                onRequestBulkStatus: onRequestBulkStatus
                             )
 
                             Text(item.name)
@@ -2256,44 +2208,6 @@ private struct OrderItemMovementSelection: Identifiable {
 
     var id: String {
         "\(itemID)-\(statusID)"
-    }
-}
-
-private struct OrderItemStatusMenu: View {
-    let title: String
-    let color: Color
-    let statuses: [HomeStatus]
-    let selectedStatusID: Int?
-    let isDisabled: Bool
-    let onSelect: (Int) -> Void
-
-    var body: some View {
-        Menu {
-            ForEach(statuses) { status in
-                Button {
-                    onSelect(status.id)
-                } label: {
-                    Text(status.statusStatus)
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-            }
-            .foregroundStyle(color)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(color.opacity(0.14), in: Capsule())
-            .overlay(
-                Capsule()
-                    .stroke((selectedStatusID == nil ? Color.clear : color).opacity(0.26), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled || statuses.isEmpty)
     }
 }
 

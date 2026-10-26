@@ -678,6 +678,14 @@ struct HomeComposerItemDraft: Identifiable, Hashable {
         self.sourceOrderItemID = nil
     }
 
+    init(item: HomeInventoryItem) {
+        self.init(productID: item.inventoryItemProductID, article: item.inventoryItemArticle ?? "", name: item.inventoryItemName, quantity: item.inventoryItemQuantity, price: item.inventoryItemCost, currencyID: item.inventoryItemCurrencyID)
+    }
+
+    init(item: HomeProductRegistrationItem) {
+        self.init(productID: item.productRegistrationItemProductID, article: item.productRegistrationItemArticle ?? "", name: item.productRegistrationItemName, quantity: item.productRegistrationItemQuantity, price: item.productRegistrationItemCost, currencyID: item.productRegistrationItemCurrencyID)
+    }
+
     init(item: HomeOrderItem) {
         self.id = UUID()
         self.productID = item.orderItemProductID
@@ -1583,6 +1591,21 @@ struct HomeOrderPaymentUpdateRequest: Encodable {
     }
 }
 
+/// Полная правка инвентаризации (PUT /inventories/{id}) — позиции заменяются целиком.
+struct HomeInventoryUpdateRequest: Encodable {
+    let inventoryEstablishmentID: Int
+    let inventorySupplier: String?
+    let inventoryStatusID: Int
+    let items: [HomeInventoryItemCreateRequest]
+
+    enum CodingKeys: String, CodingKey {
+        case inventoryEstablishmentID = "inventory_establishment_id"
+        case inventorySupplier = "inventory_supplier"
+        case inventoryStatusID = "inventory_status_id"
+        case items
+    }
+}
+
 struct HomeInventoryStatusUpdateRequest: Encodable {
     let inventoryStatusID: Int
 
@@ -1664,6 +1687,21 @@ struct HomeProductRegistrationItem: Codable, Identifiable, Hashable {
         case productRegistrationItemQuantity = "product_registration_item_quantity"
         case productRegistrationItemCost = "product_registration_item_cost"
         case productRegistrationItemCurrencyID = "product_registration_item_currency_id"
+    }
+}
+
+/// Полная правка приёмки (PUT /product-registrations/{id}) — позиции заменяются целиком.
+struct HomeProductRegistrationUpdateRequest: Encodable {
+    let productRegistrationEstablishmentID: Int
+    let productRegistrationSupplier: String
+    let productRegistrationStatusID: Int
+    let items: [HomeProductRegistrationItemCreateRequest]
+
+    enum CodingKeys: String, CodingKey {
+        case productRegistrationEstablishmentID = "product_registration_establishment_id"
+        case productRegistrationSupplier = "product_registration_supplier"
+        case productRegistrationStatusID = "product_registration_status_id"
+        case items
     }
 }
 

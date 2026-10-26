@@ -1131,6 +1131,28 @@ final class HomeStore: ObservableObject {
         return try await client.getInventory(accessToken: accessToken, inventoryID: inventoryID)
     }
 
+    /// Инвентаризация из ленты — чтобы экран документа открывался уже с содержимым,
+    /// как заказ (см. cachedOrder), а не пустым со спиннером во время анимации.
+    func cachedInventory(inventoryID: Int) -> HomeInventory? {
+        messages.first(where: { $0.inventory?.id == inventoryID })?.inventory
+    }
+
+    func updateInventory(accessToken: String?, inventoryID: Int, request: HomeInventoryUpdateRequest) async throws -> HomeInventory {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        let inventory = try await client.updateInventory(accessToken: accessToken, inventoryID: inventoryID, request: request)
+        await reloadMessages(accessToken: accessToken)
+        return inventory
+    }
+
+    func fetchInventoryHistory(accessToken: String?, inventoryID: Int) async throws -> [HomeOrderHistoryEntry] {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        return try await client.fetchInventoryHistory(accessToken: accessToken, inventoryID: inventoryID)
+    }
+
     func updateInventoryStatus(accessToken: String?, inventoryID: Int, statusID: Int) async throws -> HomeInventory {
         guard let accessToken else {
             throw AuthServiceError.transport("Сессия не найдена")
@@ -1149,6 +1171,27 @@ final class HomeStore: ObservableObject {
             throw AuthServiceError.transport("Сессия не найдена")
         }
         return try await client.getProductRegistration(accessToken: accessToken, productRegistrationID: productRegistrationID)
+    }
+
+    /// Приёмка из ленты — для открытия экрана сразу с содержимым (см. cachedInventory).
+    func cachedProductRegistration(productRegistrationID: Int) -> HomeProductRegistration? {
+        messages.first(where: { $0.productRegistration?.id == productRegistrationID })?.productRegistration
+    }
+
+    func updateProductRegistration(accessToken: String?, productRegistrationID: Int, request: HomeProductRegistrationUpdateRequest) async throws -> HomeProductRegistration {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        let registration = try await client.updateProductRegistration(accessToken: accessToken, productRegistrationID: productRegistrationID, request: request)
+        await reloadMessages(accessToken: accessToken)
+        return registration
+    }
+
+    func fetchProductRegistrationHistory(accessToken: String?, productRegistrationID: Int) async throws -> [HomeOrderHistoryEntry] {
+        guard let accessToken else {
+            throw AuthServiceError.transport("Сессия не найдена")
+        }
+        return try await client.fetchProductRegistrationHistory(accessToken: accessToken, productRegistrationID: productRegistrationID)
     }
 
     func updateProductRegistrationStatus(accessToken: String?, productRegistrationID: Int, statusID: Int) async throws -> HomeProductRegistration {

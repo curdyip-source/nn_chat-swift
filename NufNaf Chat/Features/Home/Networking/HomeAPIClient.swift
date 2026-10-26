@@ -483,6 +483,17 @@ struct HomeAPIClient {
         return response.item
     }
 
+    func updateInventory(accessToken: String, inventoryID: Int, request: HomeInventoryUpdateRequest) async throws -> HomeInventory {
+        let response: HomeItemEnvelope<HomeInventory> = try await send(path: "inventories/\(inventoryID)", method: "PUT", body: request, accessToken: accessToken)
+        return response.item
+    }
+
+    /// История инвентаризации — тот же формат записей, что у истории заказа.
+    func fetchInventoryHistory(accessToken: String, inventoryID: Int) async throws -> [HomeOrderHistoryEntry] {
+        let response: HomeOrderHistoryResponse = try await send(path: "inventories/\(inventoryID)/history", method: "GET", body: Optional<String>.none, accessToken: accessToken)
+        return response.items
+    }
+
     func updateInventoryStatus(accessToken: String, inventoryID: Int, request: HomeInventoryStatusUpdateRequest) async throws -> HomeInventory {
         let response: HomeItemEnvelope<HomeInventory> = try await send(path: "inventories/\(inventoryID)/status", method: "PUT", body: request, accessToken: accessToken)
         return response.item
@@ -495,6 +506,17 @@ struct HomeAPIClient {
     func getProductRegistration(accessToken: String, productRegistrationID: Int) async throws -> HomeProductRegistration {
         let response: HomeItemEnvelope<HomeProductRegistration> = try await send(path: "product-registrations/\(productRegistrationID)", method: "GET", body: Optional<String>.none, accessToken: accessToken)
         return response.item
+    }
+
+    func updateProductRegistration(accessToken: String, productRegistrationID: Int, request: HomeProductRegistrationUpdateRequest) async throws -> HomeProductRegistration {
+        let response: HomeItemEnvelope<HomeProductRegistration> = try await send(path: "product-registrations/\(productRegistrationID)", method: "PUT", body: request, accessToken: accessToken)
+        return response.item
+    }
+
+    /// История приёмки — тот же формат записей, что у истории заказа.
+    func fetchProductRegistrationHistory(accessToken: String, productRegistrationID: Int) async throws -> [HomeOrderHistoryEntry] {
+        let response: HomeOrderHistoryResponse = try await send(path: "product-registrations/\(productRegistrationID)/history", method: "GET", body: Optional<String>.none, accessToken: accessToken)
+        return response.items
     }
 
     func updateProductRegistrationStatus(accessToken: String, productRegistrationID: Int, request: HomeProductRegistrationStatusUpdateRequest) async throws -> HomeProductRegistration {

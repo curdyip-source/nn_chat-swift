@@ -1180,11 +1180,8 @@ private struct CRMOrderCardView: View {
         return itemStatuses.first(where: { $0.id == item.orderItemStatusID })?.statusStatus ?? "Статус"
     }
 
-    /// Статусы, доступные для массового применения ко всем товарам заказа разом.
-    /// «Заказ поставщику»/«Перемещение» требуют доп. данных на каждую позицию
-    /// (поставщик / маршрут склад-склад) — их по-прежнему выбирают по одной позиции.
     private var bulkItemStatusOptions: [HomeStatus] {
-        itemStatuses.filter { !["Заказ поставщику", "Перемещение"].contains($0.statusStatus) }
+        CRMOrderItemStatusControl.bulkOptions(from: itemStatuses)
     }
 }
 
@@ -1197,7 +1194,9 @@ private struct CRMOrderCardView: View {
 /// навешенный поверх .highPriorityGesture перехватывал слишком поздно, отсюда
 /// была вспышка системной анимации перед тем, как открывался кастомный попап.
 /// Button так себя не ведёт — тап и удержание различает штатно.
-private struct CRMOrderItemStatusControl: View {
+///
+/// Общий и для карточки в «Все заказы», и для раздела «Позиции» внутри заказа.
+struct CRMOrderItemStatusControl: View {
     let title: String
     let color: Color
     let statuses: [HomeStatus]
@@ -1209,6 +1208,13 @@ private struct CRMOrderItemStatusControl: View {
 
     @State private var isShowingStatusPicker = false
     @State private var isShowingBulkPicker = false
+
+    /// Статусы, доступные для массового применения ко всем товарам заказа разом.
+    /// «Заказ поставщику»/«Перемещение» требуют доп. данных на каждую позицию
+    /// (поставщик / маршрут склад-склад) — их по-прежнему выбирают по одной позиции.
+    static func bulkOptions(from statuses: [HomeStatus]) -> [HomeStatus] {
+        statuses.filter { !["Заказ поставщику", "Перемещение"].contains($0.statusStatus) }
+    }
 
     var body: some View {
         Button {
@@ -1260,13 +1266,19 @@ private struct CRMOrderItemStatusControl: View {
 }
 
 /// Список статусов в стиле системного меню (тёмная карточка, заголовок, иконка +
-/// текст, разделители). Без ScrollView — открывается сбоку от бабла (arrowEdge
-/// .leading), там по высоте достаточно места под весь список сразу, без скролла.
-private struct CRMMenuStylePopover: View {
+/// текст, разделители). Открывается сбоку от бабла (arrowEdge .leading) и обычно
+/// весь список помещается сразу. Но у бабла близко к краю экрана места бывает
+/// меньше (особенно для одной позиции — там на два статуса больше, чем в массовом),
+/// система ужимает попап, и без скролла содержимое обрезалось сверху вместе с
+/// заголовком. Поэтому заголовок закреплён, а список — в ScrollView с идеальной
+/// высотой по содержимому: хватает места — без скролла, не хватает — скроллится.
+struct CRMMenuStylePopover: View {
     let title: String
     let icon: String
     let statuses: [HomeStatus]
     let onSelect: (HomeStatus) -> Void
+
+    @State private var listHeight: CGFloat = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -1279,6 +1291,24 @@ private struct CRMMenuStylePopover: View {
 
             Divider().overlay(Color.white.opacity(0.16))
 
+            ScrollView {
+                statusList
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(idealHeight: listHeight > 0 ? listHeight : nil)
+        }
+        .frame(minWidth: 250)
+        .background(Color(red: 0.14, green: 0.15, blue: 0.18))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+        )
+    }
+
+    private var statusList: some View {
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(statuses) { status in
                 Button {
                     onSelect(status)
@@ -1307,13 +1337,6 @@ private struct CRMMenuStylePopover: View {
             }
         }
         .padding(.bottom, 8)
-        .frame(minWidth: 250)
-        .background(Color(red: 0.14, green: 0.15, blue: 0.18))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
     }
 }
 
