@@ -50,6 +50,11 @@ struct CRMDocumentsListView: View {
 
     var body: some View {
         ZStack {
+            // «Финансы» — свой экран (итоги, фильтр периода, ввод закупки) вместо
+            // общего поиска и списка заказов; меню разделов снизу — то же.
+            if selectedSection == .finance {
+                CRMFinanceView()
+            } else {
             VStack(spacing: 6) {
                 crmSearchField
                     .padding(.horizontal, AppTheme.PageLayout.horizontalPadding)
@@ -122,6 +127,7 @@ struct CRMDocumentsListView: View {
             // Уходим из CRM в чат — гарантированно убираем клавиатуру поиска.
             .onChange(of: session.chatFilterState.displayMode) { _, newMode in
                 if newMode != .crm { isSearchFieldFocused = false }
+            }
             }
 
             if let movementSelection {
@@ -375,7 +381,7 @@ struct CRMDocumentsListView: View {
             return orderMessages.compactMap(\.order)
         case .shipments:
             return orderMessages.compactMap(\.order).filter(isShipmentOrder)
-        case .products:
+        case .products, .finance:
             return []
         }
     }
@@ -413,6 +419,8 @@ struct CRMDocumentsListView: View {
             return displayedOrders.isEmpty
         case .products:
             return productEntries.isEmpty
+        case .finance:
+            return false
         }
     }
 
@@ -424,6 +432,8 @@ struct CRMDocumentsListView: View {
             return "По текущему фильтру товары не найдены"
         case .shipments:
             return "Нет заказов в статусах На сборку или Собран"
+        case .finance:
+            return ""
         }
     }
 
@@ -660,6 +670,7 @@ enum CRMSection: String, CaseIterable, Identifiable {
     case orders = "Все заказы"
     case products = "Товары"
     case shipments = "Отгрузки"
+    case finance = "Финансы"
 
     var id: String { rawValue }
 
@@ -671,6 +682,8 @@ enum CRMSection: String, CaseIterable, Identifiable {
             return "shippingbox"
         case .shipments:
             return "truck.box"
+        case .finance:
+            return "rublesign.circle"
         }
     }
 
@@ -682,6 +695,8 @@ enum CRMSection: String, CaseIterable, Identifiable {
             return "Товары"
         case .shipments:
             return "Отгрузки"
+        case .finance:
+            return "Финансы"
         }
     }
 
@@ -695,6 +710,8 @@ enum CRMSection: String, CaseIterable, Identifiable {
             return "app_products"
         case .shipments:
             return "app_shipments"
+        case .finance:
+            return "app_finance"
         }
     }
 }

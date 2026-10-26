@@ -565,13 +565,20 @@ struct HomeView: View {
     // Админ и null-разделы → все. Если ни один app-ключ не задан в разделах — считаем,
     // что подразделы не сконфигурированы, и показываем все вкладки (обратная совместимость:
     // старым пользователям без app_* ключей не режем СРМ). Иначе — строго по ключам.
+    // «Финансы» в это правило обратной совместимости не входят: там деньги, и сервер
+    // проверяет app_finance сам — вкладку видно только админу, при null-разделах или
+    // при явно выданном app_finance.
     private var allowedCrmSections: [CRMSection] {
         guard let user = session.currentUser else { return CRMSection.allCases }
         if user.userAdmin { return CRMSection.allCases }
         guard let sections = user.userSections else { return CRMSection.allCases }
-        let configured = CRMSection.allCases.contains { sections.contains($0.sectionKey) }
-        guard configured else { return CRMSection.allCases }
-        return CRMSection.allCases.filter { sections.contains($0.sectionKey) }
+        let baseSections = CRMSection.allCases.filter { $0 != .finance }
+        let configured = baseSections.contains { sections.contains($0.sectionKey) }
+        var allowed = configured ? baseSections.filter { sections.contains($0.sectionKey) } : baseSections
+        if sections.contains(CRMSection.finance.sectionKey) {
+            allowed.append(.finance)
+        }
+        return allowed
     }
 
     // Режим «Задачи» (тудулист) доступен: админ, разделы не заданы (null = все),

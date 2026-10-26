@@ -186,6 +186,34 @@ struct HomeAPIClient {
         return response.results
     }
 
+    // MARK: - Финансы (приложение)
+
+    func appFinance(accessToken: String, dateFrom: String, dateTo: String) async throws -> AppFinanceResponse {
+        try await send(
+            path: "finance/app/items",
+            queryItems: [URLQueryItem(name: "date_from", value: dateFrom), URLQueryItem(name: "date_to", value: dateTo)],
+            method: "GET",
+            body: Optional<String>.none,
+            accessToken: accessToken
+        )
+    }
+
+    func setAppFinancePurchase(accessToken: String, itemID: Int, purchasePrice: String?) async throws -> AppFinanceItem {
+        let response: HomeItemEnvelope<AppFinanceItem> = try await send(
+            path: "finance/app/items/\(itemID)/purchase", method: "PUT",
+            body: AppFinancePurchaseRequest(purchasePrice: purchasePrice), accessToken: accessToken
+        )
+        return response.item
+    }
+
+    func setAppFinanceLock(accessToken: String, itemID: Int, locked: Bool) async throws -> AppFinanceItem {
+        let response: HomeItemEnvelope<AppFinanceItem> = try await send(
+            path: "finance/app/items/\(itemID)/lock", method: "PUT",
+            body: AppFinanceLockRequest(locked: locked), accessToken: accessToken
+        )
+        return response.item
+    }
+
     /// «Поиск по приёмкам»: цены из наших приёмок. mode — last / avg_all / avg_3m.
     func registrationPriceSearch(accessToken: String, query: String, mode: String) async throws -> [RegistrationPriceResult] {
         let response: RegistrationPriceResponse = try await send(
