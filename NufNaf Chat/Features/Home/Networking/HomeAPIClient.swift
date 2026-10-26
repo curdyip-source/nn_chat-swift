@@ -186,6 +186,22 @@ struct HomeAPIClient {
         return response.results
     }
 
+    /// «Поиск по приёмкам»: цены из наших приёмок. mode — last / avg_all / avg_3m.
+    func registrationPriceSearch(accessToken: String, query: String, mode: String) async throws -> [RegistrationPriceResult] {
+        let response: RegistrationPriceResponse = try await send(
+            path: "price/registrations",
+            queryItems: [
+                URLQueryItem(name: "q", value: query),
+                URLQueryItem(name: "mode", value: mode),
+                URLQueryItem(name: "limit", value: "50"),
+            ],
+            method: "GET",
+            body: Optional<String>.none,
+            accessToken: accessToken
+        )
+        return response.results
+    }
+
     func searchProducts(accessToken: String, query: String) async throws -> [HomeProduct] {
         let response: HomeProductResponse = try await send(
             path: "products",
