@@ -578,7 +578,8 @@ struct HomeView: View {
         if sections.contains(CRMSection.finance.sectionKey) {
             allowed.append(.finance)
         }
-        return allowed
+        // Порядок вкладок — как в CRMSection.allCases (Финансы вторые).
+        return CRMSection.allCases.filter { allowed.contains($0) }
     }
 
     // Режим «Задачи» (тудулист) доступен: админ, разделы не заданы (null = все),

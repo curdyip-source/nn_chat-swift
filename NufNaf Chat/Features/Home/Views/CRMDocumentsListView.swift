@@ -667,10 +667,11 @@ struct CRMDocumentsListView: View {
 }
 
 enum CRMSection: String, CaseIterable, Identifiable {
+    // Порядок кейсов = порядок вкладок в нижнем меню СРМ.
     case orders = "Все заказы"
+    case finance = "Финансы"
     case products = "Товары"
     case shipments = "Отгрузки"
-    case finance = "Финансы"
 
     var id: String { rawValue }
 

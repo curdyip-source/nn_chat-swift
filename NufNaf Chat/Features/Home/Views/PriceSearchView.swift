@@ -76,7 +76,14 @@ struct PriceSearchView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.ignoresSafeArea())
         .task { await loadSuppliers() }
-        .sheet(isPresented: $showSettings, onDismiss: { scheduleSearch(immediate: true) }) { settingsSheet }
+        .sheet(isPresented: $showSettings) { settingsSheet }
+        // Любая правка настроек сразу перезапускает поиск — результаты обновляются
+        // за открытым окном настроек, без «Готово».
+        .onChange(of: source) { _, _ in scheduleSearch(immediate: true) }
+        .onChange(of: mode) { _, _ in scheduleSearch(immediate: true) }
+        .onChange(of: registrationPriceMode) { _, _ in scheduleSearch(immediate: true) }
+        // Галочки прайс-листов щёлкают часто — короткая пауза, как при наборе запроса.
+        .onChange(of: selectedSources) { _, _ in scheduleSearch() }
     }
 
     // MARK: - Search bar (стиль как в СРМ-поиске; значок настройки внутри поля)

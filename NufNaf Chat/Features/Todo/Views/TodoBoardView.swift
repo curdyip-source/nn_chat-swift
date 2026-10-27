@@ -38,6 +38,7 @@ struct TodoBoardView: View {
     /// сохраняются при сворачивании карточки.
     @State private var draft: TodoItem?
     @State private var isQuickAddPresented = false
+    @State private var isOrderPickerPresented = false
     @State private var quickAddTitle = ""
     @FocusState private var isQuickAddFocused: Bool
     @State private var listEditor: TodoListEditor?
@@ -85,6 +86,39 @@ struct TodoBoardView: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: isQuickAddPresented)
+        // Выбор заказа для раскрытой задачи — как форма создания заказа: карточка
+        // снизу с отступами, на 90% высоты, поверх затемнения.
+        .overlay {
+            if isOrderPickerPresented, draft != nil {
+                GeometryReader { proxy in
+                    ZStack(alignment: .bottom) {
+                        Color.black.opacity(0.24)
+                            .ignoresSafeArea()
+                            .contentShape(Rectangle())
+                            .onTapGesture { isOrderPickerPresented = false }
+
+                        TodoOrderPickerSheet(
+                            orders: orders,
+                            selectedOrderID: draft?.orderID,
+                            onSelect: { orderID in
+                                draft?.orderID = orderID
+                                isOrderPickerPresented = false
+                            },
+                            onClose: { isOrderPickerPresented = false }
+                        )
+                        .frame(maxWidth: .infinity)
+                        .frame(maxHeight: proxy.size.height * 0.9)
+                        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+                        .shadow(color: .black.opacity(0.16), radius: 24, x: 0, y: -4)
+                        .padding(.horizontal, 8)
+                        .padding(.bottom, 8)
+                    }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.22), value: isOrderPickerPresented)
+        .onChange(of: draft?.id) { _, _ in isOrderPickerPresented = false }
         .sheet(item: $listEditor) { editor in
             TodoListEditorSheet(editor: editor) { name in
                 Task {
@@ -195,6 +229,13 @@ struct TodoBoardView: View {
                     lists: store.lists,
                     orders: orders,
                     participants: participants,
+                    // Как в чате: без прав СРМ карточку заказа не открываем.
+                    onOpenOrder: session.hasSectionAccess("crm") ? { orderID in
+                        // Сохраняем правки задачи и сворачиваем её — заказ открывается поверх.
+                        collapseCard(save: true)
+                        session.openDocument(kind: "order", id: orderID)
+                    } : nil,
+                    onPickOrder: { isOrderPickerPresented = true },
                     onToggleCompleted: { toggleCompleted(item) },
                     onDelete: {
                         collapseCard(save: false)
@@ -740,7 +781,8 @@ private struct TodoTaskRow: View {
 private enum TodoPalette {
     static let today = Color(red: 0.85, green: 0.62, blue: 0.05)
     static let checked = Color(red: 0.96, green: 0.44, blue: 0.27)
-    static let order = Color(red: 0.15, green: 0.45, blue: 0.90)
+    // Заказ — нейтральный тёмный, в монохромном стиле приложения.
+    static let order = Color(red: 0.16, green: 0.17, blue: 0.20)
 }
 
 private struct TodoCheckbox: View {
@@ -778,6 +820,11 @@ struct TodoTaskCard: View {
     let lists: [TodoListItem]
     var orders: [HomeOrder] = []
     var participants: [ChatParticipant] = []
+    /// Перейти в привязанный заказ; nil — нет прав СРМ, кнопку не показываем.
+    var onOpenOrder: ((Int) -> Void)? = nil
+    /// Выбор заказа — окно рисует доска поверх всего экрана задач (карточка внутри
+    /// списка его бы обрезала).
+    var onPickOrder: () -> Void = {}
     let onToggleCompleted: () -> Void
     let onDelete: () -> Void
 
@@ -980,11 +1027,25 @@ struct TodoTaskCard: View {
 
             Spacer(minLength: 0)
 
-            Menu {
-                Button("Без заказа") { item.orderID = nil }
-                ForEach(orders.prefix(50)) { order in
-                    Button(orderTitle(order)) { item.orderID = order.id }
+            // «Открыть» — перед номером заказа.
+            if let orderID = item.orderID, let onOpenOrder {
+                Button {
+                    onOpenOrder(orderID)
+                } label: {
+                    Label("Открыть", systemImage: "arrow.up.right")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(TodoPalette.order, in: Capsule())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Открыть заказ №\(orderID)")
+            }
+
+            // Выбор — окном с поиском по номеру: заказов тысячи, меню их не вмещает.
+            Button {
+                onPickOrder()
             } label: {
                 Text(currentOrderTitle)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -994,6 +1055,8 @@ struct TodoTaskCard: View {
                     .frame(height: 28)
                     .background(Color.primary.opacity(0.07), in: Capsule())
             }
+            .buttonStyle(.plain)
+
         }
     }
 
@@ -1365,4 +1428,173 @@ private struct TodoFlowLayout: Layout {
             rowHeight = max(rowHeight, size.height)
         }
     }
+}
+
+
+// MARK: - Выбор заказа для задачи
+
+/// Окно выбора заказа: поиск по номеру (и по клиенту). Заказов тысячи, поэтому без
+/// запроса показываем последние, а по номеру ищем по всем из ленты. Номер, которого
+/// нет в ленте (старый заказ), всё равно можно привязать — доступ проверит сервер.
+struct TodoOrderPickerSheet: View {
+    private static let sheetBackground = Color(red: 0.95, green: 0.95, blue: 0.97)
+
+    let orders: [HomeOrder]
+    let selectedOrderID: Int?
+    let onSelect: (Int?) -> Void
+    let onClose: () -> Void
+
+    @State private var query = ""
+    @FocusState private var isSearchFocused: Bool
+
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "№", with: "")
+    }
+
+    private var results: [HomeOrder] {
+        let sorted = orders.sorted { $0.id > $1.id }
+        let q = trimmedQuery
+        guard !q.isEmpty else { return Array(sorted.prefix(50)) }
+        if q.allSatisfy(\.isNumber) {
+            // Точное совпадение номера — первым, дальше номера, начинающиеся с запроса.
+            let exact = sorted.filter { String($0.id) == q }
+            let prefixed = sorted.filter { String($0.id) != q && String($0.id).hasPrefix(q) }
+            return Array((exact + prefixed).prefix(100))
+        }
+        let lowered = q.lowercased()
+        return Array(sorted.filter { $0.orderCustomer.lowercased().contains(lowered) }.prefix(100))
+    }
+
+    /// Введён номер, которого нет в ленте — предлагаем привязать его напрямую.
+    private var manualOrderID: Int? {
+        let q = trimmedQuery
+        guard !q.isEmpty, q.allSatisfy(\.isNumber), let id = Int(q), id > 0 else { return nil }
+        return orders.contains(where: { $0.id == id }) ? nil : id
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Шапка со своим полем поиска. Системный .searchable при фокусе
+            // перестраивает навбар с анимацией, и в тёмном приложении на миг
+            // проступал чёрный фон — обычное поле так не делает.
+            VStack(spacing: 10) {
+                HStack {
+                    Text("Заказ")
+                        .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    Spacer()
+                    Button("Отмена", action: onClose)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(TodoPalette.order)
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("", text: $query, prompt: Text("Номер заказа или клиент").foregroundStyle(Color.secondary))
+                        .keyboardType(.numbersAndPunctuation)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .focused($isSearchFocused)
+                        .submitLabel(.done)
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                    if !query.isEmpty {
+                        Button {
+                            query = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 40)
+                .background(Color.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 18)
+            .padding(.bottom, 10)
+
+            List {
+                if let manualOrderID {
+                    Section {
+                        Button {
+                            onSelect(manualOrderID)
+                        } label: {
+                            Label("Привязать заказ №\(manualOrderID)", systemImage: "link")
+                                .foregroundStyle(Color.black)
+                        }
+                    } footer: {
+                        Text("Заказа нет в загруженной ленте — привязать по номеру.")
+                    }
+                }
+
+                Section {
+                    if trimmedQuery.isEmpty {
+                        Button {
+                            onSelect(nil)
+                        } label: {
+                            row(title: "Без заказа", subtitle: nil, isSelected: selectedOrderID == nil)
+                        }
+                    }
+                    ForEach(results) { order in
+                        Button {
+                            onSelect(order.id)
+                        } label: {
+                            row(
+                                title: "№\(order.id)",
+                                subtitle: order.orderCustomer.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                                isSelected: selectedOrderID == order.id
+                            )
+                        }
+                    }
+                } header: {
+                    if trimmedQuery.isEmpty {
+                        Text("Последние заказы")
+                    }
+                }
+
+                if !trimmedQuery.isEmpty, results.isEmpty, manualOrderID == nil {
+                    Text("Ничего не найдено")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .scrollContentBackground(.hidden)
+            // Кнопки в списке иначе красятся акцентом (синим).
+            .tint(Color.black)
+        }
+        .background(Self.sheetBackground)
+        // Светлое окно в тёмном приложении — как форма задачи и создания заказа.
+        // Фон — фиксированный цвет: системный подстроился бы под тёмную тему.
+        .environment(\.colorScheme, .light)
+        .onAppear { isSearchFocused = true }
+    }
+
+    private func row(title: String, subtitle: String?, isSelected: Bool) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.black)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color.black)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(TodoPalette.order)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
