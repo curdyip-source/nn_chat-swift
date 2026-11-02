@@ -232,6 +232,10 @@ struct ProductRegistrationDetailView: View {
                         )
                         BusinessDocumentItemsSection(
                             title: "Позиции",
+                            showsSignedPrice: true,
+                            shippingTotal: registration.productRegistrationShippingCost.flatMap(parseOrderItemPrice).map {
+                                (amount: $0, currency: currencyTitle(for: registration.productRegistrationShippingCurrencyID))
+                            },
                             items: registration.items.map {
                                 BusinessDocumentItemViewModel(
                                     id: $0.id,
@@ -244,6 +248,7 @@ struct ProductRegistrationDetailView: View {
                                         weight: $0.productRegistrationItemWeight,
                                         perUnit: $0.productRegistrationItemShippingPerUnit,
                                         costPerUnit: $0.productRegistrationItemCostPerUnit,
+                                        lineTotal: $0.productRegistrationItemLineTotal,
                                         shippingCurrencyTitle: currencyTitle(for: registration.productRegistrationShippingCurrencyID)
                                     )
                                 )
@@ -844,6 +849,10 @@ struct BusinessDocumentInfoSection: View {
 /// у позиций этих документов его нет).
 struct BusinessDocumentItemsSection: View {
     let title: String
+    /// Приёмка: цена сразу со знаком валюты («50.00 $»), без отдельной плашки «Валюта».
+    var showsSignedPrice = false
+    /// Приёмка с доставкой: сумма доставки — для «Итого с учетом доставки».
+    var shippingTotal: (amount: Double, currency: String)? = nil
     let items: [BusinessDocumentItemViewModel]
 
     // Итоги по валютам в порядке первого появления валюты — как в заказе.
@@ -858,6 +867,24 @@ struct BusinessDocumentItemsSection: View {
         return order.compactMap { currency in
             totals[currency].map { (currency, $0) }
         }
+    }
+
+    private func summaryText(_ totals: [(currency: String, total: Double)]) -> String {
+        totals
+            .map { "\(AppAmount.grouped(formatOrderAmount($0.total))) \($0.currency)" }
+            .joined(separator: " + ")
+    }
+
+    /// Итоги по валютам плюс доставка в её валюте: это и есть общая цена приёмки.
+    private var totalsWithShipping: [(currency: String, total: Double)] {
+        var totals = totalsByCurrency
+        guard let shippingTotal else { return totals }
+        if let index = totals.firstIndex(where: { $0.currency == shippingTotal.currency }) {
+            totals[index].total += shippingTotal.amount
+        } else {
+            totals.append((shippingTotal.currency, shippingTotal.amount))
+        }
+        return totals
     }
 
     var body: some View {
@@ -878,8 +905,12 @@ struct BusinessDocumentItemsSection: View {
 
                         HStack(spacing: 8) {
                             OrderCompactMetricView(title: "Кол-во", value: "\(item.quantity)")
-                            OrderCompactMetricView(title: "Цена", value: AppAmount.grouped(item.cost))
-                            OrderCompactMetricView(title: "Валюта", value: item.currencyTitle)
+                            if showsSignedPrice {
+                                OrderCompactMetricView(title: "Цена", value: "\(AppAmount.grouped(item.cost)) \(item.currencyTitle)")
+                            } else {
+                                OrderCompactMetricView(title: "Цена", value: AppAmount.grouped(item.cost))
+                                OrderCompactMetricView(title: "Валюта", value: item.currencyTitle)
+                            }
                             OrderCompactMetricView(
                                 title: "Сумма",
                                 value: item.lineTotal.map { "\(AppAmount.grouped(formatOrderAmount($0))) \(item.currencyTitle)" } ?? "—"
@@ -888,11 +919,13 @@ struct BusinessDocumentItemsSection: View {
 
                         // Приёмка: вес и доставка по весу. Себестоимость — за штуку, с доставкой.
                         if let shipping = item.shipping {
-                            HStack(spacing: 8) {
-                                OrderCompactMetricView(title: "Вес 1 шт", value: shipping.weightTitle)
-                                OrderCompactMetricView(title: "Доставка 1 шт", value: shipping.perUnitTitle)
-                                OrderCompactMetricView(title: "С доставкой", value: shipping.costTitle(currency: item.currencyTitle))
+                            HStack(spacing: 6) {
+                                OrderCompactMetricView(title: "Вес 1 шт", value: shipping.weightTitle, fillsHeight: true)
+                                OrderCompactMetricView(title: "Доставка 1 шт", value: shipping.perUnitTitle, fillsHeight: true)
+                                OrderCompactMetricView(title: "С доставкой 1 шт", value: shipping.costTitle(currency: item.currencyTitle), fillsHeight: true)
+                                OrderCompactMetricView(title: "Итого", value: shipping.lineTotalTitle(currency: item.currencyTitle), fillsHeight: true)
                             }
+                            .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .padding(12)
@@ -909,13 +942,20 @@ struct BusinessDocumentItemsSection: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Spacer()
                         Text("Итого")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        Text(
-                            totalsByCurrency
-                                .map { "\(AppAmount.grouped(formatOrderAmount($0.total))) \($0.currency)" }
-                                .joined(separator: " + ")
-                        )
-                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .font(.system(size: shippingTotal == nil ? 15 : 13, weight: .semibold, design: .rounded))
+                        Text(summaryText(totalsByCurrency))
+                            .font(.system(size: shippingTotal == nil ? 16 : 13, weight: shippingTotal == nil ? .bold : .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(shippingTotal == nil ? Color.primary : Color.secondary)
+
+                    if shippingTotal != nil {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Spacer()
+                            Text("Итого с учетом доставки")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            Text(summaryText(totalsWithShipping))
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                        }
                     }
                 }
             }
@@ -937,6 +977,7 @@ struct BusinessDocumentItemShipping {
     let weight: String?
     let perUnit: String?
     let costPerUnit: String?
+    let lineTotal: String?
     let shippingCurrencyTitle: String
 
     var weightTitle: String {
@@ -952,6 +993,11 @@ struct BusinessDocumentItemShipping {
     func costTitle(currency: String) -> String {
         guard let costPerUnit else { return "—" }
         return "\(AppAmount.grouped(costPerUnit)) \(currency)"
+    }
+
+    func lineTotalTitle(currency: String) -> String {
+        guard let lineTotal else { return "—" }
+        return "\(AppAmount.grouped(lineTotal)) \(currency)"
     }
 }
 

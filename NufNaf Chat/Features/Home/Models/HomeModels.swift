@@ -1746,11 +1746,14 @@ struct HomeProductRegistrationItem: Codable, Identifiable, Hashable {
     /// Себестоимости нет, если доставка в другой валюте, чем позиция.
     let productRegistrationItemShippingPerUnit: String?
     let productRegistrationItemCostPerUnit: String?
+    /// Итого по строке с доставкой (цена × кол-во + доля доставки).
+    let productRegistrationItemLineTotal: String?
 
     enum CodingKeys: String, CodingKey {
         case productRegistrationItemWeight = "product_registration_item_weight"
         case productRegistrationItemShippingPerUnit = "product_registration_item_shipping_per_unit"
         case productRegistrationItemCostPerUnit = "product_registration_item_cost_per_unit"
+        case productRegistrationItemLineTotal = "product_registration_item_line_total"
         case id = "product_registration_item_id"
         case productRegistrationItemProductID = "product_registration_item_product_id"
         case productRegistrationItemName = "product_registration_item_name"

@@ -1625,6 +1625,9 @@ private struct OrderDocumentItemsSection: View {
 struct OrderCompactMetricView: View {
     let title: String
     let value: String
+    /// Плашки ряда одной высоты, когда заголовок одной из них переносится на две строки
+    /// (ряд оборачивают в .fixedSize(horizontal: false, vertical: true)).
+    var fillsHeight = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -1636,8 +1639,8 @@ struct OrderCompactMetricView: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
+        .padding(.horizontal, fillsHeight ? 8 : 10)
         .padding(.vertical, 6)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }

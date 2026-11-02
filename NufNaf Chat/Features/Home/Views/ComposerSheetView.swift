@@ -295,11 +295,6 @@ struct ComposerSheetView: View {
             composerDivider
         }
 
-        if kind == .productRegistration {
-            shippingField
-            composerDivider
-        }
-
         if kind == .order, !store.referenceData.salesChannels.isEmpty {
             composerSubMethodGroup(
                 title: nil,
@@ -319,6 +314,11 @@ struct ComposerSheetView: View {
                 value: { $0.establishmentName },
                 onSelect: { selectedEstablishmentID = $0.id }
             )
+        }
+
+        // Доставка — сразу под выбором точки.
+        if kind == .productRegistration {
+            shippingField
         }
 
         if kind == .order {
