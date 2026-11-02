@@ -1221,7 +1221,7 @@ final class HomeStore: ObservableObject {
         return try await client.uploadProfilePhoto(accessToken: accessToken, jpegData: jpegData)
     }
 
-    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, orderContactMethod: String?, orderSalesChannel: String? = nil, counterpartyName: String, info: String, saveContact: Bool, contactID: Int? = nil, orderStatusID: Int? = nil, defaultOrderItemStatusID: Int? = nil, cdek: HomeOrderCdekRequest? = nil, items: [HomeComposerItemDraft]) async {
+    func submitComposer(kind: HomeComposerKind, accessToken: String?, currentUser: AuthUser, establishmentID: Int, orderMethodID: Int?, orderSubMethod: String?, orderContactMethod: String?, orderSalesChannel: String? = nil, counterpartyName: String, info: String, saveContact: Bool, contactID: Int? = nil, orderStatusID: Int? = nil, defaultOrderItemStatusID: Int? = nil, cdek: HomeOrderCdekRequest? = nil, shippingCost: String? = nil, shippingCurrencyID: Int? = nil, items: [HomeComposerItemDraft]) async {
         guard let accessToken else { return }
         let normalizedItems = items.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !$0.price.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !normalizedItems.isEmpty else { return }
@@ -1304,6 +1304,8 @@ final class HomeStore: ObservableObject {
                 productRegistrationEstablishmentID: establishmentID,
                 productRegistrationSupplier: counterpartyName,
                 saveContact: saveContact,
+                productRegistrationShippingCost: shippingCost,
+                productRegistrationShippingCurrencyID: shippingCurrencyID,
                 items: normalizedItems.map {
                     HomeProductRegistrationItemCreateRequest(
                         productID: $0.productID,
@@ -1311,7 +1313,8 @@ final class HomeStore: ObservableObject {
                         productName: $0.productID == nil ? $0.name : nil,
                         productRegistrationItemQuantity: $0.quantity,
                         productRegistrationItemCost: $0.price,
-                        productRegistrationItemCurrencyID: $0.currencyID
+                        productRegistrationItemCurrencyID: $0.currencyID,
+                        productRegistrationItemWeight: HomeComposerItemDraft.apiWeight($0.weight)
                     )
                 }
             )

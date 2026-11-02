@@ -239,7 +239,13 @@ struct ProductRegistrationDetailView: View {
                                     article: $0.productRegistrationItemArticle,
                                     quantity: $0.productRegistrationItemQuantity,
                                     cost: $0.productRegistrationItemCost,
-                                    currencyTitle: currencyTitle(for: $0.productRegistrationItemCurrencyID)
+                                    currencyTitle: currencyTitle(for: $0.productRegistrationItemCurrencyID),
+                                    shipping: registration.productRegistrationShippingCost == nil && $0.productRegistrationItemWeight == nil ? nil : BusinessDocumentItemShipping(
+                                        weight: $0.productRegistrationItemWeight,
+                                        perUnit: $0.productRegistrationItemShippingPerUnit,
+                                        costPerUnit: $0.productRegistrationItemCostPerUnit,
+                                        shippingCurrencyTitle: currencyTitle(for: registration.productRegistrationShippingCurrencyID)
+                                    )
                                 )
                             }
                         )
@@ -286,6 +292,12 @@ struct ProductRegistrationDetailView: View {
             BusinessDocumentInfoRowModel(title: "Поставщик", value: registration.productRegistrationSupplier ?? "-"),
             BusinessDocumentInfoRowModel(title: "Создана", value: formattedDate(registration.productRegistrationCreatedAt))
         ]
+        if let shipping = registration.productRegistrationShippingCost {
+            rows.append(BusinessDocumentInfoRowModel(
+                title: "Доставка",
+                value: "\(AppAmount.grouped(shipping)) \(currencyTitle(for: registration.productRegistrationShippingCurrencyID))"
+            ))
+        }
         if let owner = registration.productRegistrationOwnerDisplayName {
             rows.append(BusinessDocumentInfoRowModel(title: "Кем создана", value: owner))
         }
@@ -873,6 +885,15 @@ struct BusinessDocumentItemsSection: View {
                                 value: item.lineTotal.map { "\(AppAmount.grouped(formatOrderAmount($0))) \(item.currencyTitle)" } ?? "—"
                             )
                         }
+
+                        // Приёмка: вес и доставка по весу. Себестоимость — за штуку, с доставкой.
+                        if let shipping = item.shipping {
+                            HStack(spacing: 8) {
+                                OrderCompactMetricView(title: "Вес 1 шт", value: shipping.weightTitle)
+                                OrderCompactMetricView(title: "Доставка 1 шт", value: shipping.perUnitTitle)
+                                OrderCompactMetricView(title: "С доставкой", value: shipping.costTitle(currency: item.currencyTitle))
+                            }
+                        }
                     }
                     .padding(12)
                     .overlay(
@@ -911,6 +932,29 @@ struct BusinessDocumentInfoRowModel: Identifiable {
     let value: String
 }
 
+/// Вес и доставка позиции приёмки (суммы считает сервер).
+struct BusinessDocumentItemShipping {
+    let weight: String?
+    let perUnit: String?
+    let costPerUnit: String?
+    let shippingCurrencyTitle: String
+
+    var weightTitle: String {
+        guard let weight, let value = Decimal(string: weight) else { return "—" }
+        return "\(NSDecimalNumber(decimal: value).stringValue) кг"
+    }
+
+    var perUnitTitle: String {
+        guard let perUnit else { return "—" }
+        return "\(AppAmount.grouped(perUnit)) \(shippingCurrencyTitle)"
+    }
+
+    func costTitle(currency: String) -> String {
+        guard let costPerUnit else { return "—" }
+        return "\(AppAmount.grouped(costPerUnit)) \(currency)"
+    }
+}
+
 struct BusinessDocumentItemViewModel: Identifiable {
     let id: Int
     let name: String
@@ -918,6 +962,8 @@ struct BusinessDocumentItemViewModel: Identifiable {
     let quantity: Int
     let cost: String
     let currencyTitle: String
+    /// Только у приёмки с весом или доставкой; инвентаризация — nil.
+    var shipping: BusinessDocumentItemShipping? = nil
 
     var lineTotal: Double? {
         parseOrderItemPrice(cost).map { $0 * Double(quantity) }

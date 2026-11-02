@@ -61,6 +61,9 @@ struct ComposerSheetView: View {
     @State private var isPastedListEditorExpanded = true
     @State private var productFormErrorMessage: String?
     @State private var submitErrorMessage: String?
+    // Приёмка: доставка всей партии — делится по позициям пропорционально весу.
+    @State private var shippingCost = ""
+    @State private var shippingCurrencyID: Int?
     @State private var priceValidationAlertItemID: UUID?
     @State private var selectedSection: ComposerSection = .info
     @State private var activeSection: ComposerSection?
@@ -131,6 +134,8 @@ struct ComposerSheetView: View {
             _selectedEstablishmentID = State(initialValue: editingProductRegistration.productRegistrationEstablishmentID)
             _counterpartyName = State(initialValue: editingProductRegistration.productRegistrationSupplier ?? "")
             _selectedItems = State(initialValue: editingProductRegistration.items.map(HomeComposerItemDraft.init))
+            _shippingCost = State(initialValue: editingProductRegistration.productRegistrationShippingCost ?? "")
+            _shippingCurrencyID = State(initialValue: editingProductRegistration.productRegistrationShippingCurrencyID)
             return
         }
 
@@ -162,6 +167,8 @@ struct ComposerSheetView: View {
         case pastedList
         case itemPrice(UUID)
         case itemQuantity(UUID)
+        case itemWeight(UUID)
+        case shippingCost
     }
 
     var body: some View {
@@ -285,6 +292,11 @@ struct ComposerSheetView: View {
                 .id("infoField")
             composerDivider
         } else if showsCounterpartyField {
+            composerDivider
+        }
+
+        if kind == .productRegistration {
+            shippingField
             composerDivider
         }
 
@@ -590,7 +602,7 @@ struct ComposerSheetView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         withAnimation { proxy.scrollTo("infoField", anchor: .top) }
                     }
-                case .itemPrice(let itemID), .itemQuantity(let itemID):
+                case .itemPrice(let itemID), .itemQuantity(let itemID), .itemWeight(let itemID):
                     // Системный автоскролл ставит поле вплотную к клавиатуре, и кнопка
                     // «Создать заказ» над клавиатурой перекрывала низ карточки — поднимаем
                     // карточку выше. На чужой странице такого id нет, и scrollTo ничего не делает.
@@ -1881,6 +1893,91 @@ struct ComposerSheetView: View {
         }
     }
 
+    /// Стоимость доставки приёмки с валютой. Необязательна; заполнена — вес нужен у всех позиций.
+    private var shippingField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Стоимость доставки")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                TextField("100", text: $shippingCost)
+                    .focused($focusedField, equals: .shippingCost)
+                    .environment(\.colorScheme, .light)
+                    .keyboardType(.numbersAndPunctuation)
+                    .submitLabel(.done)
+                    .onChange(of: shippingCost) { _, newValue in
+                        let filtered = newValue.filter { $0.isNumber || $0 == "." || $0 == "," }
+                        if filtered != newValue {
+                            shippingCost = filtered
+                        }
+                    }
+                    .textFieldStyle(.plain)
+                    .foregroundStyle(.primary)
+                    .padding(14)
+                    .background(inputFieldBackground)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(inputFieldBorder, lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                if !availableCurrencies.isEmpty {
+                    Menu {
+                        ForEach(availableCurrencies) { currency in
+                            Button {
+                                shippingCurrencyID = currency.id
+                            } label: {
+                                Text(currencyMenuTitle(for: currency))
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(currencyButtonTitle(for: shippingCurrencyID ?? defaultCurrencyID))
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .lineLimit(1)
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .foregroundStyle(.primary)
+                        .frame(width: 78, height: 48)
+                        .background(inputFieldBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(inputFieldBorder, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Доставка из поля в формате API; пусто или ноль — nil (доставки нет).
+    private var normalizedShippingCost: String? {
+        let trimmed = shippingCost.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        let value = normalizedPrice(trimmed)
+        guard let decimal = Decimal(string: value), decimal > 0 else { return nil }
+        var rounded = Decimal()
+        var source = decimal
+        NSDecimalRound(&rounded, &source, 2, .plain)
+        return NSDecimalNumber(decimal: rounded).stringValue
+    }
+
+    /// Доставка указана, а вес не у всех — распределить нельзя: подсвечиваем сразу,
+    /// иначе позиции без веса молча остались бы без доставки в себестоимости.
+    private func validateWeightsBeforeSubmit() -> Bool {
+        guard kind == .productRegistration, normalizedShippingCost != nil else { return true }
+        guard let item = selectedItems.first(where: { HomeComposerItemDraft.apiWeight($0.weight) == nil }) else {
+            return true
+        }
+        submitErrorMessage = "Укажите вес у всех позиций — по нему распределяется доставка"
+        selectedSection = .products
+        focusedField = .itemWeight(item.id)
+        return false
+    }
+
     private func composerField(title: String, text: Binding<String>, placeholder: String, keyboard: UIKeyboardType = .default, focus: FocusField? = nil) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -2020,6 +2117,38 @@ struct ComposerSheetView: View {
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
+                }
+            }
+
+            // Вес штуки — только в приёмке: по нему делится доставка.
+            if kind == .productRegistration {
+                HStack(spacing: 8) {
+                    Text("Вес 1 шт, кг")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+
+                    TextField("0.5", text: item.weight)
+                        .focused($focusedField, equals: .itemWeight(itemValue.id))
+                        .environment(\.colorScheme, .light)
+                        .keyboardType(.numbersAndPunctuation)
+                        .submitLabel(.done)
+                        .onChange(of: item.wrappedValue.weight) { _, newValue in
+                            let filtered = newValue.filter { $0.isNumber || $0 == "." || $0 == "," }
+                            if filtered != newValue {
+                                item.wrappedValue.weight = filtered
+                            }
+                        }
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 36)
+                        .padding(.horizontal, 10)
+                        .background(inputFieldBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(inputFieldBorder, lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
             }
         }
@@ -2215,9 +2344,10 @@ struct ComposerSheetView: View {
         guard let selectedEstablishmentID else { return }
 
         guard validatePricesBeforeSubmit() else { return }
+        submitErrorMessage = nil
+        guard validateWeightsBeforeSubmit() else { return }
 
         isSubmitting = true
-        submitErrorMessage = nil
         defer { isSubmitting = false }
 
         if let editingOrder {
@@ -2303,6 +2433,8 @@ struct ComposerSheetView: View {
                         productRegistrationEstablishmentID: selectedEstablishmentID,
                         productRegistrationSupplier: normalized(counterpartyName) ?? "",
                         productRegistrationStatusID: editingProductRegistration.productRegistrationStatusID,
+                        productRegistrationShippingCost: normalizedShippingCost,
+                        productRegistrationShippingCurrencyID: normalizedShippingCost == nil ? nil : (shippingCurrencyID ?? defaultCurrencyID),
                         items: selectedItems.map {
                             HomeProductRegistrationItemCreateRequest(
                                 productID: $0.productID,
@@ -2310,7 +2442,8 @@ struct ComposerSheetView: View {
                                 productName: $0.productID == nil ? (normalized($0.name) ?? "Позиция") : nil,
                                 productRegistrationItemQuantity: max($0.quantity, 1),
                                 productRegistrationItemCost: normalizedPrice($0.price),
-                                productRegistrationItemCurrencyID: $0.currencyID
+                                productRegistrationItemCurrencyID: $0.currencyID,
+                                productRegistrationItemWeight: HomeComposerItemDraft.apiWeight($0.weight)
                             )
                         }
                     )
@@ -2340,6 +2473,8 @@ struct ComposerSheetView: View {
             orderStatusID: shouldMarkItemsInStock ? orderAssemblyStatusID : nil,
             defaultOrderItemStatusID: shouldMarkItemsInStock ? inStockOrderItemStatusID : nil,
             cdek: cdekRequestForComposer(),
+            shippingCost: kind == .productRegistration ? normalizedShippingCost : nil,
+            shippingCurrencyID: kind == .productRegistration && normalizedShippingCost != nil ? (shippingCurrencyID ?? defaultCurrencyID) : nil,
             items: selectedItems
         )
         dismissProductOverlays(clearSearch: true)

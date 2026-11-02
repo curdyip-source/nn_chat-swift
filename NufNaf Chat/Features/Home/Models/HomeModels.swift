@@ -655,6 +655,8 @@ struct HomeComposerItemDraft: Identifiable, Hashable {
     var price: String
     var statusID: Int?
     var currencyID: Int?
+    /// Вес одной штуки, кг — только для приёмки (доставка делится по весу).
+    var weight: String = ""
     /// ID уже существующей позиции заказа, из которой сделан этот черновик — только
     /// для черновиков, заведённых через init(item:) при редактировании заказа. nil у
     /// заново добавленных товаров (даже если название/артикул совпадают с уже
@@ -684,6 +686,23 @@ struct HomeComposerItemDraft: Identifiable, Hashable {
 
     init(item: HomeProductRegistrationItem) {
         self.init(productID: item.productRegistrationItemProductID, article: item.productRegistrationItemArticle ?? "", name: item.productRegistrationItemName, quantity: item.productRegistrationItemQuantity, price: item.productRegistrationItemCost, currencyID: item.productRegistrationItemCurrencyID)
+        self.weight = Self.plainDecimal(item.productRegistrationItemWeight)
+    }
+
+    /// Вес из поля в формате API (до 3 знаков); пусто, ноль или мусор — nil.
+    static func apiWeight(_ raw: String) -> String? {
+        let normalized = raw.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
+        guard let value = Decimal(string: normalized), value > 0 else { return nil }
+        var rounded = Decimal()
+        var source = value
+        NSDecimalRound(&rounded, &source, 3, .plain)
+        return rounded > 0 ? NSDecimalNumber(decimal: rounded).stringValue : nil
+    }
+
+    /// «1.000» → «1», «0.500» → «0.5» — для поля ввода без лишних нулей.
+    private static func plainDecimal(_ raw: String?) -> String {
+        guard let raw, let value = Decimal(string: raw) else { return "" }
+        return NSDecimalNumber(decimal: value).stringValue
     }
 
     init(item: HomeOrderItem) {
@@ -1660,12 +1679,16 @@ struct HomeProductRegistrationCreateRequest: Encodable {
     let productRegistrationEstablishmentID: Int
     let productRegistrationSupplier: String
     let saveContact: Bool
+    var productRegistrationShippingCost: String? = nil
+    var productRegistrationShippingCurrencyID: Int? = nil
     let items: [HomeProductRegistrationItemCreateRequest]
 
     enum CodingKeys: String, CodingKey {
         case productRegistrationEstablishmentID = "product_registration_establishment_id"
         case productRegistrationSupplier = "product_registration_supplier"
         case saveContact = "save_contact"
+        case productRegistrationShippingCost = "product_registration_shipping_cost"
+        case productRegistrationShippingCurrencyID = "product_registration_shipping_currency_id"
         case items
     }
 }
@@ -1679,6 +1702,8 @@ struct HomeProductRegistration: Codable, Identifiable, Hashable {
     let productRegistrationStatus: String?
     let productRegistrationStatusColor: String?
     let productRegistrationCreatedAt: String?
+    let productRegistrationShippingCost: String?
+    let productRegistrationShippingCurrencyID: Int?
     let productRegistrationOwnerUserLogin: String?
     let productRegistrationOwnerFirstName: String?
     let productRegistrationOwnerSecondName: String?
@@ -1693,6 +1718,8 @@ struct HomeProductRegistration: Codable, Identifiable, Hashable {
         case productRegistrationStatus = "product_registration_status"
         case productRegistrationStatusColor = "product_registration_status_color"
         case productRegistrationCreatedAt = "product_registration_created_at"
+        case productRegistrationShippingCost = "product_registration_shipping_cost"
+        case productRegistrationShippingCurrencyID = "product_registration_shipping_currency_id"
         case productRegistrationOwnerUserLogin = "product_registration_owner_user_login"
         case productRegistrationOwnerFirstName = "product_registration_owner_first_name"
         case productRegistrationOwnerSecondName = "product_registration_owner_second_name"
@@ -1713,8 +1740,17 @@ struct HomeProductRegistrationItem: Codable, Identifiable, Hashable {
     let productRegistrationItemQuantity: Int
     let productRegistrationItemCost: String
     let productRegistrationItemCurrencyID: Int?
+    /// Вес одной штуки, кг.
+    let productRegistrationItemWeight: String?
+    /// Доля доставки на штуку и себестоимость с доставкой — считает сервер по весу.
+    /// Себестоимости нет, если доставка в другой валюте, чем позиция.
+    let productRegistrationItemShippingPerUnit: String?
+    let productRegistrationItemCostPerUnit: String?
 
     enum CodingKeys: String, CodingKey {
+        case productRegistrationItemWeight = "product_registration_item_weight"
+        case productRegistrationItemShippingPerUnit = "product_registration_item_shipping_per_unit"
+        case productRegistrationItemCostPerUnit = "product_registration_item_cost_per_unit"
         case id = "product_registration_item_id"
         case productRegistrationItemProductID = "product_registration_item_product_id"
         case productRegistrationItemName = "product_registration_item_name"
@@ -1730,13 +1766,29 @@ struct HomeProductRegistrationUpdateRequest: Encodable {
     let productRegistrationEstablishmentID: Int
     let productRegistrationSupplier: String
     let productRegistrationStatusID: Int
+    let productRegistrationShippingCost: String?
+    let productRegistrationShippingCurrencyID: Int?
     let items: [HomeProductRegistrationItemCreateRequest]
 
     enum CodingKeys: String, CodingKey {
         case productRegistrationEstablishmentID = "product_registration_establishment_id"
         case productRegistrationSupplier = "product_registration_supplier"
         case productRegistrationStatusID = "product_registration_status_id"
+        case productRegistrationShippingCost = "product_registration_shipping_cost"
+        case productRegistrationShippingCurrencyID = "product_registration_shipping_currency_id"
         case items
+    }
+
+    // Доставку шлём всегда, null в том числе: сервер отличает «очистить» (null) от
+    // «не трогать» (ключа нет — так правит веб).
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(productRegistrationEstablishmentID, forKey: .productRegistrationEstablishmentID)
+        try container.encode(productRegistrationSupplier, forKey: .productRegistrationSupplier)
+        try container.encode(productRegistrationStatusID, forKey: .productRegistrationStatusID)
+        try container.encode(productRegistrationShippingCost, forKey: .productRegistrationShippingCost)
+        try container.encode(productRegistrationShippingCurrencyID, forKey: .productRegistrationShippingCurrencyID)
+        try container.encode(items, forKey: .items)
     }
 }
 
@@ -1755,6 +1807,7 @@ struct HomeProductRegistrationItemCreateRequest: Encodable {
     let productRegistrationItemQuantity: Int
     let productRegistrationItemCost: String
     let productRegistrationItemCurrencyID: Int?
+    let productRegistrationItemWeight: String?
 
     enum CodingKeys: String, CodingKey {
         case productID = "product_id"
@@ -1763,6 +1816,20 @@ struct HomeProductRegistrationItemCreateRequest: Encodable {
         case productRegistrationItemQuantity = "product_registration_item_quantity"
         case productRegistrationItemCost = "product_registration_item_cost"
         case productRegistrationItemCurrencyID = "product_registration_item_currency_id"
+        case productRegistrationItemWeight = "product_registration_item_weight"
+    }
+
+    // Вес шлём всегда, null в том числе: иначе снять вес правкой было бы нельзя —
+    // ключа нет, и сервер оставляет прежний (так правит веб, который про вес не знает).
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(productID, forKey: .productID)
+        try container.encodeIfPresent(productArticle, forKey: .productArticle)
+        try container.encodeIfPresent(productName, forKey: .productName)
+        try container.encode(productRegistrationItemQuantity, forKey: .productRegistrationItemQuantity)
+        try container.encode(productRegistrationItemCost, forKey: .productRegistrationItemCost)
+        try container.encodeIfPresent(productRegistrationItemCurrencyID, forKey: .productRegistrationItemCurrencyID)
+        try container.encode(productRegistrationItemWeight, forKey: .productRegistrationItemWeight)
     }
 }
 
