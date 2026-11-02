@@ -869,6 +869,10 @@ struct BusinessDocumentItemsSection: View {
         }
     }
 
+    private func lineTotalTitle(_ item: BusinessDocumentItemViewModel) -> String {
+        item.lineTotal.map { "\(AppAmount.grouped(formatOrderAmount($0))) \(item.currencyTitle)" } ?? "—"
+    }
+
     private func summaryText(_ totals: [(currency: String, total: Double)]) -> String {
         totals
             .map { "\(AppAmount.grouped(formatOrderAmount($0.total))) \($0.currency)" }
@@ -903,29 +907,31 @@ struct BusinessDocumentItemsSection: View {
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        HStack(spacing: 8) {
-                            OrderCompactMetricView(title: "Кол-во", value: "\(item.quantity)")
-                            if showsSignedPrice {
-                                OrderCompactMetricView(title: "Цена", value: "\(AppAmount.grouped(item.cost)) \(item.currencyTitle)")
-                            } else {
-                                OrderCompactMetricView(title: "Цена", value: AppAmount.grouped(item.cost))
-                                OrderCompactMetricView(title: "Валюта", value: item.currencyTitle)
-                            }
-                            OrderCompactMetricView(
-                                title: "Сумма",
-                                value: item.lineTotal.map { "\(AppAmount.grouped(formatOrderAmount($0))) \(item.currencyTitle)" } ?? "—"
-                            )
-                        }
-
-                        // Приёмка: вес и доставка по весу. Себестоимость — за штуку, с доставкой.
                         if let shipping = item.shipping {
+                            // Приёмка с весом/доставкой: первая строка — за единицу, вторая —
+                            // за всю позицию: сумма без доставки и итог с доставкой.
                             HStack(spacing: 6) {
-                                OrderCompactMetricView(title: "Вес 1 шт", value: shipping.weightTitle, fillsHeight: true)
-                                OrderCompactMetricView(title: "Доставка 1 шт", value: shipping.perUnitTitle, fillsHeight: true)
-                                OrderCompactMetricView(title: "С доставкой 1 шт", value: shipping.costTitle(currency: item.currencyTitle), fillsHeight: true)
-                                OrderCompactMetricView(title: "Итого", value: shipping.lineTotalTitle(currency: item.currencyTitle), fillsHeight: true)
+                                OrderCompactMetricView(title: "Вес", value: shipping.weightTitle, keepsTitleOnOneLine: true)
+                                OrderCompactMetricView(title: "Цена", value: "\(AppAmount.grouped(item.cost)) \(item.currencyTitle)", keepsTitleOnOneLine: true)
+                                OrderCompactMetricView(title: "Доставка", value: shipping.perUnitTitle, keepsTitleOnOneLine: true)
+                                OrderCompactMetricView(title: "С доставкой", value: shipping.costTitle(currency: item.currencyTitle), keepsTitleOnOneLine: true)
                             }
-                            .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 6) {
+                                OrderCompactMetricView(title: "Кол-во", value: "\(item.quantity)", keepsTitleOnOneLine: true)
+                                OrderCompactMetricView(title: "Сумма", value: lineTotalTitle(item), keepsTitleOnOneLine: true)
+                                OrderCompactMetricView(title: "Итого с доставкой", value: shipping.lineTotalTitle(currency: item.currencyTitle), keepsTitleOnOneLine: true)
+                            }
+                        } else {
+                            HStack(spacing: 8) {
+                                OrderCompactMetricView(title: "Кол-во", value: "\(item.quantity)")
+                                if showsSignedPrice {
+                                    OrderCompactMetricView(title: "Цена", value: "\(AppAmount.grouped(item.cost)) \(item.currencyTitle)")
+                                } else {
+                                    OrderCompactMetricView(title: "Цена", value: AppAmount.grouped(item.cost))
+                                    OrderCompactMetricView(title: "Валюта", value: item.currencyTitle)
+                                }
+                                OrderCompactMetricView(title: "Сумма", value: lineTotalTitle(item))
+                            }
                         }
                     }
                     .padding(12)

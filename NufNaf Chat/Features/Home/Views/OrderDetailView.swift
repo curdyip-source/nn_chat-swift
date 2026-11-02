@@ -1625,22 +1625,23 @@ private struct OrderDocumentItemsSection: View {
 struct OrderCompactMetricView: View {
     let title: String
     let value: String
-    /// Плашки ряда одной высоты, когда заголовок одной из них переносится на две строки
-    /// (ряд оборачивают в .fixedSize(horizontal: false, vertical: true)).
-    var fillsHeight = false
+    /// Заголовок всегда в одну строку: плашка не уже него (ряд делит ширину по содержимому).
+    var keepsTitleOnOneLine = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(title)
                 .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
+                .lineLimit(keepsTitleOnOneLine ? 1 : nil)
+                .fixedSize(horizontal: keepsTitleOnOneLine, vertical: false)
             Text(value)
                 .font(.system(size: 12, weight: .medium, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
-        .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
-        .padding(.horizontal, fillsHeight ? 8 : 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, keepsTitleOnOneLine ? 8 : 10)
         .padding(.vertical, 6)
         .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
