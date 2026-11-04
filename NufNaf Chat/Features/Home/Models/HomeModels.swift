@@ -162,12 +162,15 @@ struct HomeProduct: Codable, Identifiable, Hashable {
     let productArticle: String
     let productName: String
     let productCostUSD: String
+    /// Вес 1 шт, кг, из справочника по наименованию; nil — не внесён.
+    var productWeight: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id = "product_id"
         case productArticle = "product_article"
         case productName = "product_name"
         case productCostUSD = "product_cost_usd"
+        case productWeight = "product_weight"
     }
 }
 
@@ -700,7 +703,7 @@ struct HomeComposerItemDraft: Identifiable, Hashable {
     }
 
     /// «1.000» → «1», «0.500» → «0.5» — для поля ввода без лишних нулей.
-    private static func plainDecimal(_ raw: String?) -> String {
+    static func plainDecimal(_ raw: String?) -> String {
         guard let raw, let value = Decimal(string: raw) else { return "" }
         return NSDecimalNumber(decimal: value).stringValue
     }

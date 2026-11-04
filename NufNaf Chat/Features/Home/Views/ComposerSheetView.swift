@@ -1753,16 +1753,17 @@ struct ComposerSheetView: View {
     }
 
     private func appendProductToBasket(_ product: HomeProduct, price: String) {
-        selectedItems.append(
-            HomeComposerItemDraft(
-                productID: product.id,
-                article: product.productArticle,
-                name: product.productName,
-                quantity: 1,
-                price: price,
-                currencyID: defaultCurrencyID
-            )
+        var draft = HomeComposerItemDraft(
+            productID: product.id,
+            article: product.productArticle,
+            name: product.productName,
+            quantity: 1,
+            price: price,
+            currencyID: defaultCurrencyID
         )
+        // Вес из справочника — подставляем, его можно поправить в карточке позиции.
+        draft.weight = HomeComposerItemDraft.plainDecimal(product.productWeight)
+        selectedItems.append(draft)
     }
 
     private func openPastedListOverlay() {
@@ -1807,7 +1808,7 @@ struct ComposerSheetView: View {
 
             for item in parsedItems {
                 let product = productByName[item.name]
-                let draft = HomeComposerItemDraft(
+                var draft = HomeComposerItemDraft(
                     productID: product?.id,
                     article: product?.productArticle ?? Self.pastedItemArticle(for: item.name),
                     name: product?.productName ?? item.name,
@@ -1817,6 +1818,7 @@ struct ComposerSheetView: View {
                     // к конкретной позиции, а выбор — ко всему списку.
                     currencyID: currencyID(forCode: item.currencyCode) ?? pastedListCurrencyID ?? defaultCurrencyID
                 )
+                draft.weight = HomeComposerItemDraft.plainDecimal(product?.productWeight)
                 if product == nil {
                     unmatched.append(item.name)
                     newProductIDs.insert(draft.id)
