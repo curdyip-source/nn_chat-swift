@@ -23,6 +23,9 @@ final class HomeStore: ObservableObject {
     @Published private(set) var todoRevision: Int = 0
     @Published var messageDraft = ""
     @Published var isLoading = false
+    /// Первый вход без кеша: последние сообщения уже на экране, а история ещё догружается
+    /// в фоне. СРМ показывает плашку, чтобы старые заказы не сочли пропавшими.
+    @Published private(set) var isLoadingHistory = false
     @Published var isSendingMessage = false
     @Published var loadErrorMessage: String?
     @Published var isAttachmentMenuPresented = false
@@ -53,6 +56,11 @@ final class HomeStore: ObservableObject {
     private var cache: MessageCache?
     private var syncCursor: String?
     private var isSyncing = false
+    /// Идёт фоновая подгрузка истории (первый вход): дельта-синк ждёт её окончания.
+    private var isBackfilling = false
+    /// Поколение ленты: растёт при смене пользователя и полном пере-синке — фоновая
+    /// подгрузка старого поколения видит это и молча останавливается.
+    private var feedGeneration = 0
     private var persistTask: Task<Void, Never>?
 
     private struct PendingAttachmentUpload {
@@ -284,6 +292,10 @@ final class HomeStore: ObservableObject {
     /// обычный дельта-синк НЕ убирает уже закешированные карточки, ставшие недоступными.
     func reloadFeedFromScratch(accessToken: String?) async {
         guard let accessToken, cache != nil else { return }
+        // Подгрузка истории по старым правам больше не нужна — останавливаем её.
+        feedGeneration += 1
+        isBackfilling = false
+        isLoadingHistory = false
         syncCursor = nil
         messages = []
         persistCache()
@@ -293,6 +305,9 @@ final class HomeStore: ObservableObject {
     /// Point the store at this user's cache and show it immediately. No-op if already configured.
     private func configureCache(for userID: Int) {
         if cache?.userID == userID { return }
+        feedGeneration += 1
+        isBackfilling = false
+        isLoadingHistory = false
         let cache = MessageCache(userID: userID)
         self.cache = cache
         if let cached = cache.load() {
@@ -306,7 +321,13 @@ final class HomeStore: ObservableObject {
 
     /// Pull and apply all changes since the stored cursor, draining pagination.
     private func syncDelta(accessToken: String) async {
-        guard cache != nil, !isSyncing else { return }
+        guard cache != nil, !isSyncing, !isBackfilling else { return }
+        // Кеша нет (первый вход) — грузим ленту с конца, а не от самого старого сообщения:
+        // иначе каждая пачка сдвигала «последнее сообщение» и чат прыгал вниз.
+        if syncCursor == nil {
+            await bootstrapFromLatest(accessToken: accessToken)
+            return
+        }
         isSyncing = true
         defer { isSyncing = false }
 
@@ -325,6 +346,70 @@ final class HomeStore: ObservableObject {
             // Keep the cached feed on screen; report the transport error like before.
             loadErrorMessage = error.localizedDescription
         }
+    }
+
+    /// Первый вход: одна страница последних сообщений — чат сразу открыт на них; история
+    /// догружается в фоне страницами от новых к старым. Старые сообщения встают выше
+    /// последнего, поэтому экран чата не двигается. В конце дельта-синк продолжается с
+    /// отметки первой страницы и догоняет всё, что изменилось за время загрузки.
+    private func bootstrapFromLatest(accessToken: String) async {
+        let generation = feedGeneration
+        isSyncing = true
+        let first: HomeMessageHistoryResponse
+        do {
+            first = try await client.fetchMessageHistory(accessToken: accessToken, before: nil, limit: 100)
+        } catch {
+            isSyncing = false
+            loadErrorMessage = error.localizedDescription
+            return
+        }
+        isSyncing = false
+        guard generation == feedGeneration else { return }
+        applySyncItems(first.items.map { .message($0) })
+        loadErrorMessage = nil
+        let handoverCursor = first.syncCursor ?? ""
+
+        guard first.hasMore else {
+            syncCursor = handoverCursor
+            persistCache()
+            await syncDelta(accessToken: accessToken)
+            return
+        }
+
+        // Курсор синка не сохраняем до конца подгрузки: если приложение закроют посередине,
+        // следующий запуск начнёт заново с конца (дубли — просто upsert по id).
+        persistCache()
+        isBackfilling = true
+        isLoadingHistory = true
+        Task { [weak self] in
+            await self?.backfillHistory(accessToken: accessToken, before: first.before, handoverCursor: handoverCursor, generation: generation)
+        }
+    }
+
+    private func backfillHistory(accessToken: String, before: String, handoverCursor: String, generation: Int) async {
+        var before = before
+        while true {
+            let page: HomeMessageHistoryResponse
+            do {
+                page = try await client.fetchMessageHistory(accessToken: accessToken, before: before, limit: 500)
+            } catch {
+                guard generation == feedGeneration else { return }
+                // Сеть оборвалась — курсора нет, следующий синк начнёт подгрузку заново.
+                isBackfilling = false
+                isLoadingHistory = false
+                persistCache()
+                return
+            }
+            guard generation == feedGeneration else { return }
+            applySyncItems(page.items.map { .message($0) })
+            before = page.before
+            if !page.hasMore { break }
+        }
+        syncCursor = handoverCursor
+        isBackfilling = false
+        isLoadingHistory = false
+        persistCache()
+        await syncDelta(accessToken: accessToken)
     }
 
     private func applySyncItems(_ items: [HomeMessageSyncItem]) {

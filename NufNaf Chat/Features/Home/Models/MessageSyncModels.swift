@@ -42,6 +42,23 @@ struct HomeMessageSyncResponse: Decodable {
     }
 }
 
+/// Страница ленты «с конца» (`/messages/history`) — для первого входа без кеша:
+/// последние сообщения сразу, история — в фоне от новых к старым. `syncCursor` есть только
+/// у первой страницы: с него после загрузки истории продолжается обычный дельта-синк.
+struct HomeMessageHistoryResponse: Decodable {
+    let items: [HomeMessage]
+    let before: String
+    let hasMore: Bool
+    let syncCursor: String?
+
+    enum CodingKeys: String, CodingKey {
+        case items
+        case before
+        case hasMore = "has_more"
+        case syncCursor = "sync_cursor"
+    }
+}
+
 /// A realtime event pushed over SSE. `message` is present for created/updated; `messageID`
 /// identifies the row for deleted.
 struct MessageStreamEvent: Decodable {

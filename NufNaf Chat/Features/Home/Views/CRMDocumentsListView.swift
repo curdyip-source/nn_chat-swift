@@ -6,6 +6,8 @@ struct CRMDocumentsListView: View {
     let messages: [HomeMessage]
     let referenceData: HomeReferenceDataResponse
     let isLoading: Bool
+    /// Первый вход: свежие документы уже есть, старые ещё догружаются в фоне.
+    var isLoadingHistory: Bool = false
     let errorMessage: String?
     let updatingDocumentKey: String?
     @Binding var selectedSection: CRMSection
@@ -62,6 +64,16 @@ struct CRMDocumentsListView: View {
 
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
+                        if isLoadingHistory {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small).tint(.white)
+                                Text("Загружаем историю — старые заказы появятся ниже")
+                                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                                    .foregroundStyle(AppTheme.mutedText)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
                         if let errorMessage, !errorMessage.isEmpty {
                             Text(errorMessage)
                                 .font(.system(size: 13, weight: .medium, design: .rounded))

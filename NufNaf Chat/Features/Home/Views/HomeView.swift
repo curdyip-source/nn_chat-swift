@@ -800,6 +800,7 @@ struct HomeView: View {
                     messages: crmDocumentMessages,
                     referenceData: store.referenceData,
                     isLoading: store.isLoading,
+                    isLoadingHistory: store.isLoadingHistory,
                     errorMessage: crmErrorMessage ?? store.loadErrorMessage,
                     updatingDocumentKey: crmUpdatingDocumentKey,
                     selectedSection: $session.crmSection,

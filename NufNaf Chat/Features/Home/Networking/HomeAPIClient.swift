@@ -36,6 +36,22 @@ struct HomeAPIClient {
         )
     }
 
+    /// Лента «с конца»: без `before` — последние сообщения (+ отметка дельта-синка),
+    /// с `before` — следующая страница старше.
+    func fetchMessageHistory(accessToken: String, before: String?, limit: Int) async throws -> HomeMessageHistoryResponse {
+        var queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        if let before, !before.isEmpty {
+            queryItems.append(URLQueryItem(name: "before", value: before))
+        }
+        return try await send(
+            path: "messages/history",
+            queryItems: queryItems,
+            method: "GET",
+            body: Optional<String>.none,
+            accessToken: accessToken
+        )
+    }
+
     func getMessages(accessToken: String) async throws -> [HomeMessage] {
         // The backend caps `page_size` at 100, so a single request only returns the
         // latest ~100 records. The home feed must show the whole current year, so we
