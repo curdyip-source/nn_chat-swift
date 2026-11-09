@@ -62,6 +62,8 @@ struct PriceSearchView: View {
     @State private var source: SearchSource = .prices
     @State private var registrationPriceMode: RegistrationPriceMode = .last
     @State private var showSettings = false
+    /// Тик SSE `price_suppliers_changed` (см. HomeStore): бэкенд принял новый прайс поставщика.
+    var suppliersRevision = 0
     @State private var didSearch = false
     @State private var searchTask: Task<Void, Never>?
 
@@ -75,8 +77,18 @@ struct PriceSearchView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.ignoresSafeArea())
+        // Список прайсов живёт, пока живёт экран (до полного закрытия приложения). Без
+        // опроса: бэкенд сам сообщает о новом прайсе поставщика (SSE) — тогда и перечитываем.
         .task { await loadSuppliers() }
-        .sheet(isPresented: $showSettings) { settingsSheet }
+        .onChange(of: suppliersRevision) { _, _ in
+            Task { await loadSuppliers() }
+        }
+        .sheet(isPresented: $showSettings) {
+            settingsSheet
+                // Событие могло пройти мимо, пока приложение было в фоне, — открыли
+                // настройки, значит список нужен актуальный (один запрос, по делу).
+                .task { await loadSuppliers() }
+        }
         // Любая правка настроек сразу перезапускает поиск — результаты обновляются
         // за открытым окном настроек, без «Готово».
         .onChange(of: source) { _, _ in scheduleSearch(immediate: true) }
@@ -324,13 +336,22 @@ struct PriceSearchView: View {
 
     private func loadSuppliers() async {
         guard let token = session.currentAccessToken else { return }
-        do {
-            let list = try await client.priceSuppliers(accessToken: token)
-            suppliers = list
-            selectedSources = Set(["CL"] + list.map(\.email))
-        } catch {
-            suppliers = []
-            selectedSources = ["CL"]
+        guard let list = try? await client.priceSuppliers(accessToken: token) else {
+            // Сеть моргнула — оставляем, что было; на самом первом входе — хотя бы CL.
+            if suppliers.isEmpty, selectedSources.isEmpty { selectedSources = ["CL"] }
+            return
+        }
+        let knownSources = Set(allSources)
+        let previousSelection = selectedSources
+        suppliers = list
+        let freshSources = Set(allSources)
+        if knownSources.count <= 1 {
+            // Первая загрузка — ищем по всем.
+            selectedSources = freshSources
+        } else {
+            // Ручной выбор сохраняем, выпавшие прайсы убираем, а новый прайс сразу
+            // включаем — ради него список и перечитывается.
+            selectedSources = previousSelection.intersection(freshSources).union(freshSources.subtracting(knownSources))
         }
     }
 

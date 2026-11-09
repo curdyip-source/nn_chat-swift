@@ -538,7 +538,7 @@ struct HomeView: View {
             case .crm:
                 crmContent
             case .price:
-                PriceSearchView()
+                PriceSearchView(suppliersRevision: store.priceSuppliersRevision)
             case .todo:
                 TodoBoardView(
                     isSectionBarScrolling: $isTodoSectionBarScrolling,

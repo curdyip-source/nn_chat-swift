@@ -32,6 +32,9 @@ final class HomeStore: ObservableObject {
     @Published var referenceData = HomeReferenceDataResponse(establishments: [], orderMethods: [], statuses: [], currencies: [])
     @Published var participants: [ChatParticipant] = []
     @Published private(set) var orderCommentReadRevision = 0
+    /// Тик SSE `price_suppliers_changed`: бэкенд прайса принял прайс поставщика —
+    /// экран поиска по прайсам перечитывает список «В каких прайсах искать».
+    @Published private(set) var priceSuppliersRevision = 0
 
     /// Вызывается при SSE-событии `user_updated` (реалтайм-смена прав) с id затронутого
     /// пользователя. Проводится из HomeView, чтобы перечитать /me и применить доступ на лету.
@@ -365,6 +368,8 @@ final class HomeStore: ObservableObject {
             if let minBuild = event.minSupportedIosBuild {
                 AppVersionGate.shared.update(minBuild: minBuild)
             }
+        case "price_suppliers_changed":
+            priceSuppliersRevision += 1
         case "system_message_created":
             // Эвент без содержимого (см. комментарий в SystemMessageCenter) — перечитываем
             // список адресно, по текущему пользователю.
